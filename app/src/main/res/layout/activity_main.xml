@@ -1,267 +1,434 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:clipToPadding="false"
-    android:scrollbars="none"
-    android:fillViewport="true">
+    android:animateLayoutChanges="true">
 
-    <LinearLayout
+    <!-- 主内容区域（正常数据展示） -->
+    <ScrollView
+        android:id="@+id/main_content"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:scrollbars="none"
+        android:fillViewport="true">
 
-        <!-- Header -->
-        <FrameLayout
-            android:id="@+id/main_header"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_horizontal"
-                android:orientation="vertical"
-                android:paddingTop="36dp"
-                android:paddingBottom="39dp">
-
-                <TextView
-                    android:id="@+id/main_tv_model"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingHorizontal="24dp"
-                    android:text="F50 UFI"
-                    android:textColor="@color/sakura_dark"
-                    android:textSize="56sp"
-                    android:textStyle="bold"
-                    android:letterSpacing="0.06"
-                    android:gravity="center"
-                    android:maxLines="1"
-                    app:autoSizeTextType="uniform"
-                    app:autoSizeMinTextSize="20sp"
-                    app:autoSizeMaxTextSize="56sp"
-                    app:autoSizeStepGranularity="1sp" />
-
-                <TextView
-                    android:id="@+id/main_tv_subtitle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="软件版本: --"
-                    android:textColor="@color/text_main"
-                    android:alpha="0.55"
-                    android:textSize="14sp" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_check_update"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp"
-                    android:text="检查更新"
-                    android:minHeight="44dp"
-                    android:textColor="@color/text_main"
-                    android:textStyle="bold"
-                    android:textSize="14sp"
-                    android:paddingHorizontal="40dp"
-                    app:cornerRadius="22dp"
-                    app:strokeWidth="0dp" />
-            </LinearLayout>
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_settings"
-                style="@style/Widget.Material3.Button.IconButton"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_gravity="end|top"
-                android:layout_marginTop="16dp"
-                android:layout_marginEnd="16dp"
-                app:icon="@android:drawable/ic_menu_preferences"
-                app:iconTint="@color/text_main" />
-        </FrameLayout>
-
-        <!-- 数据卡片区域 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingHorizontal="20dp"
-            android:animateLayoutChanges="true">
+            android:orientation="vertical">
 
-            <!-- 实时网格 -->
-            <LinearLayout
-                android:id="@+id/card_network"
+            <!-- Header -->
+            <FrameLayout
+                android:id="@+id/main_header"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <GridLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:columnCount="2">
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:layout_margin="5dp"
-                        android:gravity="center"
-                        android:orientation="horizontal"
-                        android:padding="14dp">
-                        <ImageView android:id="@+id/main_iv_antenna" android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_antenna" />
-                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:orientation="vertical" android:gravity="center_horizontal">
-                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="信号" android:textColor="@color/text_sub" android:textSize="12sp" />
-                            <TextView android:id="@+id/main_tv_net_signal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/text_main" android:textSize="17sp" android:textStyle="bold" android:layout_marginTop="2dp" />
-                        </LinearLayout>
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:layout_margin="5dp"
-                        android:gravity="center"
-                        android:orientation="horizontal"
-                        android:padding="14dp">
-                        <ImageView android:id="@+id/main_iv_temp" android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_temp" />
-                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:orientation="vertical" android:gravity="center_horizontal">
-                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="温度" android:textColor="@color/text_sub" android:textSize="12sp" />
-                            <TextView android:id="@+id/main_tv_temp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/text_main" android:textSize="17sp" android:textStyle="bold" android:layout_marginTop="2dp" />
-                        </LinearLayout>
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:layout_margin="5dp"
-                        android:gravity="center"
-                        android:orientation="horizontal"
-                        android:padding="14dp">
-                        <ImageView android:id="@+id/main_iv_cpu" android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_cpu" />
-                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:orientation="vertical" android:gravity="center_horizontal">
-                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="CPU" android:textColor="@color/text_sub" android:textSize="12sp" />
-                            <TextView android:id="@+id/main_tv_cpu" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/text_main" android:textSize="17sp" android:textStyle="bold" android:layout_marginTop="2dp" />
-                        </LinearLayout>
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:layout_margin="5dp"
-                        android:gravity="center"
-                        android:orientation="horizontal"
-                        android:padding="14dp">
-                        <ImageView android:id="@+id/main_iv_chip" android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_chip" />
-                        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:orientation="vertical" android:gravity="center_horizontal">
-                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="内存" android:textColor="@color/text_sub" android:textSize="12sp" />
-                            <TextView android:id="@+id/main_tv_mem" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/text_main" android:textSize="17sp" android:textStyle="bold" android:layout_marginTop="2dp" />
-                        </LinearLayout>
-                    </LinearLayout>
-                </GridLayout>
+                android:layout_height="wrap_content">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:orientation="horizontal">
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical"
+                    android:paddingTop="36dp"
+                    android:paddingBottom="39dp">
 
-                    <LinearLayout
-                        android:layout_width="0dp"
+                    <TextView
+                        android:id="@+id/main_tv_model"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="6dp"
-                        android:gravity="center_horizontal"
-                        android:orientation="vertical"
-                        android:padding="16dp">
-                        <TextView android:id="@+id/main_tv_daily" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0.00GB" android:textColor="@color/text_sakura" android:textSize="28sp" android:textStyle="bold" />
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="今日已用" android:textColor="@color/text_sub" android:textSize="12sp" />
-                    </LinearLayout>
+                        android:paddingHorizontal="24dp"
+                        android:text="F50 UFI"
+                        android:textColor="@color/sakura_dark"
+                        android:textSize="56sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.06"
+                        android:gravity="center"
+                        android:maxLines="1"
+                        app:autoSizeTextType="uniform"
+                        app:autoSizeMinTextSize="20sp"
+                        app:autoSizeMaxTextSize="56sp"
+                        app:autoSizeStepGranularity="1sp" />
 
-                    <LinearLayout
-                        android:layout_width="0dp"
+                    <TextView
+                        android:id="@+id/main_tv_subtitle"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="6dp"
-                        android:gravity="center_horizontal"
-                        android:orientation="vertical"
-                        android:padding="16dp">
-                        <TextView android:id="@+id/main_tv_flow" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0.00GB" android:textColor="@color/text_sakura" android:textSize="28sp" android:textStyle="bold" />
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="本月累计" android:textColor="@color/text_sub" android:textSize="12sp" />
-                    </LinearLayout>
+                        android:layout_marginTop="6dp"
+                        android:text="软件版本: --"
+                        android:textColor="@color/text_main"
+                        android:alpha="0.55"
+                        android:textSize="14sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_check_update"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="20dp"
+                        android:text="检查更新"
+                        android:minHeight="44dp"
+                        android:textColor="@color/text_main"
+                        android:textStyle="bold"
+                        android:textSize="14sp"
+                        android:paddingHorizontal="40dp"
+                        app:cornerRadius="22dp"
+                        app:strokeWidth="0dp" />
                 </LinearLayout>
-            </LinearLayout>
 
-            <!-- 硬件参数 -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_settings"
+                    style="@style/Widget.Material3.Button.IconButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="end|top"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginEnd="16dp"
+                    app:icon="@android:drawable/ic_menu_preferences"
+                    app:iconTint="@color/text_main" />
+            </FrameLayout>
+
+            <!-- 数据卡片区域 -->
             <LinearLayout
-                android:id="@+id/card_device"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
                 android:orientation="vertical"
-                android:padding="18dp">
+                android:paddingHorizontal="20dp"
+                android:animateLayoutChanges="true">
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="14dp"
-                    android:text="硬件参数"
-                    android:textColor="@color/text_main"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-
-                <GridLayout
+                <!-- 实时网格 -->
+                <LinearLayout
+                    android:id="@+id/card_network"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:columnCount="2">
+                    android:orientation="vertical">
+
+                    <GridLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:columnCount="2">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_columnWeight="1"
+                            android:layout_margin="5dp"
+                            android:gravity="center"
+                            android:orientation="horizontal"
+                            android:padding="14dp">
+                            <ImageView android:id="@+id/main_iv_antenna" android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_antenna" />
+                            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:orientation="vertical" android:gravity="center_horizontal">
+                                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="信号" android:textColor="@color/text_sub" android:textSize="12sp" />
+                                <TextView android:id="@+id/main_tv_net_signal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/text_main" android:textSize="17sp" android:textStyle="bold" android:layout_marginTop="2dp" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_columnWeight="1"
+                            android:layout_margin="5dp"
+                            android:gravity="center"
+                            android:orientation="horizontal"
+                            android:padding="14dp">
+                            <ImageView android:id="@+id/main_iv_temp" android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_temp" />
+                            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:orientation="vertical" android:gravity="center_horizontal">
+                                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="温度" android:textColor="@color/text_sub" android:textSize="12sp" />
+                                <TextView android:id="@+id/main_tv_temp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/text_main" android:textSize="17sp" android:textStyle="bold" android:layout_marginTop="2dp" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_columnWeight="1"
+                            android:layout_margin="5dp"
+                            android:gravity="center"
+                            android:orientation="horizontal"
+                            android:padding="14dp">
+                            <ImageView android:id="@+id/main_iv_cpu" android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_cpu" />
+                            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:orientation="vertical" android:gravity="center_horizontal">
+                                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="CPU" android:textColor="@color/text_sub" android:textSize="12sp" />
+                                <TextView android:id="@+id/main_tv_cpu" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/text_main" android:textSize="17sp" android:textStyle="bold" android:layout_marginTop="2dp" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_columnWeight="1"
+                            android:layout_margin="5dp"
+                            android:gravity="center"
+                            android:orientation="horizontal"
+                            android:padding="14dp">
+                            <ImageView android:id="@+id/main_iv_chip" android:layout_width="24dp" android:layout_height="24dp" android:src="@drawable/ic_chip" />
+                            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:orientation="vertical" android:gravity="center_horizontal">
+                                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="内存" android:textColor="@color/text_sub" android:textSize="12sp" />
+                                <TextView android:id="@+id/main_tv_mem" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:textColor="@color/text_main" android:textSize="17sp" android:textStyle="bold" android:layout_marginTop="2dp" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </GridLayout>
 
                     <LinearLayout
-                        android:layout_width="0dp"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:gravity="center_horizontal"
-                        android:orientation="vertical"
-                        android:padding="8dp">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="固件版本" android:textColor="@color/text_sub" android:textSize="12sp" />
-                        <TextView android:id="@+id/main_tv_firmware" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="--" android:textColor="@color/text_main" android:textSize="15sp" android:textStyle="bold" />
-                    </LinearLayout>
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal">
 
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:gravity="center_horizontal"
-                        android:orientation="vertical"
-                        android:padding="8dp">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="电源参数" android:textColor="@color/text_sub" android:textSize="12sp" />
-                        <TextView android:id="@+id/main_tv_power" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="--" android:textColor="@color/text_main" android:textSize="15sp" android:textStyle="bold" />
-                    </LinearLayout>
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginEnd="6dp"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+                            <TextView android:id="@+id/main_tv_daily" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0.00GB" android:textColor="@color/text_sakura" android:textSize="28sp" android:textStyle="bold" />
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="今日已用" android:textColor="@color/text_sub" android:textSize="12sp" />
+                        </LinearLayout>
 
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:gravity="center_horizontal"
-                        android:orientation="vertical"
-                        android:padding="8dp">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="内部存储" android:textColor="@color/text_sub" android:textSize="12sp" />
-                        <TextView android:id="@+id/main_tv_storage" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="--" android:textColor="@color/text_main" android:textSize="15sp" android:textStyle="bold" />
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="6dp"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+                            <TextView android:id="@+id/main_tv_flow" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0.00GB" android:textColor="@color/text_sakura" android:textSize="28sp" android:textStyle="bold" />
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="本月累计" android:textColor="@color/text_sub" android:textSize="12sp" />
+                        </LinearLayout>
                     </LinearLayout>
+                </LinearLayout>
 
-                    <LinearLayout
-                        android:layout_width="0dp"
+                <!-- 硬件参数 -->
+                <LinearLayout
+                    android:id="@+id/card_device"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:orientation="vertical"
+                    android:padding="18dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_columnWeight="1"
-                        android:gravity="center_horizontal"
-                        android:orientation="vertical"
-                        android:padding="8dp">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="设备 IP" android:textColor="@color/text_sub" android:textSize="12sp" />
-                        <TextView android:id="@+id/main_tv_client_ip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="--" android:textColor="@color/text_main" android:textSize="15sp" android:textStyle="bold" />
-                    </LinearLayout>
-                </GridLayout>
+                        android:layout_marginBottom="14dp"
+                        android:text="硬件参数"
+                        android:textColor="@color/text_main"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <GridLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:columnCount="2">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_columnWeight="1"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical"
+                            android:padding="8dp">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="固件版本" android:textColor="@color/text_sub" android:textSize="12sp" />
+                            <TextView android:id="@+id/main_tv_firmware" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="--" android:textColor="@color/text_main" android:textSize="15sp" android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_columnWeight="1"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical"
+                            android:padding="8dp">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="电源参数" android:textColor="@color/text_sub" android:textSize="12sp" />
+                            <TextView android:id="@+id/main_tv_power" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="--" android:textColor="@color/text_main" android:textSize="15sp" android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_columnWeight="1"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical"
+                            android:padding="8dp">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="内部存储" android:textColor="@color/text_sub" android:textSize="12sp" />
+                            <TextView android:id="@+id/main_tv_storage" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="--" android:textColor="@color/text_main" android:textSize="15sp" android:textStyle="bold" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_columnWeight="1"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical"
+                            android:padding="8dp">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="设备 IP" android:textColor="@color/text_sub" android:textSize="12sp" />
+                            <TextView android:id="@+id/main_tv_client_ip" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="--" android:textColor="@color/text_main" android:textSize="15sp" android:textStyle="bold" />
+                        </LinearLayout>
+                    </GridLayout>
+                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
-    </LinearLayout>
-</ScrollView>
+    </ScrollView>
+
+    <!-- 错误状态覆盖层（默认隐藏，Worker 停止时显示） -->
+    <ScrollView
+        android:id="@+id/error_state_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:fillViewport="true"
+        android:scrollbars="none"
+        android:clipToPadding="false">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="36dp"
+            android:paddingBottom="48dp">
+
+            <!-- 错误状态卡片（与主界面卡片风格一致） -->
+            <LinearLayout
+                android:id="@+id/error_card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center_horizontal"
+                android:padding="24dp">
+
+                <!-- 错误图标 -->
+                <ImageView
+                    android:id="@+id/error_icon"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
+                    android:src="@drawable/ic_router_off"
+                    android:contentDescription="连接异常" />
+
+                <!-- 错误标题 -->
+                <TextView
+                    android:id="@+id/error_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:gravity="center"
+                    android:text="连接失败"
+                    android:textColor="@color/text_main"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <!-- 错误描述 -->
+                <TextView
+                    android:id="@+id/error_message"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center"
+                    android:lineSpacingMultiplier="1.5"
+                    android:text="连续多次无法连接到设备，后台刷新已自动暂停以节省电量。"
+                    android:textColor="@color/text_sub"
+                    android:textSize="14sp" />
+
+                <!-- 当前连接目标 -->
+                <LinearLayout
+                    android:id="@+id/error_target_row"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:gravity="center"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:id="@+id/error_target_icon"
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:src="@drawable/ic_antenna"
+                        android:layout_marginEnd="8dp" />
+
+                    <TextView
+                        android:id="@+id/error_target"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="192.168.0.1:2333"
+                        android:textColor="@color/text_main"
+                        android:textSize="15sp"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- 分隔线 -->
+                <View
+                    android:id="@+id/error_divider"
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="28dp"
+                    android:layout_marginBottom="28dp"
+                    android:background="@color/text_sub"
+                    android:alpha="0.15" />
+
+                <!-- 操作按钮区域 -->
+                <TextView
+                    android:id="@+id/error_action_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="尝试以下操作"
+                    android:textColor="@color/text_main"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp" />
+
+                <!-- 重试刷新按钮 -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_error_retry"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="重新连接"
+                    android:textColor="@color/text_main"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    app:icon="@drawable/ic_signal_3"
+                    app:iconGravity="textStart"
+                    app:iconPadding="12dp"
+                    app:cornerRadius="16dp"
+                    app:strokeWidth="0dp" />
+
+                <!-- 修改配置按钮 -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_error_config"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="12dp"
+                    android:text="修改连接配置"
+                    android:textColor="@color/text_main"
+                    android:textSize="15sp"
+                    app:icon="@android:drawable/ic_menu_preferences"
+                    app:iconGravity="textStart"
+                    app:iconPadding="12dp"
+                    app:cornerRadius="16dp"
+                    app:strokeColor="@color/text_sub"
+                    app:strokeWidth="1dp" />
+
+                <!-- 状态提示 -->
+                <TextView
+                    android:id="@+id/error_hint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:gravity="center"
+                    android:text="设备恢复上线后将自动恢复刷新"
+                    android:textColor="@color/text_sub"
+                    android:textSize="12sp"
+                    android:alpha="0.6" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+</FrameLayout>

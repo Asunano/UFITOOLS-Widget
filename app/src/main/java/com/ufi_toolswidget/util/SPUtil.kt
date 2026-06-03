@@ -40,9 +40,13 @@ object SPUtil {
     fun saveAuthToken(ctx: Context, token: String) = getSp(ctx).edit().putString("auth_token", token).apply()
     fun getAuthToken(ctx: Context) = getSp(ctx).getString("auth_token", "") ?: ""
 
-    // 刷新频率 (单位: 分钟)
+    // 刷新频率 (单位: 分钟) — 后台 Worker 间隔
     fun setRefreshInterval(ctx: Context, minutes: Int) = getSp(ctx).edit().putInt("refresh_interval", minutes).apply()
     fun getRefreshInterval(ctx: Context) = getSp(ctx).getInt("refresh_interval", 15)
+
+    // 主界面自动刷新间隔 (单位: 秒) — 前台轮询间隔，0 表示关闭
+    fun setMainRefreshSeconds(ctx: Context, seconds: Int) = getSp(ctx).edit().putInt("main_refresh_seconds", seconds).apply()
+    fun getMainRefreshSeconds(ctx: Context) = getSp(ctx).getInt("main_refresh_seconds", 5)
 
     // 显隐设置
     fun setWidgetSettings(ctx: Context, flow: Boolean, signal: Boolean, temp: Boolean, cpu: Boolean, model: Boolean, time: Boolean) {
@@ -94,14 +98,86 @@ object SPUtil {
     fun isFirstRun(ctx: Context) = getSp(ctx).getBoolean("is_first_run", true)
     fun setFirstRun(ctx: Context, value: Boolean) = getSp(ctx).edit().putBoolean("is_first_run", value).apply()
 
-    // 后台地址（默认 http://192.168.0.1:2333/）
-    fun getBaseUrl(ctx: Context): String {
-        return getSp(ctx).getString("base_url", "http://192.168.0.1:2333/") ?: "http://192.168.0.1:2333/"
+    // ==================== Worker 失败状态 ====================
+    /** 失败原因类型：空字符串=未失败, "network"=网络不通, "api"=端口/Token错误 */
+    fun getWorkerStopReason(ctx: Context) = getSp(ctx).getString("worker_stop_reason", "") ?: ""
+    fun setWorkerStopReason(ctx: Context, reason: String) = getSp(ctx).edit().putString("worker_stop_reason", reason).apply()
+
+    // ==================== 设备连接配置（IP + 端口分离） ====================
+    const val DEFAULT_DEVICE_IP = "192.168.0.1"
+    const val DEFAULT_DEVICE_PORT = "2333"
+
+    /** 设备 IP */
+    fun getDeviceIp(ctx: Context): String {
+        return getSp(ctx).getString("device_ip", DEFAULT_DEVICE_IP) ?: DEFAULT_DEVICE_IP
     }
+    fun setDeviceIp(ctx: Context, ip: String) {
+        val v = ip.trim()
+        getSp(ctx).edit().putString("device_ip", v.ifEmpty { DEFAULT_DEVICE_IP }).apply()
+    }
+
+    /** 设备端口 */
+    fun getDevicePort(ctx: Context): String {
+        return getSp(ctx).getString("device_port", DEFAULT_DEVICE_PORT) ?: DEFAULT_DEVICE_PORT
+    }
+    fun setDevicePort(ctx: Context, port: String) {
+        val v = port.trim()
+        getSp(ctx).edit().putString("device_port", v.ifEmpty { DEFAULT_DEVICE_PORT }).apply()
+    }
+
+    /**
+     * 构建完整 Base URL：http://{ip}:{port}/
+     * 兼容旧版 base_url 字段：若新字段不存在，尝试从旧字段迁移
+     */
+    fun buildBaseUrl(ctx: Context): String {
+        val ip = getDeviceIp(ctx)
+        val port = getDevicePort(ctx)
+        return "http://$ip:$port/"
+    }
+
+    /** 旧版兼容：从完整 URL 字符串读取（已废弃，保留用于迁移） */
+    fun getBaseUrl(ctx: Context): String {
+        // 优先用新字段构建
+        val ip = getSp(ctx).getString("device_ip", null)
+        val port = getSp(ctx).getString("device_port", null)
+        if (ip != null && port != null) {
+            return buildBaseUrl(ctx)
+        }
+        // 兼容旧版 base_url
+        val oldUrl = getSp(ctx).getString("base_url", null)
+        if (oldUrl != null) {
+            // 从旧 URL 解析出 IP 和端口并迁移到新字段
+            migrateFromOldUrl(ctx, oldUrl)
+            return buildBaseUrl(ctx)
+        }
+        return "http://$DEFAULT_DEVICE_IP:$DEFAULT_DEVICE_PORT/"
+    }
+
+    /** 旧版兼容：保存完整 URL（已废弃，内部转为 IP+端口存储） */
     fun setBaseUrl(ctx: Context, url: String) {
         var u = url.trim()
         if (u.isNotEmpty() && !u.endsWith("/")) u += "/"
+        // 尝试解析 http://ip:port/ 格式
+        val regex = Regex("^https?://([^:/]+)(?::(\\d+))?/?$")
+        val match = regex.find(u)
+        if (match != null) {
+            setDeviceIp(ctx, match.groupValues[1])
+            val port = match.groupValues[2]
+            setDevicePort(ctx, port.ifEmpty { DEFAULT_DEVICE_PORT })
+        }
+        // 同时保留旧字段以便兼容
         getSp(ctx).edit().putString("base_url", u).apply()
+    }
+
+    /** 从旧版 base_url 迁移到新字段 */
+    private fun migrateFromOldUrl(ctx: Context, url: String) {
+        val regex = Regex("^https?://([^:/]+)(?::(\\d+))?/?$")
+        val match = regex.find(url.trim())
+        if (match != null) {
+            setDeviceIp(ctx, match.groupValues[1])
+            val port = match.groupValues[2]
+            setDevicePort(ctx, port.ifEmpty { DEFAULT_DEVICE_PORT })
+        }
     }
 
     // ==================== 主题模式 ====================

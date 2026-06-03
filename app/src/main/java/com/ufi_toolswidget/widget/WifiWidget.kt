@@ -156,6 +156,14 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             safeSetImageResource(rv, R.id.iv_network, networkRes)
             safeSetText(rv, R.id.tv_signal_dbm, signal)
 
+            // ===== 路由器图标：离线时切换为 ic_router_off =====
+            val routerRes = if (com.ufi_toolswidget.worker.WifiWorker.isWorkerStopped(context)) {
+                R.drawable.ic_router_off
+            } else {
+                R.drawable.ic_router
+            }
+            safeSetImageResource(rv, R.id.iv_router, routerRes)
+
             // ===== 第四行：时间戳 =====
             safeSetText(rv, R.id.tv_update_time, updateTime)
 
@@ -236,55 +244,56 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             try { rv.setInt(id, "setColorFilter", color) } catch (_: Exception) {}
         }
 
-        /** 根据主题模式设置小组件背景和文字颜色 */
+        /** 根据主题模式设置小组件背景和文字颜色（背景跟随主界面 pageBg，颜色两级制简洁统一） */
         private fun applyWidgetTheme(context: Context, rv: RemoteViews) {
             val isDark = SPUtil.isWidgetDark(context)
             val themeId = SPUtil.getSp(context).getInt("color_theme", 0)
             val palette = ThemeColors.getById(context, themeId)
 
-            // 根据浅/深选择色值
-            val accent = if (isDark) palette.accentDark else palette.accentLight
-            val accentSecondary = if (isDark) palette.accentSecondaryDark else palette.accentSecondaryLight
+            // 根据浅/深选择色值 — 仅用两级文字色
+            val pageBg = if (isDark) palette.pageBgDark else palette.pageBgLight
+            val textPrimary = if (isDark) palette.textPrimaryDark else palette.textPrimaryLight
+            val textSecondary = if (isDark) palette.textSecondaryDark else palette.textSecondaryLight
+            val divider = if (isDark) palette.dividerDark else palette.dividerLight
 
-            // 根容器背景 → 使用主题强调色，与主界面主题一致
-            rv.setInt(R.id.widget_root, "setBackgroundColor", accent)
+            // 根容器背景 → 使用主界面背景色（与主界面主题一致）
+            rv.setInt(R.id.widget_root, "setBackgroundColor", pageBg)
 
-            // 计算 accent 背景上的对比文字色（保证可读性）
-            val accentLuminance = ((accent shr 16 and 0xFF) * 299 + (accent shr 8 and 0xFF) * 587 + (accent and 0xFF) * 114) / 1000
-            val textOnAccent = if (accentLuminance > 150) 0xFF1A1A1A.toInt() else 0xFFFAFAFA.toInt()
-            val textSecondaryOnAccent = if (accentLuminance > 150) 0xFF555555.toInt() else 0xFFBBBBBB.toInt()
-            val dividerOnAccent = if (accentLuminance > 150) 0xFFCCCCCC.toInt() else 0xFF44FFFFFF.toInt()
+            // ── 文字色（两级制：主色 + 副色）──
+            // 主色：核心数据
+            safeSetTextColor(rv, R.id.tv_model, textPrimary)
+            safeSetTextColor(rv, R.id.tv_battery, textPrimary)
+            safeSetTextColor(rv, R.id.tv_daily, textPrimary)
+            safeSetTextColor(rv, R.id.tv_flow, textPrimary)
+            safeSetTextColor(rv, R.id.tv_cpu, textPrimary)
+            safeSetTextColor(rv, R.id.tv_daily_label, textPrimary)
+            safeSetTextColor(rv, R.id.tv_flow_label, textPrimary)
 
-            // ── 文字色 ──
-            safeSetTextColor(rv, R.id.tv_model, textOnAccent)
-            safeSetTextColor(rv, R.id.tv_version, textSecondaryOnAccent)
-            safeSetTextColor(rv, R.id.tv_app_ver_code, textSecondaryOnAccent)
-            safeSetTextColor(rv, R.id.tv_battery, textOnAccent)
-            safeSetTextColor(rv, R.id.tv_charging, if (isDark) 0xFFFBBF24.toInt() else 0xFFF59E0B.toInt()) // 充电保持语义色
-            safeSetTextColor(rv, R.id.tv_daily, textOnAccent)
-            safeSetTextColor(rv, R.id.tv_flow, textOnAccent)
-            safeSetTextColor(rv, R.id.tv_daily_label, textOnAccent)
-            safeSetTextColor(rv, R.id.tv_flow_label, textOnAccent)
-            safeSetTextColor(rv, R.id.tv_daily_unit, textSecondaryOnAccent)
-            safeSetTextColor(rv, R.id.tv_flow_unit, textSecondaryOnAccent)
-            safeSetTextColor(rv, R.id.tv_temp, if (isDark) 0xFFFB923C.toInt() else 0xFFD9480F.toInt()) // 温度语义色
-            safeSetTextColor(rv, R.id.tv_cpu, textOnAccent)
-            safeSetTextColor(rv, R.id.tv_mem, textSecondaryOnAccent)
-            safeSetTextColor(rv, R.id.tv_signal_dbm, textSecondaryOnAccent)
-            safeSetTextColor(rv, R.id.tv_update_time, textSecondaryOnAccent)
+            // 副色：辅助信息
+            safeSetTextColor(rv, R.id.tv_version, textSecondary)
+            safeSetTextColor(rv, R.id.tv_app_ver_code, textSecondary)
+            safeSetTextColor(rv, R.id.tv_daily_unit, textSecondary)
+            safeSetTextColor(rv, R.id.tv_flow_unit, textSecondary)
+            safeSetTextColor(rv, R.id.tv_mem, textSecondary)
+            safeSetTextColor(rv, R.id.tv_signal_dbm, textSecondary)
+            safeSetTextColor(rv, R.id.tv_update_time, textSecondary)
+
+            // 语义色（功能性，仅充电和温度保留）
+            safeSetTextColor(rv, R.id.tv_charging, if (isDark) 0xFFFBBF24.toInt() else 0xFFF59E0B.toInt())
+            safeSetTextColor(rv, R.id.tv_temp, if (isDark) 0xFFFB923C.toInt() else 0xFFD9480F.toInt())
 
             // ── 分割线 ──
-            rv.setInt(R.id.divider_flow, "setBackgroundColor", dividerOnAccent)
+            rv.setInt(R.id.divider_flow, "setBackgroundColor", divider)
 
-            // ── 图标着色（用对比色保证在 accent 背景上可见）──
+            // ── 图标着色（统一用副色，不抢文字注意力）──
             val generalIconIds = listOf(
                 R.id.iv_router, R.id.iv_signal_bars, R.id.iv_network,
                 R.id.iv_battery, R.id.iv_cpu,
                 R.id.iv_chip, R.id.iv_antenna
             )
-            generalIconIds.forEach { safeSetImageViewTint(rv, it, textOnAccent) }
+            generalIconIds.forEach { safeSetImageViewTint(rv, it, textSecondary) }
 
-            // 温度图标用语义色，与温度文字保持协调
+            // 温度图标用语义色
             val tempColor = if (isDark) 0xFFFB923C.toInt() else 0xFFD9480F.toInt()
             safeSetImageViewTint(rv, R.id.iv_temp, tempColor)
         }
@@ -342,6 +351,8 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
 
     private fun triggerWorker(context: Context) {
         try {
+            // 手动刷新 → 重置失败状态，允许 Worker 重新尝试
+            WifiWorker.resetFailureState(context)
             WorkManager.getInstance(context).enqueue(OneTimeWorkRequestBuilder<WifiWorker>().build())
         } catch (_: Exception) {}
     }

@@ -213,7 +213,7 @@
                 </GridLayout>
             </LinearLayout>
 
-            <!-- Refresh Interval -->
+            <!-- Background Refresh Interval -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -224,10 +224,19 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="刷新频率"
+                    android:text="后台刷新频率"
                     android:textColor="@color/text_main"
                     android:textSize="15sp"
                     android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="后台小组件自动更新间隔"
+                    android:textColor="@color/text_main"
+                    android:alpha="0.45"
+                    android:textSize="12sp" />
 
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/til_interval"
@@ -235,12 +244,57 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="14dp"
-                    android:hint="自动刷新间隔"
+                    android:hint="后台刷新间隔"
                     app:boxStrokeColor="@color/sakura_primary"
                     app:hintTextColor="@color/sakura_dark">
 
                     <AutoCompleteTextView
                         android:id="@+id/sp_interval"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="none"
+                        android:textSize="14sp"
+                        android:textColor="@color/text_main" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+
+            <!-- Main UI Refresh Interval -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="vertical"
+                android:padding="24dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="主界面刷新频率"
+                    android:textColor="@color/text_main"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="打开 App 主界面时的数据刷新间隔，间隔越短越耗电"
+                    android:textColor="@color/text_main"
+                    android:alpha="0.45"
+                    android:textSize="12sp" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/til_main_interval"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:hint="主界面刷新间隔"
+                    app:boxStrokeColor="@color/sakura_primary"
+                    app:hintTextColor="@color/sakura_dark">
+
+                    <AutoCompleteTextView
+                        android:id="@+id/sp_main_interval"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:inputType="none"

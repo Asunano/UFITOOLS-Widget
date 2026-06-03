@@ -17,10 +17,29 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val storeFile = System.getenv("SIGNING_STORE_FILE")
+            if (storeFile != null) {
+                this.storeFile = file(storeFile)
+                this.storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                this.keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                this.keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+
+            // CI 有环境变量时使用签名，本地开发不受影响
+            val storeFile = System.getenv("SIGNING_STORE_FILE")
+            if (storeFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

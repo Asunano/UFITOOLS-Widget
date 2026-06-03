@@ -11,6 +11,8 @@ import androidx.appcompat.app.AppCompatActivity
 import com.ufi_toolswidget.util.BackgroundUtil
 import com.ufi_toolswidget.util.NetUtil
 import com.ufi_toolswidget.util.SPUtil
+import com.ufi_toolswidget.util.ThemeUtil
+import com.ufi_toolswidget.worker.WifiWorker
 
 class SetupActivity : AppCompatActivity() {
 
@@ -25,28 +27,39 @@ class SetupActivity : AppCompatActivity() {
         try {
             setContentView(R.layout.activity_setup)
             BackgroundUtil.applyWindowBackground(this)
+            ThemeUtil.applyToFormPage(this)
 
-            val etBaseUrl = findViewById<EditText>(R.id.et_base_url)
+            val etDeviceIp = findViewById<EditText>(R.id.et_device_ip)
+            val etDevicePort = findViewById<EditText>(R.id.et_device_port)
             val etToken = findViewById<EditText>(R.id.et_token)
 
             // 恢复已有配置
-            val savedUrl = SPUtil.getBaseUrl(this)
+            val savedIp = SPUtil.getDeviceIp(this)
+            val savedPort = SPUtil.getDevicePort(this)
             val savedToken = SPUtil.getRawToken(this)
             if (savedToken != "admin") {
                 etToken.setText(savedToken)
             }
-            if (savedUrl != "http://192.168.0.1:2333/") {
-                etBaseUrl.setText(savedUrl)
+            if (savedIp != SPUtil.DEFAULT_DEVICE_IP) {
+                etDeviceIp.setText(savedIp)
+            }
+            if (savedPort != SPUtil.DEFAULT_DEVICE_PORT) {
+                etDevicePort.setText(savedPort)
             }
 
             findViewById<View>(R.id.btn_setup_confirm).setOnClickListener {
-                val url = etBaseUrl.text.toString().trim().ifEmpty { "http://192.168.0.1:2333/" }
+                val ip = etDeviceIp.text.toString().trim().ifEmpty { SPUtil.DEFAULT_DEVICE_IP }
+                val port = etDevicePort.text.toString().trim().ifEmpty { SPUtil.DEFAULT_DEVICE_PORT }
                 val token = etToken.text.toString().trim().ifEmpty { "admin" }
 
-                SPUtil.setBaseUrl(this, url)
+                SPUtil.setDeviceIp(this, ip)
+                SPUtil.setDevicePort(this, port)
                 SPUtil.saveRawToken(this, token)
                 SPUtil.saveAuthToken(this, NetUtil.sha256(token))
                 SPUtil.setFirstRun(this, false)
+
+                // 初始化完成 → 重置失败状态
+                WifiWorker.resetFailureState(this)
 
                 Toast.makeText(this, "配置已保存", Toast.LENGTH_SHORT).show()
                 startActivity(Intent(this, MainActivity::class.java))
@@ -73,5 +86,6 @@ class SetupActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         BackgroundUtil.applyWindowBackground(this)
+        ThemeUtil.applyToFormPage(this)
     }
 }

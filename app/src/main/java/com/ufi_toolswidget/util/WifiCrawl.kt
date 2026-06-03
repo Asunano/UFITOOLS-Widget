@@ -4,10 +4,17 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONObject
+import java.io.IOException
 import java.util.Locale
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 object WifiCrawl {
     
@@ -121,7 +128,25 @@ object WifiCrawl {
         }
     }
 
-    private fun fetchApi(path: String, t: Long, auth: String, context: Context): JSONObject? {
+    /**
+     * 非阻塞网络请求：使用 OkHttp 异步 enqueue + suspendCancellableCoroutine，
+     * 不阻塞 IO 线程，且支持协程取消。
+     */
+    private suspend fun executeRequest(req: Request): Response? =
+        suspendCancellableCoroutine { continuation ->
+            val call = NetUtil.client.newCall(req)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onResponse(call: Call, response: Response) {
+                    continuation.resume(response)
+                }
+                override fun onFailure(call: Call, e: IOException) {
+                    continuation.resume(null)
+                }
+            })
+        }
+
+    private suspend fun fetchApi(path: String, t: Long, auth: String, context: Context): JSONObject? {
         val purePath = if (path.contains("?")) path.substringBefore("?") else path
         val sign = NetUtil.generateKanoSign("GET", purePath, t)
         
@@ -133,24 +158,24 @@ object WifiCrawl {
             .addHeader("Authorization", auth)
             .build()
             
-        return try {
-            val resp = NetUtil.client.newCall(req).execute()
-            val content = resp.body?.string() ?: ""
+        val resp = executeRequest(req) ?: run {
+            lastError = "Network error"
+            return null
+        }
+        return resp.use { response ->
+            val content = response.body?.string() ?: ""
             lastRawResponse = content
-            if (resp.isSuccessful && content.isNotEmpty()) {
+            if (response.isSuccessful && content.isNotEmpty()) {
                 JSONObject(content)
             } else {
-                lastError = "HTTP ${resp.code} on $purePath"
+                lastError = "HTTP ${response.code} on $purePath"
                 null
             }
-        } catch (e: Exception) {
-            lastError = e.message ?: "Network error"
-            null
         }
     }
 
     /** 无需认证的 API 请求 (version_info / need_token) */
-    private fun fetchApiNoAuth(path: String, t: Long, context: Context): JSONObject? {
+    private suspend fun fetchApiNoAuth(path: String, t: Long, context: Context): JSONObject? {
         val sign = NetUtil.generateKanoSign("GET", path, t)
         val baseUrl = SPUtil.getBaseUrl(context).trimEnd('/')
         val req = Request.Builder()
@@ -158,16 +183,15 @@ object WifiCrawl {
             .addHeader("kano-t", t.toString())
             .addHeader("kano-sign", sign)
             .build()
-        return try {
-            val resp = NetUtil.client.newCall(req).execute()
-            val content = resp.body?.string() ?: ""
-            if (resp.isSuccessful && content.isNotEmpty()) {
+
+        val resp = executeRequest(req) ?: return null
+        return resp.use { response ->
+            val content = response.body?.string() ?: ""
+            if (response.isSuccessful && content.isNotEmpty()) {
                 JSONObject(content)
             } else {
                 null
             }
-        } catch (_: Exception) {
-            null
         }
     }
 

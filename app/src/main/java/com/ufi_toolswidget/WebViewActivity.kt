@@ -9,6 +9,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.ufi_toolswidget.util.BackgroundUtil
 import com.ufi_toolswidget.util.NetUtil
+import com.ufi_toolswidget.util.SPUtil
 import okhttp3.Cookie
 import okhttp3.HttpUrl.Companion.toHttpUrl
 
@@ -20,14 +21,15 @@ class WebViewActivity : AppCompatActivity() {
 
         val webView = findViewById<WebView>(R.id.webview)
         val btnFinish = findViewById<Button>(R.id.btn_finish_webview)
+        val baseUrl = SPUtil.getBaseUrl(this).trimEnd('/')
 
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.webViewClient = WebViewClient()
-        webView.loadUrl(NetUtil.BASE_URL)
+        webView.loadUrl(baseUrl)
 
         btnFinish.setOnClickListener {
-            syncCookiesToOkHttp()
+            syncCookiesToOkHttp(baseUrl)
             Toast.makeText(this, "会话已同步", Toast.LENGTH_SHORT).show()
             finish()
         }
@@ -38,11 +40,11 @@ class WebViewActivity : AppCompatActivity() {
         BackgroundUtil.applyWindowBackground(this)
     }
 
-    private fun syncCookiesToOkHttp() {
+    private fun syncCookiesToOkHttp(baseUrl: String) {
         val cookieManager = CookieManager.getInstance()
-        val cookiesString = cookieManager.getCookie(NetUtil.BASE_URL)
+        val cookiesString = cookieManager.getCookie(baseUrl)
         if (cookiesString != null) {
-            val url = NetUtil.BASE_URL.toHttpUrl()
+            val url = baseUrl.toHttpUrl()
             val cookieList = mutableListOf<Cookie>()
             val cookiePairs = cookiesString.split(";")
             for (pair in cookiePairs) {
@@ -58,7 +60,7 @@ class WebViewActivity : AppCompatActivity() {
                     cookieList.add(cookie)
                 }
             }
-            NetUtil.saveCookies(cookieList)
+            NetUtil.saveCookies(url.host, cookieList)
         }
     }
 }

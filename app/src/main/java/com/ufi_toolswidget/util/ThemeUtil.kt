@@ -5,10 +5,13 @@ import android.content.res.ColorStateList
 import android.graphics.drawable.GradientDrawable
 import android.view.View
 import android.view.ViewGroup
+import android.widget.CheckBox
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.view.children
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.textfield.TextInputLayout
 import com.ufi_toolswidget.R
 
 /**
@@ -71,10 +74,60 @@ object ThemeUtil {
 
         // ── 数据卡片背景 ──
         activity.findViewById<View>(R.id.card_network)?.background = makeCardBg(cardBg)
+
+        // ── 错误状态覆盖层（与主界面统一主题）──
+        applyErrorStateTheme(activity, textPrimary, textSecondary, accent, cardBg)
+    }
+
+    /** 对错误状态覆盖层应用当前主题色 */
+    private fun applyErrorStateTheme(
+        activity: Activity,
+        textPrimary: Int,
+        textSecondary: Int,
+        accent: Int,
+        cardBg: Int
+    ) {
+        // 错误卡片背景（与主界面卡片一致）
+        activity.findViewById<View>(R.id.error_card)?.background = makeCardBg(cardBg)
+
+        // 错误标题 → 主文字色
+        activity.findViewById<TextView>(R.id.error_title)?.setTextColor(textPrimary)
+
+        // 错误描述 → 副文字色
+        activity.findViewById<TextView>(R.id.error_message)?.setTextColor(textSecondary)
+
+        // 连接目标文字 → 主文字色
+        activity.findViewById<TextView>(R.id.error_target)?.setTextColor(textPrimary)
+
+        // 连接目标图标 → 强调色
+        activity.findViewById<ImageView>(R.id.error_target_icon)?.setColorFilter(accent)
+
+        // 错误图标 → 强调色
+        activity.findViewById<ImageView>(R.id.error_icon)?.setColorFilter(accent)
+
+        // 操作标题 → 主文字色
+        activity.findViewById<TextView>(R.id.error_action_title)?.setTextColor(textPrimary)
+
+        // 分隔线 → 分割线色
+        val divider = ThemeColors.divider(activity)
+        activity.findViewById<View>(R.id.error_divider)?.setBackgroundColor(divider)
+
+        // 重试按钮 → 主文字色 + 强调色图标
+        val btnRetry = activity.findViewById<MaterialButton>(R.id.btn_error_retry)
+        btnRetry?.setTextColor(textPrimary)
+        btnRetry?.iconTint = ColorStateList.valueOf(accent)
+
+        // 配置按钮 → 主文字色 + 副色描边
+        val btnConfig = activity.findViewById<MaterialButton>(R.id.btn_error_config)
+        btnConfig?.setTextColor(textPrimary)
+        btnConfig?.strokeColor = ColorStateList.valueOf(textSecondary)
+
+        // 底部提示 → 副文字色
+        activity.findViewById<TextView>(R.id.error_hint)?.setTextColor(textSecondary)
     }
 
     /**
-     * 对 AppSettingsActivity 布局应用当前主题色。
+     * 对 AppSettingsActivity 布局应用当前主题色（文字 + ToggleGroup + CheckBox）。
      */
     fun applyToAppSettingsActivity(activity: Activity) {
         val ctx = activity
@@ -83,9 +136,15 @@ object ThemeUtil {
         val accent = ThemeColors.accent(ctx)
         val cardBg = ThemeColors.cardBg(ctx)
 
-        // ── 标题和副标题 ──
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
         applyTextColorsToContainer(root, textPrimary, textSecondary, accent, cardBg)
+
+        // ToggleGroup 按钮描边跟随主题强调色
+        applyToggleGroupTheme(activity.findViewById(R.id.toggle_app_theme), accent, textPrimary)
+
+        // "应用" 按钮背景
+        activity.findViewById<MaterialButton>(R.id.btn_apply_custom_color)
+            ?.setBackgroundTintList(ColorStateList.valueOf(accent))
     }
 
     /**
@@ -100,6 +159,112 @@ object ThemeUtil {
 
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
         applyCardListTheme(root, textPrimary, textSecondary, accent, cardBg)
+    }
+
+    /**
+     * 对二级页面通用主题应用：文字色、返回按钮图标。
+     * 各子 Activity 可额外调用控件级方法来处理 ToggleGroup/CheckBox/TextInputLayout 等。
+     */
+    fun applyToSecondaryPage(activity: Activity) {
+        val ctx = activity
+        val textPrimary = ThemeColors.textPrimary(ctx)
+        val textSecondary = ThemeColors.textSecondary(ctx)
+        val accent = ThemeColors.accent(ctx)
+        val cardBg = ThemeColors.cardBg(ctx)
+
+        val root = activity.findViewById<ViewGroup>(android.R.id.content)
+        applySecondaryTextColors(root, textPrimary, textSecondary, accent, cardBg)
+    }
+
+    /** 对表单类页面（配置修改、初始化设置）应用主题：文字 + TextInputLayout + 保存按钮 */
+    fun applyToFormPage(activity: Activity) {
+        val ctx = activity
+        val textPrimary = ThemeColors.textPrimary(ctx)
+        val textSecondary = ThemeColors.textSecondary(ctx)
+        val accent = ThemeColors.accent(ctx)
+        val cardBg = ThemeColors.cardBg(ctx)
+
+        val root = activity.findViewById<ViewGroup>(android.R.id.content)
+        applySecondaryTextColors(root, textPrimary, textSecondary, accent, cardBg)
+
+        // 保存按钮
+        activity.findViewById<MaterialButton>(R.id.btn_save)
+            ?.setBackgroundTintList(ColorStateList.valueOf(accent))
+        // 确认按钮（SetupActivity）
+        activity.findViewById<MaterialButton>(R.id.btn_setup_confirm)
+            ?.setBackgroundTintList(ColorStateList.valueOf(accent))
+        // 跳过按钮
+        activity.findViewById<MaterialButton>(R.id.tv_skip)
+            ?.setTextColor(textSecondary)
+
+        // TextInputLayout 描边
+        applyTextInputTheme(root, accent, textSecondary)
+    }
+
+    /** 对小组件设置页应用主题：文字 + ToggleGroup + CheckBox + TextInputLayout + 保存按钮 */
+    fun applyToWidgetSettingsPage(activity: Activity) {
+        val ctx = activity
+        val textPrimary = ThemeColors.textPrimary(ctx)
+        val textSecondary = ThemeColors.textSecondary(ctx)
+        val accent = ThemeColors.accent(ctx)
+        val cardBg = ThemeColors.cardBg(ctx)
+
+        val root = activity.findViewById<ViewGroup>(android.R.id.content)
+        applySecondaryTextColors(root, textPrimary, textSecondary, accent, cardBg)
+
+        // 保存按钮
+        activity.findViewById<MaterialButton>(R.id.btn_save)
+            ?.setBackgroundTintList(ColorStateList.valueOf(accent))
+
+        // ToggleGroup
+        applyToggleGroupTheme(activity.findViewById(R.id.toggle_widget_theme), accent, textPrimary)
+
+        // CheckBox
+        applyCheckBoxesTheme(root, accent, textPrimary)
+
+        // TextInputLayout
+        applyTextInputTheme(root, accent, textSecondary)
+    }
+
+    // ==================== 控件级辅助 ====================
+
+    /** 给 ToggleGroup 中的每个子按钮设置描边色和文字色 */
+    private fun applyToggleGroupTheme(toggleGroup: MaterialButtonToggleGroup?, accent: Int, textColor: Int) {
+        if (toggleGroup == null) return
+        for (i in 0 until toggleGroup.childCount) {
+            val child = toggleGroup.getChildAt(i)
+            if (child is MaterialButton) {
+                child.strokeColor = ColorStateList.valueOf(accent)
+                child.setTextColor(textColor)
+            }
+        }
+    }
+
+    /** 遍历容器中所有 MaterialCheckBox，设置勾选框和文字主题色 */
+    private fun applyCheckBoxesTheme(root: ViewGroup?, accent: Int, textColor: Int) {
+        if (root == null) return
+        for (child in root.children) {
+            if (child is CheckBox) {
+                child.buttonTintList = ColorStateList.valueOf(accent)
+                child.setTextColor(textColor)
+            } else if (child is ViewGroup) {
+                applyCheckBoxesTheme(child, accent, textColor)
+            }
+        }
+    }
+
+    /** 遍历容器中所有 TextInputLayout，设置描边色和提示文字色 */
+    private fun applyTextInputTheme(root: ViewGroup?, accent: Int, hintColor: Int) {
+        if (root == null) return
+        for (child in root.children) {
+            if (child is TextInputLayout) {
+                child.setBoxStrokeColorStateList(ColorStateList.valueOf(accent))
+                child.hintTextColor = ColorStateList.valueOf(hintColor)
+                child.defaultHintTextColor = ColorStateList.valueOf(hintColor)
+            } else if (child is ViewGroup) {
+                applyTextInputTheme(child, accent, hintColor)
+            }
+        }
     }
 
     // ==================== 内部辅助 ====================
@@ -176,6 +341,46 @@ object ThemeUtil {
                 } else {
                     child.setColorFilter(accent)
                 }
+            }
+        }
+    }
+
+    /**
+     * 对二级页面递归着色文字和图标（通用）。
+     * 规则：标题（>20sp）→ 主色，内容（14-20sp）→ 主色，注释（≤13sp）→ 副色
+     */
+    private fun applySecondaryTextColors(
+        root: ViewGroup?,
+        textPrimary: Int,
+        textSecondary: Int,
+        accent: Int,
+        cardBg: Int
+    ) {
+        if (root == null) return
+        for (child in root.children) {
+            if (child is ViewGroup) {
+                // 子卡片容器应用圆角背景
+                try {
+                    if (child.background != null && child is ViewGroup) {
+                        child.background = makeCardBg(cardBg)
+                    }
+                } catch (_: Exception) {}
+                applySecondaryTextColors(child, textPrimary, textSecondary, accent, cardBg)
+            }
+            if (child is TextView && child.id != android.R.id.text1) {
+                // 跳过系统下拉列表项
+                when {
+                    child.textSize > 20f -> child.setTextColor(textPrimary)
+                    child.textSize <= 13f -> child.setTextColor(textSecondary)
+                    else -> child.setTextColor(textPrimary)
+                }
+            }
+            if (child is ImageView) {
+                child.setColorFilter(textSecondary)
+            }
+            // 返回按钮图标着色
+            if (child is MaterialButton && child.id == R.id.btn_back) {
+                child.iconTint = ColorStateList.valueOf(textPrimary)
             }
         }
     }

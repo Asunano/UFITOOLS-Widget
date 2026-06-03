@@ -1,31 +1,9 @@
-name: Build Android APK
-
-# ============================================================
-# GitHub Actions 工作流配置
-# 
-# 功能：自动编译 Android APK
-# 
-# 触发方式：
-#   - push 到 main/master 分支时自动触发
-#   - pull request 到 main/master 分支时自动触发
-#   - 也可手动在 Actions 页面触发 (workflow_dispatch)
-#
-# Release 发布设置：
-#   默认不自动发布 Release。如需开启，将下方的
-#   ENABLE_RELEASE 改为 true 即可。
-#   开启后，每次 push 到 main/master 时，会自动创建
-#   一个 GitHub Release 并上传编译好的 APK。
-# ============================================================
-
-# ==================== 是否自动发布 Release ====================
-# 改为 true 则开启自动发布 Release，false 则仅编译不发布
-env:
-  ENABLE_RELEASE: false
-# =============================================================
+name: Build & Release
 
 on:
   push:
     branches: [main, master]
+    tags: ['v*']
   pull_request:
     branches: [main, master]
   workflow_dispatch:
@@ -34,6 +12,9 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
+
+    env:
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
 
     steps:
       - name: Checkout code
@@ -48,46 +29,137 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # 解码 keystore（仅当 secrets 存在时）
+      - name: Decode keystore
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/UFITOOLS-Widget.jks
+
+      # 构建签名 Release APK
+      - name: Build release APK (signed)
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
+        run: ./gradlew assembleRelease --stacktrace
+        env:
+          SIGNING_STORE_FILE: UFITOOLS-Widget.jks
+          SIGNING_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      # 无签名时构建 unsigned APK
+      - name: Build release APK (unsigned)
+        if: ${{ env.HAS_KEYSTORE != 'true' }}
+        run: ./gradlew assembleRelease --stacktrace
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 
-      - name: Build release APK (unsigned)
-        run: ./gradlew assembleRelease --stacktrace
+      # 重命名签名 APK
+      - name: Rename signed APK
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk \
+             app/build/outputs/apk/release/UFITOOLS-Widget-${{ github.ref_name }}.apk
 
-      - name: Upload debug APK
+      # 上传构建产物
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/*.apk
           retention-days: 30
 
-      - name: Upload release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release-unsigned
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
-          retention-days: 30
-
-      # ====== 自动发布 Release（仅当 ENABLE_RELEASE=true 时执行）======
-      - name: Create Release and Upload APK
-        if: env.ENABLE_RELEASE == 'true' && github.event_name == 'push'
+      # 自动发布 Release（仅 tag push + 有签名时）
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v') && env.HAS_KEYSTORE == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          name: "Nightly Build - ${{ github.ref_name }}"
-          tag_name: "nightly-${{ github.run_number }}"
-          body: |
-            ## 自动构建版本
-
-            - 分支: `${{ github.ref_name }}`
-            - 提交: `${{ github.sha }}`
-            - 构建编号: `${{ github.run_number }}`
-
-            ### 下载
-            - `app-debug.apk` — Debug 版本
-            - `app-release-unsigned.apk` — Release 未签名版本
+          name: "UFITOOLS-Widget ${{ github.ref_name }}"
+          generate_release_notes: true
           files: |
+            app/build/outputs/apk/release/UFITOOLS-Widget-${{ github.ref_name }}.apk
             app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release-unsigned.apk
-          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ===== 自动更新 version.json 和 CHANGELOG.md =====
+      - name: Update version.json and CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/v') && env.HAS_KEYSTORE == 'true'
+        run: |
+          # 从 tag 提取版本号 (去掉 v 前缀)
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+
+          # 获取 APK 下载链接
+          APK_URL="https://github.com/Asunano/UFITOOLS-Widget/releases/download/${TAG}/UFITOOLS-Widget-${TAG}.apk"
+
+          # 获取 APK 大小
+          APK_SIZE=$(stat -c%s app/build/outputs/apk/release/UFITOOLS-Widget-${TAG}.apk 2>/dev/null || echo "0")
+
+          # 获取 commit 信息作为更新日志
+          CHANGELOG_RAW=$(git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD 2>/dev/null | head -20)
+          # 转义为 | 分隔的单行 (用于 version.json)
+          CHANGELOG_ESC=$(echo "${CHANGELOG_RAW}" | tr '\n' '|' | sed 's/"/\\"/g')
+
+          PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          PUBLISHED_DATE="$(date -u +%Y-%m-%d)"
+
+          # ===== 1. 更新 version.json (只保留最新版本) =====
+          jq -n \
+            --arg versionName "$VERSION" \
+            --argjson versionCode $(git tag -l 'v*' | wc -l) \
+            --arg tagName "$TAG" \
+            --arg apkUrl "$APK_URL" \
+            --argjson apkSize "$APK_SIZE" \
+            --arg publishedAt "$PUBLISHED_AT" \
+            --arg changelog "$CHANGELOG_ESC" \
+            '{
+              versionName: $versionName,
+              versionCode: $versionCode,
+              tagName: $tagName,
+              apkUrl: $apkUrl,
+              apkSize: $apkSize,
+              publishedAt: $publishedAt,
+              changelog: $changelog
+            }' > version.json
+
+          echo "Generated version.json:"
+          cat version.json
+
+          # ===== 2. 更新 CHANGELOG.md (在顶部插入新版本) =====
+          # 格式化 changelog 为 Markdown 列表
+          CHANGELOG_MD=$(echo "${CHANGELOG_RAW}" | sed 's/^/- /')
+
+          NEW_ENTRY="## v${VERSION} (${PUBLISHED_DATE})
+
+          ${CHANGELOG_MD}
+          "
+
+          if [ -f CHANGELOG.md ]; then
+            # 在标题行之后插入新条目
+            HEADER=$(head -1 CHANGELOG.md)
+            BODY=$(tail -n +2 CHANGELOG.md)
+            echo "${HEADER}" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "${NEW_ENTRY}" >> CHANGELOG.md
+            echo "${BODY}" >> CHANGELOG.md
+          else
+            echo "# 更新日志" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "${NEW_ENTRY}" >> CHANGELOG.md
+          fi
+
+          echo "Generated CHANGELOG.md:"
+          cat CHANGELOG.md
+
+      - name: Commit version.json and CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/v') && env.HAS_KEYSTORE == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.json CHANGELOG.md
+          git diff --cached --quiet || git commit -m "chore: update version.json & CHANGELOG.md for ${TAG}"
+          git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

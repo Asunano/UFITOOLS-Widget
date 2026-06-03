@@ -5,12 +5,13 @@ import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 object NetUtil {
-    private val cookieStore = mutableMapOf<String, List<Cookie>>()
+    private val cookieStore = ConcurrentHashMap<String, List<Cookie>>()
 
     val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -29,8 +30,8 @@ object NetUtil {
     const val BASE_URL = "http://192.168.0.1:2333"
     private const val SECRET_KEY = "minikano_kOyXz0Ciz4V7wR0IeKmJFYFQ20jd"
 
-    fun saveCookies(cookies: List<Cookie>) {
-        cookieStore["192.168.0.1"] = cookies
+    fun saveCookies(host: String, cookies: List<Cookie>) {
+        cookieStore[host] = cookies
     }
 
     // SHA256 字符串哈希 (返回十六进制字符串，用于 Authorization 等)
