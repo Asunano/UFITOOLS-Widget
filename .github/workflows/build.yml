@@ -97,9 +97,7 @@ jobs:
     name: Build Release
     needs: preflight
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    env:
-      HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+    if: startsWith(github.ref, 'refs/tags/v') && needs.preflight.outputs.has_keystore == 'true'
     outputs:
       sha256: ${{ steps.sha256.outputs.hash }}
     steps:
@@ -251,7 +249,8 @@ jobs:
           cat version.json
 
           # ===== 2. 更新 CHANGELOG.md =====
-          CHANGELOG_MD=$(echo "${CHANGELOG_RAW}" | sed 's/^/- /')
+          # git log --pretty=format:"- %s" 已自带 "- " 前缀，直接使用
+          CHANGELOG_MD="${CHANGELOG_RAW}"
           NEW_ENTRY="## v${VERSION} (${PUBLISHED_DATE})
 
           ${CHANGELOG_MD}
