@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.UFITOOLSWidget" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/sakura_pink</item>
-        <item name="colorOnPrimary">@color/white</item>
-        <item name="colorPrimaryContainer">@color/sakura_pink_light</item>
-        <item name="colorOnPrimaryContainer">@color/sakura_pink_dark</item>
-        <item name="colorSecondary">@color/sakura_pink_dark</item>
+        <item name="colorPrimary">@color/white</item>
+        <item name="colorOnPrimary">@color/black</item>
+        <item name="colorPrimaryContainer">@color/page_bg</item>
+        <item name="colorOnPrimaryContainer">@color/text_main</item>
+        <item name="colorSecondary">@color/text_sub</item>
         <item name="colorOnSecondary">@color/black</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>

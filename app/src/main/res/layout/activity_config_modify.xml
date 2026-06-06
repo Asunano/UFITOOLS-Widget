@@ -1,189 +1,70 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true">
+    android:clipToPadding="false"
+    android:fitsSystemWindows="true"
+    android:scrollbars="none">
 
-    <ScrollView
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:fillViewport="true"
-        android:scrollbars="none"
-        android:clipToPadding="false">
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingBottom="32dp">
 
-        <LinearLayout
+        <!-- ========== Header ========== -->
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_horizontal"
-            android:orientation="vertical"
-            android:paddingBottom="32dp">
+            android:layout_marginHorizontal="16dp">
 
-            <!-- ========== Header ========== -->
-            <FrameLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginHorizontal="16dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:paddingTop="32dp"
-                    android:paddingBottom="24dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="配置修改"
-                        android:textColor="@color/text_main"
-                        android:textSize="28sp"
-                        android:textStyle="bold"
-                        android:letterSpacing="0.04" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:text="修改 UFI 设备连接参数"
-                        android:textColor="@color/text_main"
-                        android:alpha="0.45"
-                        android:textSize="13sp" />
-                </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_back"
-                    style="@style/Widget.Material3.Button.IconButton"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_gravity="start|top"
-                    android:layout_marginTop="12dp"
-                    app:icon="@drawable/ic_arrow_back"
-                    app:iconTint="@color/text_main" />
-            </FrameLayout>
-
-            <!-- ========== 设置卡片 ========== -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginHorizontal="20dp"
+                android:gravity="center"
                 android:orientation="vertical"
-                android:background="@drawable/bg_widget_card"
-                android:padding="24dp">
-
-                <!-- 设备地址 -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="设备连接地址"
-                    android:textColor="@color/text_main"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
+                android:paddingTop="24dp"
+                android:paddingBottom="24dp">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="支持 IP:端口 或 域名"
+                    android:text="连接配置"
                     android:textColor="@color/text_main"
-                    android:alpha="0.4"
-                    android:textSize="12sp" />
-
-                <FrameLayout
-                    android:id="@+id/container_device_address"
-                    android:layout_width="match_parent"
-                    android:layout_height="50dp"
-                    android:layout_marginTop="14dp"
-                    android:background="@drawable/bg_input_field">
-                    <EditText
-                        android:id="@+id/et_device_address"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:background="@null"
-                        android:hint="例如 192.168.0.1:2333"
-                        android:inputType="textUri"
-                        android:maxLines="1"
-                        android:paddingHorizontal="16dp"
-                        android:textColor="@color/text_main"
-                        android:textColorHint="@color/text_sub"
-                        android:textSize="14sp"
-                        android:importantForAutofill="no" />
-                </FrameLayout>
-
-                <!-- 分割线 -->
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginVertical="24dp"
-                    android:background="@color/text_sub"
-                    android:alpha="0.1" />
-
-                <!-- 认证口令 -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="认证口令"
-                    android:textColor="@color/text_main"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
+                    android:textSize="28sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.02" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="设备登录口令，留空则保持不变"
+                    android:text="修改 UFI 设备连接参数与 API 接口"
                     android:textColor="@color/text_main"
-                    android:alpha="0.4"
-                    android:textSize="12sp" />
-
-                <FrameLayout
-                    android:id="@+id/container_token"
-                    android:layout_width="match_parent"
-                    android:layout_height="50dp"
-                    android:layout_marginTop="14dp"
-                    android:background="@drawable/bg_input_field">
-                    <EditText
-                        android:id="@+id/et_token"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:background="@null"
-                        android:hint="输入你的新口令"
-                        android:inputType="textPassword"
-                        android:maxLines="1"
-                        android:paddingHorizontal="16dp"
-                        android:textColor="@color/text_main"
-                        android:textColorHint="@color/text_sub"
-                        android:textSize="14sp"
-                        android:importantForAutofill="no" />
-                </FrameLayout>
-
-                <!-- 保存按钮 -->
-                <FrameLayout
-                    android:id="@+id/btn_save"
-                    android:layout_width="match_parent"
-                    android:layout_height="52dp"
-                    android:layout_marginTop="32dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView
-                        android:id="@+id/btn_save_text"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:background="@drawable/bg_btn_primary"
-                        android:gravity="center"
-                        android:text="保存并应用"
-                        android:textColor="#FFFFFF"
-                        android:textSize="15sp"
-                        android:textStyle="bold"
-                        android:clickable="false"
-                        android:focusable="false"
-                        android:duplicateParentState="true" />
-                </FrameLayout>
-
+                    android:alpha="0.45"
+                    android:textSize="13sp" />
             </LinearLayout>
 
-        </LinearLayout>
-    </ScrollView>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_back"
+                style="@style/Widget.Material3.Button.IconButton"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_gravity="start|top"
+                android:layout_marginTop="6dp"
+                app:icon="@drawable/ic_arrow_back" />
+        </FrameLayout>
 
-</FrameLayout>
+        <!-- ========== 基础连接（弹窗编辑：地址 + 口令） ========== -->
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_basic_config" />
+
+        <!-- ========== 高级配置（弹窗编辑：API 路径 + 密钥） ========== -->
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_advanced_config" />
+
+    </LinearLayout>
+</ScrollView>

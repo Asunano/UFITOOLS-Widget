@@ -1,10 +1,12 @@
 package com.ufi_toolswidget
 
+import android.content.BroadcastReceiver
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.EditText
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.app.AppCompatActivity
@@ -15,6 +17,7 @@ import com.ufi_toolswidget.util.DebugLogger
 import com.ufi_toolswidget.util.NetUtil
 import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.ScaleTouchListener
+import com.ufi_toolswidget.util.ThemeChangeNotifier
 import com.ufi_toolswidget.util.ThemeUtil
 import com.ufi_toolswidget.util.WifiCrawl
 import com.ufi_toolswidget.widget.BaseWifiWidget
@@ -28,19 +31,29 @@ class SetupActivity : AppCompatActivity() {
         private const val TAG = "SetupActivity"
     }
 
+    private var themeChangeReceiver: BroadcastReceiver? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         AppCompatDelegate.setDefaultNightMode(SPUtil.getNightMode(this))
         super.onCreate(savedInstanceState)
         DebugLogger.init(this)
 
         try {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            setContentView(R.layout.activity_setup)
-            BackgroundUtil.applyWindowBackground(this)
-            ThemeUtil.applyToFormPage(this)
+        ThemeUtil.applyTheme(this, ThemeUtil.PageType.FORM)
+        themeChangeReceiver = ThemeChangeNotifier.register(this) {
+            ThemeUtil.applyTheme(this@SetupActivity, ThemeUtil.PageType.FORM)
+        }
+        setContentView(R.layout.activity_setup)
 
-            val etDeviceAddress = findViewById<EditText>(R.id.et_device_address)
-            val etToken = findViewById<EditText>(R.id.et_token)
+            // 设备地址输入框
+            val itemAddress = findViewById<View>(R.id.item_device_address)
+            ThemeUtil.setupInputField(itemAddress, "设备连接地址", "支持 IP:端口 或 域名", "例如 192.168.0.1:2333", android.text.InputType.TYPE_TEXT_VARIATION_URI)
+            val etDeviceAddress = itemAddress.findViewById<EditText>(R.id.common_input_edit_text)
+
+            // 认证口令输入框
+            val itemToken = findViewById<View>(R.id.item_token)
+            ThemeUtil.setupInputField(itemToken, "认证口令", "设备登录口令，留空则使用 admin", "输入你的登录口令", android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD)
+            val etToken = itemToken.findViewById<EditText>(R.id.common_input_edit_text)
 
             // 恢复已有配置
             val savedAddress = SPUtil.getDeviceAddress(this)
@@ -53,6 +66,7 @@ class SetupActivity : AppCompatActivity() {
             }
 
             findViewById<View>(R.id.btn_setup_confirm).apply {
+                findViewById<TextView>(R.id.common_btn_text).text = "保存并开始使用"
                 setOnClickListener {
                     val address = etDeviceAddress.text.toString().trim().ifEmpty { SPUtil.DEFAULT_DEVICE_ADDRESS }
                     val token = etToken.text.toString().trim().ifEmpty { "admin" }
@@ -96,8 +110,12 @@ class SetupActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        BackgroundUtil.applyWindowBackground(this)
-        ThemeUtil.applyToFormPage(this)
+        ThemeUtil.applyTheme(this, ThemeUtil.PageType.FORM)
+    }
+
+    override fun onDestroy() {
+        ThemeChangeNotifier.unregister(this, themeChangeReceiver)
+        super.onDestroy()
     }
 
     /** 后台自动探测协议（HTTPS 优先 → HTTP 回退），结果存入 SP */

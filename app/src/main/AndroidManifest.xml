@@ -75,12 +75,18 @@
             android:name=".DebugLogActivity"
             android:label="调试日志"
             android:parentActivityName=".AboutActivity"
+            android:process=":crash_handler"
             android:theme="@style/Theme.UFITOOLSWidget" />
 
         <activity
             android:name=".AddWidgetActivity"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.UFITOOLSWidget.Transparent" />
+
+        <activity
+            android:name=".ImageCropActivity"
+            android:label="调整背景图片"
+            android:theme="@style/Theme.UFITOOLSWidget" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

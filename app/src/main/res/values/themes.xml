@@ -2,13 +2,13 @@
 <resources>
     <style name="Theme.UFITOOLSWidget" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- Primary brand color. -->
-        <item name="colorPrimary">@color/sakura_pink</item>
+        <item name="colorPrimary">@color/accent</item>
         <item name="colorOnPrimary">@color/white</item>
-        <item name="colorPrimaryContainer">@color/sakura_pink_light</item>
-        <item name="colorOnPrimaryContainer">@color/sakura_pink_dark</item>
+        <item name="colorPrimaryContainer">@color/page_bg</item>
+        <item name="colorOnPrimaryContainer">@color/text_main</item>
 
         <!-- Secondary brand color. -->
-        <item name="colorSecondary">@color/sakura_pink_dark</item>
+        <item name="colorSecondary">@color/text_sub</item>
         <item name="colorOnSecondary">@color/white</item>
 
         <!-- Background colors -->
@@ -35,16 +35,102 @@
 
     <!-- 自定义输入框样式：圆角填充式，与卡片风格统一 -->
     <style name="AppTextInputLayout" parent="Widget.Material3.TextInputLayout.FilledBox">
-        <item name="boxCornerRadiusTopStart">10dp</item>
-        <item name="boxCornerRadiusTopEnd">10dp</item>
-        <item name="boxCornerRadiusBottomStart">10dp</item>
-        <item name="boxCornerRadiusBottomEnd">10dp</item>
-        <item name="boxStrokeWidth">1dp</item>
-        <item name="boxStrokeWidthFocused">1.5dp</item>
+        <item name="boxCornerRadiusTopStart">12dp</item>
+        <item name="boxCornerRadiusTopEnd">12dp</item>
+        <item name="boxCornerRadiusBottomStart">12dp</item>
+        <item name="boxCornerRadiusBottomEnd">12dp</item>
+        <item name="boxStrokeWidth">0dp</item>
+        <item name="boxStrokeWidthFocused">0dp</item>
+        <item name="boxBackgroundColor">@android:color/transparent</item>
         <item name="hintTextAppearance">@style/AppTextInputHint</item>
     </style>
 
     <style name="AppTextInputHint" parent="TextAppearance.Material3.BodySmall">
         <item name="android:textSize">13sp</item>
+    </style>
+
+    <!-- 通用主按钮：圆角实色 -->
+    <style name="AppButton.Primary" parent="Widget.Material3.Button">
+        <item name="cornerRadius">12dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:minHeight">48dp</item>
+    </style>
+
+    <!-- 通用次按钮：圆角描边 -->
+    <style name="AppButton.Secondary" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="cornerRadius">12dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="android:minHeight">48dp</item>
+    </style>
+
+    <!-- 通用列表卡片样式 -->
+    <style name="AppCard" parent="">
+        <item name="android:background">@drawable/bg_widget_card</item>
+        <item name="android:padding">18dp</item>
+        <item name="android:layout_marginHorizontal">20dp</item>
+        <item name="android:layout_marginBottom">10dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:foreground">?attr/selectableItemBackground</item>
+    </style>
+    <!-- 通用文本样式 -->
+    <style name="AppText.Title" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/text_main</item>
+    </style>
+
+    <style name="AppText.Subtitle" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/text_main</item>
+        <item name="android:alpha">0.45</item>
+    </style>
+
+    <!-- 通用输入框容器样式 (FrameLayout) -->
+    <style name="AppInputContainer">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">50dp</item>
+        <item name="android:layout_marginTop">14dp</item>
+        <item name="android:background">@drawable/bg_widget_card</item>
+        <item name="android:paddingHorizontal">4dp</item>
+    </style>
+
+    <!-- 通用输入框内容样式 (EditText) -->
+    <style name="AppEditText">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:background">@null</item>
+        <item name="android:paddingHorizontal">12dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/text_main</item>
+        <item name="android:textColorHint">@color/text_sub</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:importantForAutofill">no</item>
+    </style>
+
+    <!-- 通用主操作按钮样式 (带有外层 FrameLayout 用于动画) -->
+    <style name="AppActionButton">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">52dp</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <style name="AppActionButton.Text">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">match_parent</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:clickable">false</item>
+        <item name="android:focusable">false</item>
+        <item name="android:duplicateParentState">true</item>
     </style>
 </resources>

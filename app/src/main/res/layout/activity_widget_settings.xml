@@ -34,16 +34,17 @@
                     android:text="小组件设置"
                     android:textColor="@color/text_main"
                     android:textSize="28sp"
-                    android:textStyle="bold" />
+                    android:textStyle="bold"
+                    android:letterSpacing="0.02" />
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="自定义小组件显示内容与行为"
-                    android:textColor="@color/text_main"
-                    android:alpha="0.45"
-                    android:textSize="13sp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="自定义小组件外观、内容与刷新行为"
+                android:textColor="@color/text_main"
+                android:alpha="0.45"
+                android:textSize="13sp" />
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton
@@ -53,365 +54,43 @@
                 android:layout_height="44dp"
                 android:layout_gravity="start|top"
                 android:layout_marginTop="6dp"
-                app:icon="@drawable/ic_arrow_back"
-                app:iconTint="@color/text_main" />
+                app:icon="@drawable/ic_arrow_back" />
         </FrameLayout>
 
-        <!-- 小组件主题 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="16dp"
-            android:background="@drawable/bg_widget_card"
-            android:orientation="vertical"
-            android:padding="20dp">
+        <!-- ========== 跟随应用主题（开关） ========== -->
+        <include
+            layout="@layout/layout_common_switch_item"
+            android:id="@+id/item_widget_follow_theme" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="小组件颜色模式"
-                android:textColor="@color/text_main"
-                android:textSize="15sp"
-                android:textStyle="bold" />
+        <!-- ========== 小组件主题（弹窗选择） ========== -->
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_widget_theme" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="桌面小组件的浅色/深色显示模式"
-                android:textColor="@color/text_main"
-                android:alpha="0.4"
-                android:textSize="12sp" />
+        <!-- ========== 小组件颜色主题（弹窗选择） ========== -->
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_widget_color_theme" />
 
-            <LinearLayout
-                android:id="@+id/seg_widget_theme"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:layout_marginTop="14dp"
-                android:background="@drawable/bg_widget_card"
-                android:orientation="horizontal"
-                android:padding="3dp">
+        <!-- ========== 显示信息（弹窗多选） ========== -->
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_display_info" />
 
-                <TextView
-                    android:id="@+id/seg_widget_follow"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:text="跟随应用"
-                    android:textColor="@color/text_main"
-                    android:textSize="13sp" />
+        <!-- ========== 后台刷新频率（弹窗选择） ========== -->
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_widget_interval" />
 
-                <TextView
-                    android:id="@+id/seg_widget_light"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:text="浅色"
-                    android:textColor="@color/text_main"
-                    android:textSize="13sp" />
+        <!-- ========== 自定义背景图（弹窗选择） ========== -->
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_widget_bg_image" />
 
-                <TextView
-                    android:id="@+id/seg_widget_dark"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:text="深色"
-                    android:textColor="@color/text_main"
-                    android:textSize="13sp" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- 显示信息 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="16dp"
-            android:background="@drawable/bg_widget_card"
-            android:orientation="vertical"
-            android:padding="20dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="显示信息"
-                android:textColor="@color/text_main"
-                android:textSize="15sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="选择小组件中展示的数据项"
-                android:textColor="@color/text_main"
-                android:alpha="0.4"
-                android:textSize="12sp" />
-
-            <GridLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:columnCount="2">
-
-                <com.google.android.material.checkbox.MaterialCheckBox
-                    android:id="@+id/cb_show_temp"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_columnWeight="1"
-                    android:text="展示硬件温度"
-                    android:textSize="13sp"
-                    app:buttonTint="@color/sakura_primary" />
-
-                <com.google.android.material.checkbox.MaterialCheckBox
-                    android:id="@+id/cb_show_model"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_columnWeight="1"
-                    android:text="展示设备名称"
-                    android:textSize="13sp"
-                    app:buttonTint="@color/sakura_primary" />
-
-                <com.google.android.material.checkbox.MaterialCheckBox
-                    android:id="@+id/cb_show_signal"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_columnWeight="1"
-                    android:text="展示信号详情"
-                    android:textSize="13sp"
-                    app:buttonTint="@color/sakura_primary" />
-
-                <com.google.android.material.checkbox.MaterialCheckBox
-                    android:id="@+id/cb_show_battery"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_columnWeight="1"
-                    android:text="展示电池状态"
-                    android:textSize="13sp"
-                    app:buttonTint="@color/sakura_primary" />
-
-                <com.google.android.material.checkbox.MaterialCheckBox
-                    android:id="@+id/cb_show_cpu"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_columnWeight="1"
-                    android:text="展示CPU占用"
-                    android:textSize="13sp"
-                    app:buttonTint="@color/sakura_primary" />
-
-                <com.google.android.material.checkbox.MaterialCheckBox
-                    android:id="@+id/cb_show_mem"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_columnWeight="1"
-                    android:text="展示内存占用"
-                    android:textSize="13sp"
-                    app:buttonTint="@color/sakura_primary" />
-
-                <com.google.android.material.checkbox.MaterialCheckBox
-                    android:id="@+id/cb_show_time"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_columnWeight="1"
-                    android:text="展示更新时间"
-                    android:textSize="13sp"
-                    app:buttonTint="@color/sakura_primary" />
-            </GridLayout>
-        </LinearLayout>
-
-        <!-- 后台刷新频率 -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="16dp"
-            android:background="@drawable/bg_widget_card"
-            android:orientation="vertical"
-            android:padding="20dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="后台刷新频率"
-                android:textColor="@color/text_main"
-                android:textSize="15sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="后台小组件自动更新间隔"
-                android:textColor="@color/text_main"
-                android:alpha="0.4"
-                android:textSize="12sp" />
-
-            <!-- 刷新间隔芯片选择器 -->
-            <LinearLayout
-                android:id="@+id/chip_interval_widget"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:orientation="vertical">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:id="@+id/chip_widget_15"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="6dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:gravity="center"
-                        android:text="15 分"
-                        android:textColor="@color/text_main"
-                        android:textSize="12sp" />
-
-                    <TextView
-                        android:id="@+id/chip_widget_30"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:layout_marginHorizontal="3dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:gravity="center"
-                        android:text="30 分"
-                        android:textColor="@color/text_main"
-                        android:textSize="12sp" />
-
-                    <TextView
-                        android:id="@+id/chip_widget_60"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:layout_marginHorizontal="3dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:gravity="center"
-                        android:text="1 小时"
-                        android:textColor="@color/text_main"
-                        android:textSize="12sp" />
-
-                    <TextView
-                        android:id="@+id/chip_widget_120"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:layout_marginStart="6dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:gravity="center"
-                        android:text="2 小时"
-                        android:textColor="@color/text_main"
-                        android:textSize="12sp" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:gravity="center"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:id="@+id/chip_widget_off"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="6dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:gravity="center"
-                        android:text="关闭"
-                        android:textColor="@color/text_main"
-                        android:textSize="12sp" />
-
-                    <TextView
-                        android:id="@+id/chip_widget_custom"
-                        android:layout_width="0dp"
-                        android:layout_height="36dp"
-                        android:layout_weight="1"
-                        android:layout_marginStart="6dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:gravity="center"
-                        android:text="自定义..."
-                        android:textColor="@color/text_main"
-                        android:textSize="12sp" />
-                </LinearLayout>
-
-                <!-- 自定义间隔输入行（默认隐藏） -->
-                <LinearLayout
-                    android:id="@+id/row_custom_widget_interval"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:visibility="gone">
-
-                    <EditText
-                        android:id="@+id/et_custom_widget_interval"
-                        android:layout_width="0dp"
-                        android:layout_height="40dp"
-                        android:layout_weight="1"
-                        android:background="@drawable/bg_widget_card"
-                        android:gravity="center"
-                        android:hint="输入 1-1440 分钟"
-                        android:inputType="number"
-                        android:maxLength="4"
-                        android:paddingHorizontal="14dp"
-                        android:textColor="@color/text_main"
-                        android:textColorHint="@color/text_sub"
-                        android:textSize="13sp" />
-
-                    <TextView
-                        android:id="@+id/btn_custom_widget_confirm"
-                        android:layout_width="wrap_content"
-                        android:layout_height="40dp"
-                        android:layout_marginStart="8dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:gravity="center"
-                        android:paddingHorizontal="16dp"
-                        android:text="确定"
-                        android:textColor="@color/text_main"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/btn_custom_widget_cancel"
-                        android:layout_width="wrap_content"
-                        android:layout_height="40dp"
-                        android:layout_marginStart="4dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:gravity="center"
-                        android:paddingHorizontal="12dp"
-                        android:text="取消"
-                        android:textColor="@color/text_main"
-                        android:alpha="0.5"
-                        android:textSize="13sp" />
-                </LinearLayout>
-            </LinearLayout>
-        </LinearLayout>
+        <!-- ========== 背景透明度（弹窗选择） ========== -->
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_widget_bg_opacity" />
 
     </LinearLayout>
 </ScrollView>

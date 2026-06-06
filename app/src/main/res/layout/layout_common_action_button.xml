@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/common_btn_root"
+    style="@style/AppActionButton">
+
+    <TextView
+        android:id="@+id/common_btn_text"
+        style="@style/AppActionButton.Text"
+        android:background="@drawable/bg_btn_primary"
+        android:text="按钮文字" />
+</FrameLayout>

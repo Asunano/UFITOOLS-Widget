@@ -53,7 +53,7 @@
                 </LinearLayout>
             </FrameLayout>
 
-            <!-- ========== 初始化设置卡片 ========== -->
+            <!-- ========== 配置卡片 ========== -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -62,119 +62,43 @@
                 android:background="@drawable/bg_widget_card"
                 android:padding="24dp">
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="初始化设置"
-                    android:textColor="@color/text_main"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
+                <!-- 设备地址 -->
+                <include
+                    layout="@layout/layout_common_input_field"
+                    android:id="@+id/item_device_address" />
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="请填入设备地址与认证令牌以继续"
-                    android:textColor="@color/text_main"
-                    android:alpha="0.4"
-                    android:textSize="12sp" />
-
-                <!-- 设备连接地址 -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="28dp"
-                    android:layout_marginStart="4dp"
-                    android:text="设备地址"
-                    android:textColor="@color/text_main"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
-
-                <FrameLayout
-                    android:id="@+id/container_device_address"
+                <!-- 分割线 -->
+                <View
                     android:layout_width="match_parent"
-                    android:layout_height="50dp"
-                    android:layout_marginTop="10dp"
-                    android:background="@drawable/bg_input_field">
-                    <EditText
-                        android:id="@+id/et_device_address"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:background="@null"
-                        android:hint="192.168.0.1:2333"
-                        android:inputType="textUri"
-                        android:maxLines="1"
-                        android:paddingHorizontal="16dp"
-                        android:textColor="@color/text_main"
-                        android:textColorHint="@color/text_sub"
-                        android:textSize="14sp" />
-                </FrameLayout>
+                    android:layout_height="1dp"
+                    android:layout_marginVertical="24dp"
+                    android:background="@color/text_sub"
+                    android:alpha="0.1" />
 
-                <!-- Token -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp"
-                    android:layout_marginStart="4dp"
-                    android:text="认证口令 (Token)"
-                    android:textColor="@color/text_main"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
+                <!-- 认证口令 -->
+                <include
+                    layout="@layout/layout_common_input_field"
+                    android:id="@+id/item_token" />
 
-                <FrameLayout
-                    android:id="@+id/container_token"
-                    android:layout_width="match_parent"
-                    android:layout_height="50dp"
-                    android:layout_marginTop="10dp"
-                    android:background="@drawable/bg_input_field">
-                    <EditText
-                        android:id="@+id/et_token"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:background="@null"
-                        android:hint="默认 admin"
-                        android:inputType="textPassword"
-                        android:maxLines="1"
-                        android:paddingHorizontal="16dp"
-                        android:textColor="@color/text_main"
-                        android:textColorHint="@color/text_sub"
-                        android:textSize="14sp" />
-                </FrameLayout>
-
-                <!-- 确认按钮 -->
-                <FrameLayout
+                <!-- 保存按钮 -->
+                <include
+                    layout="@layout/layout_common_action_button"
                     android:id="@+id/btn_setup_confirm"
                     android:layout_width="match_parent"
                     android:layout_height="52dp"
-                    android:layout_marginTop="32dp"
-                    android:clickable="true"
-                    android:focusable="true">
-                    <TextView
-                        android:id="@+id/btn_setup_confirm_text"
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:background="@drawable/bg_btn_primary"
-                        android:gravity="center"
-                        android:text="立即开始"
-                        android:textColor="#FFFFFF"
-                        android:textSize="15sp"
-                        android:textStyle="bold"
-                        android:clickable="false"
-                        android:focusable="false"
-                        android:duplicateParentState="true" />
-                </FrameLayout>
+                    android:layout_marginTop="32dp" />
 
                 <!-- 跳过按钮 -->
                 <TextView
                     android:id="@+id/tv_skip"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="48dp"
                     android:layout_marginTop="12dp"
                     android:gravity="center"
-                    android:paddingVertical="8dp"
-                    android:text="稍后在设置中配置"
+                    android:text="暂时跳过，使用默认配置"
                     android:textColor="@color/text_sub"
                     android:textSize="13sp"
+                    android:alpha="0.6"
                     android:clickable="true"
                     android:focusable="true"
                     android:background="?attr/selectableItemBackground" />

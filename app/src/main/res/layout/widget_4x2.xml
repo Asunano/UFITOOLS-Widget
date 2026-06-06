@@ -5,7 +5,30 @@
     android:layout_height="match_parent"
     android:elevation="6dp"
     android:outlineProvider="background"
-    android:background="@drawable/widget_bg_light">
+    android:clipToOutline="true"
+    android:background="@drawable/bg_widget_mask">
+
+    <!-- 用于主动绘制圆角背景的视图，双重圆角裁剪确保在所有桌面上都有圆角 -->
+    <ImageView
+        android:id="@+id/widget_bg_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/bg_widget_mask"
+        android:outlineProvider="background"
+        android:clipToOutline="true"
+        android:background="@drawable/bg_widget_mask_transparent" />
+
+    <!-- 描边层，置于背景之上，圆角裁剪兜底 -->
+    <ImageView
+        android:id="@+id/widget_bg_stroke"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/bg_widget_stroke"
+        android:outlineProvider="background"
+        android:clipToOutline="true"
+        android:background="@drawable/bg_widget_mask_transparent" />
 
     <!-- 正常数据内容区 -->
     <LinearLayout

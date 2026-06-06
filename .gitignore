@@ -15,6 +15,7 @@
 /.idea/AndroidProjectSystem.xml
 .DS_Store
 /build
+/icon
 /app/build/
 /captures
 .externalNativeBuild

@@ -185,6 +185,32 @@ object SPUtil {
         return "$protocol://$host:$port/"
     }
 
+    // ==================== API 接口高级配置 ====================
+    const val DEFAULT_AT_COMMAND_PATH = "/api/AT"
+    const val DEFAULT_DEVICE_INFO_PATH = "/api/baseDeviceInfo"
+    const val DEFAULT_GOFORM_COMMAND_PATH = "/api/goform/goform_get_cmd_process"
+    const val DEFAULT_NEED_TOKEN_PATH = "/api/need_token"
+    const val DEFAULT_VERSION_INFO_PATH = "/api/version_info"
+    const val DEFAULT_SECRET_KEY = "minikano_kOyXz0Ciz4V7wR0IeKmJFYFQ20jd"
+
+    fun getAtCommandPath(ctx: Context) = getSp(ctx).getString("at_command_path", DEFAULT_AT_COMMAND_PATH) ?: DEFAULT_AT_COMMAND_PATH
+    fun setAtCommandPath(ctx: Context, path: String) = getSp(ctx).edit().putString("at_command_path", path.ifBlank { DEFAULT_AT_COMMAND_PATH }).apply()
+
+    fun getDeviceInfoPath(ctx: Context) = getSp(ctx).getString("device_info_path", DEFAULT_DEVICE_INFO_PATH) ?: DEFAULT_DEVICE_INFO_PATH
+    fun setDeviceInfoPath(ctx: Context, path: String) = getSp(ctx).edit().putString("device_info_path", path.ifBlank { DEFAULT_DEVICE_INFO_PATH }).apply()
+
+    fun getGoformCommandPath(ctx: Context) = getSp(ctx).getString("goform_command_path", DEFAULT_GOFORM_COMMAND_PATH) ?: DEFAULT_GOFORM_COMMAND_PATH
+    fun setGoformCommandPath(ctx: Context, path: String) = getSp(ctx).edit().putString("goform_command_path", path.ifBlank { DEFAULT_GOFORM_COMMAND_PATH }).apply()
+
+    fun getNeedTokenPath(ctx: Context) = getSp(ctx).getString("need_token_path", DEFAULT_NEED_TOKEN_PATH) ?: DEFAULT_NEED_TOKEN_PATH
+    fun setNeedTokenPath(ctx: Context, path: String) = getSp(ctx).edit().putString("need_token_path", path.ifBlank { DEFAULT_NEED_TOKEN_PATH }).apply()
+
+    fun getVersionInfoPath(ctx: Context) = getSp(ctx).getString("version_info_path", DEFAULT_VERSION_INFO_PATH) ?: DEFAULT_VERSION_INFO_PATH
+    fun setVersionInfoPath(ctx: Context, path: String) = getSp(ctx).edit().putString("version_info_path", path.ifBlank { DEFAULT_VERSION_INFO_PATH }).apply()
+
+    fun getSecretKey(ctx: Context) = getSp(ctx).getString("secret_key", DEFAULT_SECRET_KEY) ?: DEFAULT_SECRET_KEY
+    fun setSecretKey(ctx: Context, key: String) = getSp(ctx).edit().putString("secret_key", key.ifBlank { DEFAULT_SECRET_KEY }).apply()
+
     // ── 解析工具 ──
 
     /** 解析地址字符串 → (协议, 主机, 端口, 协议是否显式指定, 端口是否显式指定) */
@@ -254,8 +280,24 @@ object SPUtil {
     fun getWidgetTheme(ctx: Context) = getSp(ctx).getString("widget_theme", "follow_app") ?: "follow_app"
     fun setWidgetTheme(ctx: Context, mode: String) = getSp(ctx).edit().putString("widget_theme", mode).apply()
 
+    /** 获取小组件是否跟随应用主题 */
+    fun getWidgetFollowAppTheme(ctx: Context) = getSp(ctx).getBoolean("widget_follow_app_theme", true)
+    fun setWidgetFollowAppTheme(ctx: Context, follow: Boolean) = getSp(ctx).edit().putBoolean("widget_follow_app_theme", follow).apply()
+
     /** 判断小组件当前是否应使用暗色模式 */
     fun isWidgetDark(ctx: Context): Boolean {
+        if (!getWidgetFollowAppTheme(ctx)) {
+            // 如果不跟随应用主题，则根据小组件自身的主题设置决定
+            return when (getWidgetTheme(ctx)) {
+                "light" -> false
+                "dark" -> true
+                else -> { // 如果设为了 follow_app 但 follow 开关关了，强制走系统识别
+                    val nightMode = ctx.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+                    nightMode == Configuration.UI_MODE_NIGHT_YES
+                }
+            }
+        }
+        // 原有逻辑：跟随应用主题
         return when (getWidgetTheme(ctx)) {
             "light" -> false
             "dark" -> true
@@ -292,12 +334,90 @@ object SPUtil {
     fun getColorThemeIndex(ctx: Context) = getSp(ctx).getInt("color_theme", 0)
     fun setColorThemeIndex(ctx: Context, index: Int) = getSp(ctx).edit().putInt("color_theme", index).apply()
 
+    /** 获取小组件独立颜色主题索引 */
+    fun getWidgetColorThemeIndex(ctx: Context) = getSp(ctx).getInt("widget_color_theme", 0)
+    fun setWidgetColorThemeIndex(ctx: Context, index: Int) = getSp(ctx).edit().putInt("widget_color_theme", index).apply()
+
+    fun getWidgetCustomAccentLight(ctx: Context) = getSp(ctx).getInt("widget_custom_accent_light", 0xFF222222.toInt())
+    fun setWidgetCustomAccentLight(ctx: Context, color: Int) = getSp(ctx).edit().putInt("widget_custom_accent_light", color).apply()
+    fun getWidgetCustomAccentDark(ctx: Context) = getSp(ctx).getInt("widget_custom_accent_dark", 0xFFCCCCCC.toInt())
+    fun setWidgetCustomAccentDark(ctx: Context, color: Int) = getSp(ctx).edit().putInt("widget_custom_accent_dark", color).apply()
+
+    // ==================== 崩溃信息 ====================
+    /** 上次崩溃时间戳（0 = 无崩溃记录） */
+    fun getLastCrashTime(ctx: Context) = getSp(ctx).getLong("last_crash_time", 0L)
+    fun setLastCrashTime(ctx: Context, time: Long) = getSp(ctx).edit().putLong("last_crash_time", time).apply()
+
+    /** 保存崩溃信息摘要（时间戳 + 异常类名 + 脱敏后的 message） */
+    fun setLastCrashInfo(ctx: Context, crashInfo: String) {
+        val summary = crashInfo.lines().firstOrNull { it.contains("异常堆栈") || it.contains("Exception") }
+            ?: crashInfo.take(200)
+        getSp(ctx).edit()
+            .putLong("last_crash_time", System.currentTimeMillis())
+            .putString("last_crash_summary", summary.take(500))
+            .apply()
+    }
+
+    fun setLastCrashSummary(ctx: Context, summary: String) = getSp(ctx).edit().putString("last_crash_summary", summary).apply()
+
+    /** 获取上次崩溃摘要 */
+    fun getLastCrashSummary(ctx: Context) = getSp(ctx).getString("last_crash_summary", "") ?: ""
+    /** 清除崩溃标志（用户已查看或忽略） */
+    fun clearCrashInfo(ctx: Context) = getSp(ctx).edit()
+        .putLong("last_crash_time", 0L)
+        .remove("last_crash_summary")
+        .apply()
+
     // ==================== 调试模式 ====================
     fun getDebugEnabled(ctx: Context) = getSp(ctx).getBoolean("debug_enabled", false)
     fun setDebugEnabled(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("debug_enabled", enabled).apply()
 
-    // ==================== 更新镜像源 ====================
+    // ==================== 更新镜像源与自动检查 ====================
     // 0 = GitHub 官方，1 = 国内镜像 (gh-proxy)
     fun getUpdateMirror(ctx: Context) = getSp(ctx).getInt("update_mirror", 0)
     fun setUpdateMirror(ctx: Context, mirror: Int) = getSp(ctx).edit().putInt("update_mirror", mirror).commit()
+
+    /** 获取是否开启自动检测更新 */
+    fun getAutoCheckUpdate(ctx: Context) = getSp(ctx).getBoolean("auto_check_update", true)
+    
+    /** 设置是否开启自动检测更新 */
+    fun setAutoCheckUpdate(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("auto_check_update", enabled).apply()
+
+    /** 获取上次自动检查更新的时间戳 */
+    fun getLastUpdateCheckTime(ctx: Context) = getSp(ctx).getLong("last_update_check_time", 0L)
+
+    /** 保存本次自动检查更新的时间戳 */
+    fun setLastUpdateCheckTime(ctx: Context, time: Long) = getSp(ctx).edit().putLong("last_update_check_time", time).apply()
+
+    // ==================== 自定义背景图片 ====================
+    /** 获取自定义背景图片 URI（空字符串=未设置） */
+    fun getBgImageUri(ctx: Context) = getSp(ctx).getString("bg_image_uri", "") ?: ""
+
+    /** 保存自定义背景图片 URI */
+    fun setBgImageUri(ctx: Context, uri: String) = getSp(ctx).edit().putString("bg_image_uri", uri).apply()
+
+    /** 清除自定义背景图片 */
+    fun clearBgImageUri(ctx: Context) = getSp(ctx).edit().remove("bg_image_uri").apply()
+
+    // ==================== 小组件自定义背景 ====================
+    /** 获取小组件自定义背景图片 URI（空字符串=未设置） */
+    fun getWidgetBgImageUri(ctx: Context) = getSp(ctx).getString("widget_bg_image_uri", "") ?: ""
+
+    /** 保存小组件自定义背景图片 URI */
+    fun setWidgetBgImageUri(ctx: Context, uri: String) = getSp(ctx).edit().putString("widget_bg_image_uri", uri).apply()
+
+    /** 清除小组件自定义背景图片 */
+    fun clearWidgetBgImageUri(ctx: Context) = getSp(ctx).edit().remove("widget_bg_image_uri").apply()
+
+    // ==================== 设备平台缓存（AT+CGMI 探测结果） ====================
+    // "spreadtrum" | "quectel" | "" (未探测)
+    fun getCachedPlatform(ctx: Context) = getSp(ctx).getString("device_platform", "") ?: ""
+    fun setCachedPlatform(ctx: Context, platform: String) = getSp(ctx).edit().putString("device_platform", platform).apply()
+
+    /** 获取小组件背景透明度（0-100，默认 100 = 完全不透明） */
+    fun getWidgetBgOpacity(ctx: Context) = getSp(ctx).getInt("widget_bg_opacity", 100)
+
+    /** 保存小组件背景透明度 */
+    fun setWidgetBgOpacity(ctx: Context, opacity: Int) = getSp(ctx).edit().putInt("widget_bg_opacity", opacity).apply()
+
 }

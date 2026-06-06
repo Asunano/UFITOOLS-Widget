@@ -3,9 +3,88 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/sakura_bg"
+    android:background="@color/page_bg"
     android:orientation="vertical"
     android:fitsSystemWindows="true">
+
+    <!-- 崩溃提示横幅（默认隐藏，崩溃模式下显示） -->
+    <LinearLayout
+        android:id="@+id/crash_banner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#FFE0B2"
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:visibility="gone"
+        android:layout_marginHorizontal="12dp"
+        android:layout_marginTop="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="⚠️ 检测到应用异常崩溃"
+                android:textColor="#BF360C"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_crash_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#BF360C"
+                android:textSize="11sp"
+                android:alpha="0.8" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_crash_summary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="崩溃摘要..."
+            android:textColor="#5D4037"
+            android:textSize="11sp"
+            android:maxLines="3"
+            android:ellipsize="end" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal"
+            android:gravity="end">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_crash_ignore"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="忽略"
+                android:textSize="12sp"
+                android:textColor="#795548"
+                android:layout_marginEnd="8dp"
+                app:cornerRadius="8dp"
+                app:strokeColor="#795548" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_crash_save"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="保存并分享日志"
+                android:textSize="12sp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                app:cornerRadius="8dp"
+                app:backgroundTint="#E65100" />
+        </LinearLayout>
+    </LinearLayout>
 
     <!-- 顶部栏 -->
     <FrameLayout
@@ -21,8 +100,7 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:layout_gravity="start|center_vertical"
-            app:icon="@drawable/ic_arrow_back"
-            app:iconTint="@color/text_main" />
+            app:icon="@drawable/ic_arrow_back" />
 
         <LinearLayout
             android:layout_width="wrap_content"
@@ -34,7 +112,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="调试日志"
+                android:text="诊断中心"
                 android:textColor="@color/text_main"
                 android:textSize="20sp"
                 android:textStyle="bold" />
@@ -57,15 +135,86 @@
             android:layout_gravity="end|center_vertical" />
     </FrameLayout>
 
+    <!-- 诊断分类标签 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="12dp"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal"
+        android:gravity="center">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_cat_sys"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="系统信息"
+            android:textSize="12sp"
+            android:textColor="@color/text_main"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_cat_api"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="API日志"
+            android:textSize="12sp"
+            android:textColor="@color/text_main"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_cat_ui"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="UI诊断"
+            android:textSize="12sp"
+            android:textColor="@color/text_main"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_cat_exc"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="异常"
+            android:textSize="12sp"
+            android:textColor="@color/text_main"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_cat_full"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="全量"
+            android:textSize="12sp"
+            android:textColor="@color/text_main"
+            android:insetTop="0dp"
+            android:insetBottom="0dp" />
+    </LinearLayout>
+
     <!-- 操作按钮卡片 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginHorizontal="16dp"
-        android:layout_marginTop="8dp"
+        android:layout_marginHorizontal="12dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="2dp"
         android:background="@drawable/bg_widget_card"
         android:orientation="horizontal"
-        android:padding="8dp"
+        android:padding="6dp"
         android:gravity="center">
 
         <LinearLayout
@@ -75,22 +224,21 @@
             android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical"
-            android:paddingVertical="8dp"
+            android:paddingVertical="4dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackground">
             <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:src="@android:drawable/ic_popup_sync"
-                app:tint="@color/text_main" />
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@android:drawable/ic_popup_sync" />
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="2dp"
                 android:text="刷新"
                 android:textColor="@color/text_main"
-                android:textSize="10sp" />
+                android:textSize="9sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -100,47 +248,45 @@
             android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical"
-            android:paddingVertical="8dp"
+            android:paddingVertical="4dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackground">
             <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:src="@android:drawable/ic_menu_edit"
-                app:tint="@color/text_main" />
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@android:drawable/ic_menu_edit" />
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="2dp"
                 android:text="复制"
                 android:textColor="@color/text_main"
-                android:textSize="10sp" />
+                android:textSize="9sp" />
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/btn_dump_state"
+            android:id="@+id/btn_ui_snapshot"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical"
-            android:paddingVertical="8dp"
+            android:paddingVertical="4dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackground">
             <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:src="@android:drawable/ic_menu_info_details"
-                app:tint="@color/text_main" />
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@android:drawable/ic_menu_view" />
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="快照"
+                android:layout_marginTop="2dp"
+                android:text="UI快照"
                 android:textColor="@color/text_main"
-                android:textSize="10sp" />
+                android:textSize="9sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -150,22 +296,21 @@
             android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical"
-            android:paddingVertical="8dp"
+            android:paddingVertical="4dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackground">
             <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:src="@android:drawable/ic_menu_share"
-                app:tint="@color/text_main" />
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@android:drawable/ic_menu_share" />
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="分享"
+                android:layout_marginTop="2dp"
+                android:text="全量分享"
                 android:textColor="@color/text_main"
-                android:textSize="10sp" />
+                android:textSize="9sp" />
         </LinearLayout>
 
         <LinearLayout
@@ -175,22 +320,21 @@
             android:layout_weight="1"
             android:gravity="center"
             android:orientation="vertical"
-            android:paddingVertical="8dp"
+            android:paddingVertical="4dp"
             android:clickable="true"
             android:focusable="true"
             android:background="?attr/selectableItemBackground">
             <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:src="@android:drawable/ic_menu_delete"
-                app:tint="@color/text_main" />
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@android:drawable/ic_menu_delete" />
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="2dp"
                 android:text="清空"
                 android:textColor="@color/text_main"
-                android:textSize="10sp" />
+                android:textSize="9sp" />
         </LinearLayout>
     </LinearLayout>
 
@@ -199,7 +343,8 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_margin="16dp"
+        android:layout_marginHorizontal="12dp"
+        android:layout_marginBottom="12dp"
         android:background="@drawable/bg_widget_card"
         android:padding="2dp">
 
@@ -221,7 +366,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:fontFamily="monospace"
-                    android:text="(暂无日志)"
+                    android:text="(选择上方诊断类别查看信息)"
                     android:textColor="@color/text_main"
                     android:textSize="10sp"
                     android:lineSpacingExtra="2dp"

@@ -28,7 +28,6 @@ object NetUtil {
     }
 
     const val BASE_URL = "http://192.168.0.1:2333"
-    private const val SECRET_KEY = "minikano_kOyXz0Ciz4V7wR0IeKmJFYFQ20jd"
 
     fun saveCookies(host: String, cookies: List<Cookie>) {
         cookieStore[host] = cookies
@@ -66,12 +65,12 @@ object NetUtil {
      *   → SHA256(part1) + SHA256(part2) = 64 bytes
      *   → SHA256(64 bytes) → hex
      */
-    fun generateKanoSign(method: String, path: String, timestamp: Long): String {
+    fun generateKanoSign(method: String, path: String, timestamp: Long, context: android.content.Context): String {
         // 1. 构造 rawData
         val rawData = "minikano${method.uppercase()}$path$timestamp"
         
-        // 2. HMAC-MD5 加密 → 16 字节
-        val hmacBytes = hmacMd5(rawData, SECRET_KEY)
+        // 2. HMAC-MD5 加密 → 16 字节（使用用户配置的密钥）
+        val hmacBytes = hmacMd5(rawData, SPUtil.getSecretKey(context))
         
         // 3. 将 HMAC-MD5 的原始字节二分为两部分 (各 8 字节)
         val mid = hmacBytes.size / 2  // 16 / 2 = 8

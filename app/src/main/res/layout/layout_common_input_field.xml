@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView
+        android:id="@+id/common_input_title"
+        style="@style/AppText.Title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="标题" />
+
+    <TextView
+        android:id="@+id/common_input_subtitle"
+        style="@style/AppText.Subtitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="辅助说明文本" />
+
+    <FrameLayout
+        android:id="@+id/common_input_container"
+        style="@style/AppInputContainer">
+
+        <EditText
+            android:id="@+id/common_input_edit_text"
+            style="@style/AppEditText"
+            android:hint="请输入内容" />
+    </FrameLayout>
+</LinearLayout>

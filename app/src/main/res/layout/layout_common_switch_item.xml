@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    style="@style/AppCard"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <ImageView
+        android:id="@+id/common_item_icon"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:src="@drawable/ic_settings" />
+
+    <TextView
+        android:id="@+id/common_switch_label"
+        style="@style/AppText.Title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="14dp"
+        android:layout_weight="1"
+        android:text="标题" />
+
+    <FrameLayout
+        android:id="@+id/common_switch_track"
+        android:layout_width="42dp"
+        android:layout_height="24dp"
+        android:background="@drawable/bg_common_switch_track_off"
+        android:clickable="true"
+        android:focusable="true">
+
+        <View
+            android:id="@+id/common_switch_thumb"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_gravity="center_vertical|start"
+            android:layout_marginStart="3dp"
+            android:background="@drawable/bg_widget_mask"
+            android:elevation="1dp" />
+    </FrameLayout>
+</LinearLayout>

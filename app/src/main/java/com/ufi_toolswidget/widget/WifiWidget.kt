@@ -6,6 +6,17 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
+
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -250,19 +261,63 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             try { rv.setInt(id, "setColorFilter", color) } catch (_: Exception) {}
         }
 
-        /** 根据主题模式设置小组件背景和文字颜色（背景跟随主界面 pageBg，颜色两级制简洁统一） */
+        /** 根据主题模式设置小组件背景和文字颜色（支持自定义背景图 + 透明度） */
         private fun applyWidgetTheme(context: Context, rv: RemoteViews) {
             val isDark = SPUtil.isWidgetDark(context)
-            val themeId = SPUtil.getSp(context).getInt("color_theme", 0)
-            val palette = ThemeColors.getById(context, themeId)
+            
+            // 决定颜色主题：跟随应用或使用独立设置
+            val themeId = if (SPUtil.getWidgetFollowAppTheme(context)) {
+                SPUtil.getColorThemeIndex(context)
+            } else {
+                SPUtil.getWidgetColorThemeIndex(context)
+            }
+
+            val palette = ThemeColors.getById(context, themeId, isWidget = true)
 
             // 根据浅/深选择色值
             val pageBg = if (isDark) palette.pageBgDark else palette.pageBgLight
             val textColor = if (isDark) palette.textSecondaryDark else palette.textSecondaryLight
             val divider = if (isDark) palette.dividerDark else palette.dividerLight
 
-            // 根容器背景 → 使用主界面背景色（与主界面主题一致）
-            rv.setInt(R.id.widget_root, "setBackgroundColor", pageBg)
+            // ── 背景处理 ──
+            // 替换根容器背景为透明圆角 drawable，保持 clipToOutline 圆角裁剪轮廓
+            rv.setInt(R.id.widget_root, "setBackgroundResource", R.drawable.bg_widget_mask_transparent)
+
+            val bgImageUri = SPUtil.getWidgetBgImageUri(context)
+            val opacity = SPUtil.getWidgetBgOpacity(context)
+            val alpha = (opacity / 100f * 255).toInt()
+
+            // ── 背景图生成 ──
+            var bgBitmap: Bitmap? = null
+
+            if (bgImageUri.isNotBlank()) {
+                bgBitmap = try {
+                    loadResizedBitmap(context, bgImageUri, cornerRadiusDp = 20f)
+                } catch (_: Exception) { null }
+            }
+
+            if (bgBitmap != null) {
+                rv.setImageViewBitmap(R.id.widget_bg_image, bgBitmap)
+                rv.setInt(R.id.widget_bg_image, "setColorFilter", Color.TRANSPARENT)
+            } else {
+                // 无自定义背景图 → 纯色圆角 bitmap
+                val solidBitmap = createSolidRoundedBitmap(context, pageBg, cornerRadiusDp = 20f)
+                if (solidBitmap != null) {
+                    rv.setImageViewBitmap(R.id.widget_bg_image, solidBitmap)
+                    rv.setInt(R.id.widget_bg_image, "setColorFilter", Color.TRANSPARENT)
+                } else {
+                    rv.setImageViewResource(R.id.widget_bg_image, R.drawable.bg_widget_mask)
+                    rv.setInt(R.id.widget_bg_image, "setColorFilter", pageBg)
+                }
+            }
+            
+            // 应用透明度（作用于背景层）
+            rv.setInt(R.id.widget_bg_image, "setImageAlpha", alpha)
+            
+            // 描边层
+            rv.setImageViewResource(R.id.widget_bg_stroke, R.drawable.bg_widget_stroke)
+            rv.setInt(R.id.widget_bg_stroke, "setColorFilter", divider)
+            rv.setInt(R.id.widget_bg_stroke, "setImageAlpha", alpha)
 
             // ── 文字色（统一）──
             for (id in listOf(
@@ -307,6 +362,105 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
                 }
             } catch (_: Exception) { 0 }
         }
+
+        /** 安全加载、缩放并圆角化背景图，防止 RemoteViews 超过 1MB 崩溃 */
+        private fun loadResizedBitmap(context: Context, uriString: String, cornerRadiusDp: Float = 0f): Bitmap? {
+            return try {
+                val uri = Uri.parse(uriString)
+                val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+                
+                // 1. 获取图片原始尺寸
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeStream(inputStream, null, options)
+                inputStream.close()
+
+                // 2. 计算缩放比例 (目标尺寸约 800x400，足以应对 4x2 组件)
+                val targetW = 800
+                val targetH = 400
+                var inSampleSize = 1
+                if (options.outHeight > targetH || options.outWidth > targetW) {
+                    val halfHeight = options.outHeight / 2
+                    val halfWidth = options.outWidth / 2
+                    while (halfHeight / inSampleSize >= targetH && halfWidth / inSampleSize >= targetW) {
+                        inSampleSize *= 2
+                    }
+                }
+
+                // 3. 按比例加载
+                val finalInputStream = context.contentResolver.openInputStream(uri) ?: return null
+                val rawBitmap = BitmapFactory.decodeStream(finalInputStream, null, BitmapFactory.Options().apply {
+                    this.inSampleSize = inSampleSize
+                })
+                finalInputStream.close()
+
+                // 4. 应用圆角（如果指定了 cornerRadiusDp > 0）
+                if (cornerRadiusDp > 0f && rawBitmap != null) {
+                    applyRoundedCorners(context, rawBitmap, cornerRadiusDp)
+                } else {
+                    rawBitmap
+                }
+            } catch (e: Exception) {
+                Log.e("WifiWidget", "loadResizedBitmap failed: ${e.message}")
+                null
+            }
+        }
+
+        /** 给 bitmap 添加圆角，crop 到圆角矩形区域（防御性实现，多重校验） */
+        private fun applyRoundedCorners(context: Context, source: Bitmap, radiusDp: Float): Bitmap {
+            // 防御：bitmap 已回收或尺寸无效则直接返回
+            if (source.isRecycled) {
+                Log.w("WifiWidget", "applyRoundedCorners: source bitmap is already recycled")
+                return source
+            }
+            val w = source.width
+            val h = source.height
+            if (w <= 0 || h <= 0) {
+                Log.w("WifiWidget", "applyRoundedCorners: invalid bitmap size ${w}x${h}")
+                return source
+            }
+
+            val radius = (radiusDp * context.resources.displayMetrics.density)
+                .coerceAtMost((w.coerceAtMost(h) / 2f)) // 防止圆角半径超过图片尺寸
+
+            return try {
+                val output = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(output)
+
+                // 绘制圆角矩形遮罩
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+                val rect = RectF(0f, 0f, w.toFloat(), h.toFloat())
+                canvas.drawRoundRect(rect, radius, radius, paint)
+
+                // 用 SRC_IN 混合模式将原图裁剪到圆角区域内
+                paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+                canvas.drawBitmap(source, 0f, 0f, paint)
+
+                // 回收原图避免浪费（只有不同于 output 才回收）
+                if (source !== output) source.recycle()
+
+                output
+            } catch (e: Exception) {
+                Log.e("WifiWidget", "applyRoundedCorners failed: ${e.message}, returning original")
+                source // 圆角化失败则返回原图
+            }
+        }
+
+        /** 生成指定颜色的圆角纯色 bitmap，供普通模式使用（与自定义图走同一防护管线） */
+        private fun createSolidRoundedBitmap(context: Context, color: Int, cornerRadiusDp: Float): Bitmap? {
+            return try {
+                // 小组件推荐尺寸 (4x2 cells: ~250dp × 110dp)，用 800×400 确保清晰度
+                val targetW = 800
+                val targetH = 400
+                val source = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+                source.eraseColor(color)
+                applyRoundedCorners(context, source, cornerRadiusDp)
+            } catch (e: Exception) {
+                Log.e("WifiWidget", "createSolidRoundedBitmap failed: ${e.message}")
+                null
+            }
+        }
+
+
     }
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {

@@ -9,17 +9,13 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
@@ -43,6 +39,9 @@ class AboutActivity : AppCompatActivity() {
     private var downloadId: Long = -1
     private var downloadReceiver: BroadcastReceiver? = null
 
+    // 主题变更接收器
+    private var themeChangeReceiver: BroadcastReceiver? = null
+
     /** 调试模式：版本号点击计数 */
     private var versionClickCount = 0
     private var versionClickLastTime = 0L
@@ -53,13 +52,21 @@ class AboutActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_about)
-        BackgroundUtil.applyWindowBackground(this)
-        ThemeUtil.applyToSecondaryPage(this)
+        ThemeUtil.applyTheme(this, ThemeUtil.PageType.SECONDARY)
+        themeChangeReceiver = ThemeChangeNotifier.register(this) {
+            ThemeUtil.applyTheme(this@AboutActivity, ThemeUtil.PageType.SECONDARY)
+            refreshAppIcon()
+            currentMirror = SPUtil.getUpdateMirror(this@AboutActivity)
+            refreshMirrorChips()
+        }
+        
+        // 沉浸式入场动画：淡出旧画面截图
+        AnimationUtil.applyCrossfadeEnterFromRecreate(this)
+
         DebugLogger.init(this)
 
-        findViewById<View>(R.id.btn_back).setOnClickListener { finish() }
+        AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_back)) { finish() }
 
         // 加载应用图标并清除滤镜
         refreshAppIcon()
@@ -100,6 +107,13 @@ class AboutActivity : AppCompatActivity() {
             startActivity(intent)
         }
 
+        // 作者博客点击
+        findViewById<View>(R.id.card_blog).setOnClickListener {
+            val intent = Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://blog.drxian.cn/archives/1322"))
+            startActivity(intent)
+        }
+
         // 致谢链接点击
         findViewById<View>(R.id.tv_thanks_link)?.setOnClickListener {
             val intent = Intent(Intent.ACTION_VIEW,
@@ -111,9 +125,17 @@ class AboutActivity : AppCompatActivity() {
         initMirrorSelector()
 
         // 检查更新按钮
-        val btnCheck = findViewById<View>(R.id.btn_check_update)
+        val btnCheck = findViewById<MaterialButton>(R.id.btn_check_update)
         val tvUpdateStatus = findViewById<TextView>(R.id.tv_update_status)
         val progressUpdate = findViewById<ProgressBar>(R.id.progress_update)
+
+        // 自动检查更新开关
+        findViewById<View>(R.id.item_auto_update)?.apply {
+            findViewById<TextView>(R.id.common_switch_label).text = "启动时自动检查更新"
+            ThemeUtil.setupSwitch(this, SPUtil.getAutoCheckUpdate(this@AboutActivity)) { isChecked ->
+                SPUtil.setAutoCheckUpdate(this@AboutActivity, isChecked)
+            }
+        }
 
         btnCheck.apply {
             setOnClickListener {
@@ -208,21 +230,66 @@ class AboutActivity : AppCompatActivity() {
     /** 网络连接失败时弹窗提示切换国内镜像源 */
     private fun showMirrorSwitchDialog() {
         if (currentMirror == 1) return // 已经是镜像源，不再提示
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("网络连接失败")
-            .setMessage("当前使用 GitHub 官方源检查更新失败，可能是网络不通。\n\n是否切换至国内镜像源？切换后需重新点击「检查更新」。")
-            .setPositiveButton("切换至国内镜像") { _, _ ->
+        PopupViewUtil.showConfirmDialog(
+            this,
+            title = "网络连接失败",
+            message = "当前使用 GitHub 官方源检查更新失败，可能是网络不通。\n\n是否切换至国内镜像源？切换后需重新点击「检查更新」。",
+            primaryBtnText = "切换至国内镜像",
+            secondaryBtnText = "暂不切换",
+            onConfirm = {
                 currentMirror = 1
                 SPUtil.setUpdateMirror(this, 1)
                 refreshMirrorChips()
                 Toast.makeText(this, "已切换至国内镜像源，请重新检查更新", Toast.LENGTH_SHORT).show()
             }
-            .setNegativeButton("暂不切换", null)
-            .show()
+        )
     }
 
     /**
-     * 弹窗显示更新详情（基于 dialog_update.xml）
+     * 显示通用主题弹窗的公共逻辑 (Ported from MainActivity)
+     */
+    private fun showCommonDialog(
+        type: String,
+        title: String,
+        iconRes: Int,
+        onFill: (LinearLayout) -> Unit,
+        primaryBtnText: String = "关闭",
+        onPrimaryClick: ((Dialog) -> Unit)? = null,
+        secondaryBtnText: String? = null,
+        onSecondaryClick: ((Dialog) -> Unit)? = null
+    ): Dialog? {
+        val dialog = createThemedDialog(R.layout.layout_common_dialog, dialogType = type)
+        
+        dialog.findViewById<TextView>(R.id.common_dialog_title).text = title
+        dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(iconRes)
+        
+        val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
+        content.removeAllViews()
+        onFill(content)
+        
+        val btnPrimary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary)
+        btnPrimary.text = primaryBtnText
+        btnPrimary.setOnClickListener {
+            if (onPrimaryClick != null) onPrimaryClick(dialog) else dialog.dismiss()
+        }
+        
+        val btnSecondary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_secondary)
+        if (secondaryBtnText != null) {
+            btnSecondary.visibility = View.VISIBLE
+            btnSecondary.text = secondaryBtnText
+            btnSecondary.setOnClickListener {
+                onSecondaryClick?.invoke(dialog) ?: dialog.dismiss()
+            }
+        } else {
+            btnSecondary.visibility = View.GONE
+        }
+        
+        dialog.show()
+        return dialog
+    }
+
+    /**
+     * 弹窗显示更新详情
      */
     private fun showUpdateDialog(info: UpdateChecker.UpdateInfo) {
         val message = buildString {
@@ -237,20 +304,25 @@ class AboutActivity : AppCompatActivity() {
             }
         }
 
-        val dialog = createThemedDialog(R.layout.dialog_update, dialogType = "update")
-        dialog.findViewById<TextView>(R.id.dialog_update_message).text = message
-        dialog.findViewById<View>(R.id.dialog_update_btn_download).apply {
-            setOnClickListener {
-                dialog.dismiss()
+        showCommonDialog(
+            type = "update",
+            title = "更新可用",
+            iconRes = R.drawable.ic_check,
+            onFill = { content ->
+                content.addView(TextView(this).apply {
+                    text = message
+                    textSize = 13f
+                    setTextColor(ThemeColors.textPrimary(this@AboutActivity))
+                    setLineSpacing(0f, 1.4f)
+                })
+            },
+            primaryBtnText = "下载更新",
+            onPrimaryClick = { d ->
+                d.dismiss()
                 downloadAndInstall(info.apkUrl, info.tagName, info.apkSha256)
-            }
-            setOnTouchListener(ScaleTouchListener())
-        }
-        dialog.findViewById<View>(R.id.dialog_update_btn_later).apply {
-            setOnClickListener { dialog.dismiss() }
-            setOnTouchListener(ScaleTouchListener())
-        }
-        dialog.show()
+            },
+            secondaryBtnText = "稍后"
+        )
     }
 
     // ===== 弹窗框架 (Ported from MainActivity) =====
@@ -262,8 +334,6 @@ class AboutActivity : AppCompatActivity() {
         dismissActiveDialog()
 
         val dialog = object : Dialog(this) {
-            private var isDismissing = false
-
             fun realDismiss() {
                 super.dismiss()
                 activeDialog = null
@@ -271,13 +341,11 @@ class AboutActivity : AppCompatActivity() {
             }
 
             override fun dismiss() {
-                if (isDismissing || window == null) {
+                if (window == null) {
                     realDismiss()
                     return
                 }
-                isDismissing = true
-                activeDialogType = null 
-
+                activeDialogType = null
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     AnimationUtil.applyDialogBlurOut(this) { realDismiss() }
                 } else {
@@ -286,110 +354,19 @@ class AboutActivity : AppCompatActivity() {
             }
         }
 
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.setContentView(layoutRes)
-        applyThemeToDialogRoot(dialog)
+        PopupViewUtil.applyThemeToDialogRoot(this, dialog)
 
-        dialog.window?.apply {
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            setDimAmount(0f)
-            setWindowAnimations(R.style.DialogAnimationTheme)
-            setLayout(
-                (resources.displayMetrics.widthPixels * widthRatio).toInt(),
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        }
+        // ── 动态高度适配 ──
+        PopupViewUtil.autoAdjustDialogHeight(this, dialog, widthRatio)
 
-        applyDialogBlur(dialog)
-
-        dialog.setOnDismissListener {
-            activeDialog = null
-            activeDialogType = null
-        }
-        activeDialog = dialog
-        activeDialogType = dialogType
-        return dialog
-    }
-
-    private fun applyDialogBlur(dialog: Dialog) {
+        // ── 动态模糊背景：API 31+ 原生模糊 ──
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             AnimationUtil.applyDialogBlurIn(dialog)
-        } else {
-            applyLegacyBlur(dialog)
         }
-    }
 
-    private fun applyLegacyBlur(dialog: Dialog) {
-        try {
-            val rootView = window.decorView.rootView
-            val vw = rootView.width
-            val vh = rootView.height
-            if (vw <= 0 || vh <= 0) return
-            val capture = Bitmap.createBitmap(vw, vh, Bitmap.Config.ARGB_8888)
-            rootView.draw(Canvas(capture))
-            val smallW = (vw * 0.06f).toInt().coerceAtLeast(4)
-            val smallH = (vh * 0.06f).toInt().coerceAtLeast(4)
-            val small = Bitmap.createScaledBitmap(capture, smallW, smallH, true)
-            capture.recycle()
-            val blurred = Bitmap.createScaledBitmap(small, vw, vh, true)
-            small.recycle()
-            dialog.window?.setBackgroundDrawable(BitmapDrawable(resources, blurred))
-        } catch (e: Exception) {
-            Log.w(TAG, "Legacy blur failed: ${e.message}")
-        }
-    }
-
-    private fun applyThemeToDialogRoot(dialog: Dialog) {
-        val root = dialog.findViewById<ViewGroup>(android.R.id.content)
-            ?.let { if (it.childCount > 0) it.getChildAt(0) as? ViewGroup else it } ?: return
-        val textPrimary = ThemeColors.textPrimary(this)
-        val textSecondary = ThemeColors.textSecondary(this)
-        val accent = ThemeColors.accent(this)
-        val cardBg = ThemeColors.cardBg(this)
-
-        val borderColor = if (SPUtil.getNightMode(this) == AppCompatDelegate.MODE_NIGHT_YES)
-            0x4DFFFFFF.toInt() else 0x35000000
-        root.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(cardBg)
-            cornerRadius = 16f
-            setStroke(2, borderColor)
-        }
-        root.elevation = 24f
-
-        applyThemeToViewTree(root, textPrimary, textSecondary, accent)
-    }
-
-    private fun applyThemeToViewTree(parent: ViewGroup, textPrimary: Int, textSecondary: Int, accent: Int) {
-        for (i in 0 until parent.childCount) {
-            val child = parent.getChildAt(i)
-            when (child) {
-                is MaterialButton -> {
-                    if (child.strokeWidth > 0) {
-                        child.setTextColor(textPrimary)
-                        child.strokeColor = ColorStateList.valueOf(textSecondary)
-                        child.iconTint = ColorStateList.valueOf(accent)
-                    } else {
-                        child.backgroundTintList = ColorStateList.valueOf(accent)
-                        child.setTextColor(0xFFFFFFFF.toInt())
-                        child.iconTint = ColorStateList.valueOf(0xFFFFFFFF.toInt())
-                    }
-                }
-                is Button -> {
-                    child.backgroundTintList = ColorStateList.valueOf(accent)
-                    child.setTextColor(0xFFFFFFFF.toInt())
-                }
-                is TextView -> {
-                    child.setTextColor(if (child.textSize <= 13f) textSecondary else textPrimary)
-                }
-                is ImageView -> {
-                    child.setColorFilter(accent)
-                }
-                is ViewGroup -> {
-                    applyThemeToViewTree(child, textPrimary, textSecondary, accent)
-                }
-            }
-        }
+        dialog.show()
+        return dialog
     }
 
     private fun dismissActiveDialog() {
@@ -507,8 +484,7 @@ class AboutActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        BackgroundUtil.applyWindowBackground(this)
-        ThemeUtil.applyToSecondaryPage(this)
+        ThemeUtil.applyTheme(this, ThemeUtil.PageType.SECONDARY)
         refreshAppIcon()
         currentMirror = SPUtil.getUpdateMirror(this)
         refreshMirrorChips()
@@ -527,6 +503,7 @@ class AboutActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        ThemeChangeNotifier.unregister(this, themeChangeReceiver)
         downloadReceiver?.let { unregisterReceiver(it) }
         super.onDestroy()
     }

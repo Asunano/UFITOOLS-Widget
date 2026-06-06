@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 卡片主体: 纯白 16dp圆角 -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/card_bg" />
+            <corners android:radius="16dp" />
+        </shape>
+    </item>
+    <!-- 顶部装饰色条: 2dp 高, 与卡片顶部对齐 -->
+    <item
+        android:top="0dp"
+        android:left="0dp"
+        android:right="0dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/accent" />
+            <corners
+                android:topLeftRadius="16dp"
+                android:topRightRadius="16dp" />
+        </shape>
+        <size android:height="3dp" />
+    </item>
+</layer-list>

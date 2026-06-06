@@ -12,7 +12,11 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:fillViewport="true"
-        android:scrollbars="none"
+        android:scrollbars="vertical"
+        android:scrollbarThumbVertical="@drawable/scrollbar_thumb"
+        android:scrollbarSize="4dp"
+        android:scrollbarStyle="outsideOverlay"
+        android:fadeScrollbars="true"
         android:clipToPadding="false"
         android:fitsSystemWindows="true"
         android:visibility="visible">
@@ -39,10 +43,11 @@
                     android:paddingBottom="24dp">
 
                     <TextView
+                        android:id="@+id/loading_title"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="UFITOOLS-Widget"
-                        android:textColor="@color/text_main"
+                        android:textColor="@color/text_sub"
                         android:textSize="28sp"
                         android:textStyle="bold"
                         android:letterSpacing="0.04" />
@@ -53,8 +58,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
                         android:text="正在连接设备..."
-                        android:textColor="@color/text_main"
-                        android:alpha="0.45"
+                        android:textColor="@color/text_sub"
                         android:textSize="13sp" />
                 </LinearLayout>
             </FrameLayout>
@@ -74,15 +78,15 @@
                     android:layout_width="36dp"
                     android:layout_height="36dp"
                     android:indeterminate="true"
-                    android:indeterminateTint="@color/sakura_dark" />
+                    android:indeterminateTint="@color/accent" />
 
                 <TextView
+                    android:id="@+id/loading_hint"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="18dp"
                     android:text="请稍候"
-                    android:textColor="@color/text_main"
-                    android:alpha="0.35"
+                    android:textColor="@color/text_sub"
                     android:textSize="14sp" />
             </LinearLayout>
 
@@ -187,6 +191,7 @@
                 android:clipToPadding="false">
 
                 <TextView
+                    android:id="@+id/tv_section_network"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="10dp"
@@ -415,7 +420,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0.00GB"
-                            android:textColor="@color/text_sakura"
+                            android:textColor="@color/accent"
                             android:textSize="24sp"
                             android:textStyle="bold" />
                         <TextView
@@ -444,7 +449,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0.00GB"
-                            android:textColor="@color/text_sakura"
+                            android:textColor="@color/accent"
                             android:textSize="24sp"
                             android:textStyle="bold" />
                         <TextView
@@ -514,12 +519,16 @@
                     </LinearLayout>
 
                     <LinearLayout
+                        android:id="@+id/main_item_firmware"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
                         android:gravity="center"
                         android:orientation="vertical"
-                        android:padding="6dp">
+                        android:padding="6dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackground">
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
@@ -571,16 +580,20 @@
                     </LinearLayout>
 
                     <LinearLayout
+                        android:id="@+id/main_item_ip"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_columnWeight="1"
                         android:gravity="center"
                         android:orientation="vertical"
-                        android:padding="6dp">
+                        android:padding="6dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackground">
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="设备 IP"
+                            android:text="网络地址"
                             android:textColor="@color/text_sub"
                             android:textSize="11sp" />
                         <TextView
@@ -595,28 +608,13 @@
                 </GridLayout>
             </LinearLayout>
 
-            <!-- 检查更新按钮（重构为 FrameLayout + TextView 确保动画完全可控） -->
-            <FrameLayout
+            <!-- 检查更新按钮 -->
+            <include
+                layout="@layout/layout_common_action_button"
                 android:id="@+id/btn_check_update"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
-                android:layout_marginTop="12dp"
-                android:clickable="true"
-                android:focusable="true">
-                <TextView
-                    android:id="@+id/btn_check_update_text"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:background="@drawable/bg_btn_primary"
-                    android:gravity="center"
-                    android:text="检查更新"
-                    android:textColor="#FFFFFF"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:clickable="false"
-                    android:focusable="false"
-                    android:duplicateParentState="true" />
-            </FrameLayout>
+                android:layout_marginTop="12dp" />
 
         </LinearLayout>
     </LinearLayout>

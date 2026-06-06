@@ -3,6 +3,7 @@ package com.ufi_toolswidget.util
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -32,29 +33,36 @@ object WifiCrawl {
             val auth = SPUtil.getAuthToken(context)
             val baseUrl = SPUtil.buildBaseUrl(context)
             
-            DebugLogger.i(TAG, "Starting data refresh from $baseUrl")
+            DebugLogger.logApi(TAG, "Starting data refresh from $baseUrl")
 
             // 1. 获取系统全量信息 (需认证)
-            val baseInfo = fetchApi("/api/baseDeviceInfo", t, auth, context)
+            val baseInfo = fetchApi(SPUtil.getDeviceInfoPath(context), t, auth, context)
             if (baseInfo == null) {
-                DebugLogger.e(TAG, "Failed to fetch baseDeviceInfo: $lastError")
+                DebugLogger.logApiErr(TAG, "Failed to fetch baseDeviceInfo: $lastError")
                 return@withContext null
             }
             
-            // 2, 3, 4 并行获取
+            // 2-6 并行获取
             val signalDeferred = async { 
-                fetchApi("/api/goform/goform_get_cmd_process?is_all=true&cmd=lte_rsrp,Z5g_rsrp,network_type,rssi", t, auth, context)
+                fetchApi("${SPUtil.getGoformCommandPath(context)}?is_all=true&cmd=lte_rsrp,Z5g_rsrp,network_type,rssi", t, auth, context)
             }
-            val versionDeferred = async { fetchApiNoAuth("/api/version_info", t, context) }
-            val tokenDeferred = async { fetchApiNoAuth("/api/need_token", t, context) }
+            val goformDeviceDeferred = async {
+                fetchApi("${SPUtil.getGoformCommandPath(context)}?is_all=true&cmd=wan_ipaddr,ipv6_wan_ipaddr,pdp_type,imei,imsi,iccid,hardware_version,web_version,mac_address,pin_status", t, auth, context)
+            }
+            val versionDeferred = async { fetchApiNoAuth(SPUtil.getVersionInfoPath(context), t, context) }
+            val tokenDeferred = async { fetchApiNoAuth(SPUtil.getNeedTokenPath(context), t, context) }
             val atNetworkDeferred = async { fetchAtNetworkInfo(t, auth, context) }
 
             val signalInfo = signalDeferred.await()
+            val goformDeviceInfo = goformDeviceDeferred.await()
             val versionInfo = versionDeferred.await()
             val tokenInfo = tokenDeferred.await()
-            val atNetworkInfo = atNetworkDeferred.await()
+            var atNetworkInfo = atNetworkDeferred.await()
 
-            DebugLogger.d(TAG, "Parallel tasks finished. atNetworkInfo success=${atNetworkInfo != null}")
+            // Goform 诊断日志
+            DebugLogger.logApi(TAG, "Goform signal check: success=${signalInfo != null}")
+            DebugLogger.logApi(TAG, "Goform device info: success=${goformDeviceInfo != null}")
+            DebugLogger.logApi(TAG, "Parallel tasks finished. atNetworkInfo success=${atNetworkInfo != null}")
 
             // --- 精准解析 ---
             val model = baseInfo.optString("model", "F50")
@@ -62,29 +70,44 @@ object WifiCrawl {
             val cpuUsage = baseInfo.optDouble("cpu_usage", 0.0)
             val memUsage = baseInfo.optDouble("mem_usage", 0.0)
             
-            // 日流量 (daily_data 来自 baseDeviceInfo，可能是多种字段名)
-            val dailyRaw = extractTrafficBytes(baseInfo, "daily_data", "daily_tx_bytes", "daily_rx_bytes", "day_data")
+            // === Goform 设备身份+网络地址 ===
+            val wanIp = goformDeviceInfo?.optString("wan_ipaddr", "") ?: ""
+            val wanIpv6 = goformDeviceInfo?.optString("ipv6_wan_ipaddr", "") ?: ""
+            val pdpType = goformDeviceInfo?.optString("pdp_type", "") ?: ""
+            val goformImei = goformDeviceInfo?.optString("imei", "") ?: ""
+            val goformImsi = goformDeviceInfo?.optString("imsi", "") ?: ""
+            val goformIccid = goformDeviceInfo?.optString("iccid", "") ?: ""
+            val hwVersion = goformDeviceInfo?.optString("hardware_version", "") ?: ""
+            val wbVersion = goformDeviceInfo?.optString("web_version", "") ?: ""
+            val macAddr = goformDeviceInfo?.optString("mac_address", "") ?: ""
+            val pinStatusCode = goformDeviceInfo?.optInt("pin_status", -1) ?: -1
 
-            // 月流量：从 baseDeviceInfo 中尝试提取（优先级最高）
-            var monthlyRaw = extractTrafficBytes(baseInfo, "monthly_data", "monthly_tx_bytes", "monthly_rx_bytes", "month_data", "total_data")
-            
-            // 如果 baseDeviceInfo 中没有月流量，尝试从 goform 代理获取
-            if (monthlyRaw <= 0) {
-                val monthlyInfo = fetchApi("/api/goform/goform_get_cmd_process?is_all=true&cmd=monthly_data", t, auth, context)
-                val monthlyFromGoform = extractTrafficBytes(monthlyInfo, "monthly_data", "monthly_tx_bytes", "monthly_rx_bytes", "month_data")
-                if (monthlyFromGoform > 0) {
-                    monthlyRaw = monthlyFromGoform
+            // ── 补全运营商名称：如果 AT 命令没拿到，尝试通过 Goform 的 IMSI 识别 ──
+            if (atNetworkInfo != null && atNetworkInfo.carrier.isEmpty() && goformImsi.isNotEmpty()) {
+                val derived = mapPlmnToCarrier(goformImsi)
+                if (derived.isNotEmpty()) {
+                    atNetworkInfo = atNetworkInfo.copy(carrier = derived)
                 }
             }
-            
-            // 如果 API 都没返回月流量，用缓存
+
+            // --- 流量提取 (仅从 baseDeviceInfo) ---
+            val dTx = extractTrafficBytes(baseInfo, "daily_tx_bytes")
+            val dRx = extractTrafficBytes(baseInfo, "daily_rx_bytes")
+            val dTotal = extractTrafficBytes(baseInfo, "daily_data", "day_data")
+            val dailyRaw = if (dTotal > 0) dTotal else (dTx + dRx)
+
+            val mTx = extractTrafficBytes(baseInfo, "monthly_tx_bytes")
+            val mRx = extractTrafficBytes(baseInfo, "monthly_rx_bytes")
+            val mTotal = extractTrafficBytes(baseInfo, "monthly_data", "month_data", "total_data")
+            var monthlyRaw = if (mTotal > 0) mTotal else (mTx + mRx)
+
+            // 如果 API 没返回月流量，用缓存
             if (monthlyRaw <= 0) {
                 monthlyRaw = SPUtil.getCachedMonthlyData(context)
             } else {
                 SPUtil.setCachedMonthlyData(context, monthlyRaw)
             }
-            
-            Log.d(TAG, "dailyRaw=$dailyRaw, monthlyRaw=$monthlyRaw")
+            Log.d(TAG, "dailyRaw=$dailyRaw, monthlyRaw=$monthlyRaw (tx=$mTx, rx=$mRx)")
             
             // 温度 (60620 -> 60.6)
             val tempRaw = baseInfo.optDouble("cpu_temp", 0.0)
@@ -200,8 +223,24 @@ object WifiCrawl {
                 memUsedKb = memUsedKb,
                 swapTotalKb = swapTotalKb,
                 swapUsedKb = swapUsedKb,
-                swapFreeKb = swapFreeKb
+                swapFreeKb = swapFreeKb,
+                // === Goform 新增字段 ===
+                wanIp = wanIp,
+                wanIpv6 = wanIpv6,
+                pdpTypeGoform = pdpType,
+                goformImei = goformImei,
+                goformImsi = goformImsi,
+                goformIccid = goformIccid,
+                hardwareVersion = hwVersion,
+                webVersion = wbVersion,
+                macAddress = macAddr,
+                pinStatusCode = pinStatusCode,
+                monthlyUploadBytes = mTx,
+                monthlyDownloadBytes = mRx
             )
+        } catch (e: CancellationException) {
+            // 协程被取消 → 不视为错误，直接重新抛出让协程栈正确处理
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
             lastError = "Parse Error: ${e.message}"
@@ -229,7 +268,7 @@ object WifiCrawl {
 
     private suspend fun fetchApi(path: String, t: Long, auth: String, context: Context): JSONObject? {
         val purePath = if (path.contains("?")) path.substringBefore("?") else path
-        val sign = NetUtil.generateKanoSign("GET", purePath, t)
+        val sign = NetUtil.generateKanoSign("GET", purePath, t, context)
         
         val baseUrl = SPUtil.buildBaseUrl(context).trimEnd('/')
         val req = Request.Builder()
@@ -241,7 +280,7 @@ object WifiCrawl {
             
         val resp = executeRequest(req) ?: run {
             lastError = "Network error (timeout or unreachable)"
-            DebugLogger.e(TAG, "Request failed: $baseUrl$path - $lastError")
+            DebugLogger.logApiErr(TAG, "Request failed: $baseUrl$path - $lastError")
             return null
         }
         return resp.use { response ->
@@ -249,11 +288,11 @@ object WifiCrawl {
             lastRawResponse = content
             
             if (response.isSuccessful && content.isNotEmpty()) {
-                DebugLogger.d(TAG, "API Success [$path], code=${response.code}, resp=$content")
+                DebugLogger.logApi(TAG, "API Success [$path], code=${response.code}, resp=$content")
                 JSONObject(content)
             } else {
                 lastError = "HTTP ${response.code} on $purePath"
-                DebugLogger.w(TAG, "API Error [$path], code=${response.code}, resp=$content")
+                DebugLogger.logApiErr(TAG, "API Error [$path], code=${response.code}, resp=$content")
                 null
             }
         }
@@ -261,7 +300,7 @@ object WifiCrawl {
 
     /** 无需认证的 API 请求 (version_info / need_token) */
     private suspend fun fetchApiNoAuth(path: String, t: Long, context: Context): JSONObject? {
-        val sign = NetUtil.generateKanoSign("GET", path, t)
+        val sign = NetUtil.generateKanoSign("GET", path, t, context)
         val baseUrl = SPUtil.buildBaseUrl(context).trimEnd('/')
         val req = Request.Builder()
             .url("$baseUrl$path")
@@ -283,77 +322,57 @@ object WifiCrawl {
     /**
      * 从 JSON 中提取流量字节数，自动适配不同单位和字段名。
      * 
-     * 字段名含 "bytes" 的（如 daily_tx_bytes）直接当作 Bytes，不做单位推断。
-     * 其他字段通过数值大小推断单位：
-     *   >= 100 MB 量级 → Bytes（最常见）
-     *   >= 100 KB 量级 → KB
-     *   >= 100 B  量级 → MB
-     *         更小      → GB
-     * 
-     * 阈值采用 100 倍阶跃，避免字节值落入相邻区间导致误判。
+     * 策略：
+     * 1. 优先信任字段名：含 "bytes" 或以 "_data" 结尾的字段，始终视为 Bytes。
+     * 2. 只有在字段名不明确（如 "flow"）且数值极小时，才进行单位推断。
+     * 3. 增加单位推断的安全性，防止误乘导致流量显示异常。
      */
     private fun extractTrafficBytes(json: JSONObject?, vararg keys: String): Long {
         if (json == null) return 0L
         
         for (key in keys) {
-            // 字段名含 "bytes" 或以下划线 "_data" 结尾（如 daily_data/monthly_data）
-            // 均直接视作 Bytes 单位，不做数值量级推断
             val keyLower = key.lowercase()
-            val forceBytes = keyLower.contains("bytes") || keyLower.endsWith("_data")
+            // 明确定义为字节的字段名
+            val isExplicitBytes = keyLower.contains("bytes") || 
+                                 keyLower.endsWith("_data") || 
+                                 keyLower.contains("traffic")
             
-            // 尝试数字类型字段
             val longVal = json.optLong(key, -1L)
-            if (longVal > 0) {
-                if (forceBytes) {
-                    Log.d(TAG, "  $key=$longVal -> 字段名含bytes，直接作为 Bytes")
+            if (longVal >= 0) {
+                if (isExplicitBytes || longVal > 500_000_000L) { // >500MB 极大概率是 Bytes
+                    Log.d(TAG, "  $key=$longVal -> 识别为 Bytes")
                     return longVal
                 }
+                
+                // 模糊字段名且数值较小：保守推断
                 return when {
-                    longVal >= 100_000_000L -> {
-                        Log.d(TAG, "  $key=$longVal -> 判断为 Bytes")
-                        longVal
+                    longVal == 0L -> 0L
+                    longVal < 100L -> { // 如 1.5 或 80，推断为 GB
+                        Log.d(TAG, "  $key=$longVal -> 推断为 GB")
+                        longVal * 1024L * 1024L * 1024L
                     }
-                    longVal >= 100_000L -> {
-                        Log.d(TAG, "  $key=$longVal -> 判断为 KB，转为 Bytes")
-                        longVal * 1024L
-                    }
-                    longVal >= 100L -> {
-                        Log.d(TAG, "  $key=$longVal -> 判断为 MB，转为 Bytes")
+                    longVal < 100_000L -> { // 如 1500，推断为 MB
+                        Log.d(TAG, "  $key=$longVal -> 推断为 MB")
                         longVal * 1024L * 1024L
                     }
-                    else -> {
-                        Log.d(TAG, "  $key=$longVal -> 判断为 GB，转为 Bytes")
-                        longVal * 1024L * 1024L * 1024L
+                    else -> { // 其他情况默认 Bytes，不再乘以 1024 防止溢出
+                        Log.d(TAG, "  $key=$longVal -> 默认识别为 Bytes")
+                        longVal
                     }
                 }
             }
             
-            // 尝试字符串类型字段（有些固件返回字符串数字，如 "1.74"）
+            // 字符串处理
             val strVal = json.optString(key, "")
             if (strVal.isNotEmpty() && strVal != "null") {
                 val parsed = strVal.toDoubleOrNull()
-                if (parsed != null && parsed > 0) {
-                    if (forceBytes) {
-                        Log.d(TAG, "  $key=$strVal(String) -> 字段名含bytes，直接作为 Bytes")
-                        return parsed.toLong()
-                    }
+                if (parsed != null && parsed >= 0) {
+                    if (isExplicitBytes || parsed > 500_000_000.0) return parsed.toLong()
+                    
                     return when {
-                        parsed >= 100_000_000.0 -> {
-                            Log.d(TAG, "  $key=$strVal(String) -> 判断为 Bytes")
-                            parsed.toLong()
-                        }
-                        parsed >= 100_000.0 -> {
-                            Log.d(TAG, "  $key=$strVal(String) -> 判断为 KB，转为 Bytes")
-                            (parsed * 1024.0).toLong()
-                        }
-                        parsed >= 100.0 -> {
-                            Log.d(TAG, "  $key=$strVal(String) -> 判断为 MB，转为 Bytes")
-                            (parsed * 1024.0 * 1024.0).toLong()
-                        }
-                        else -> {
-                            Log.d(TAG, "  $key=$strVal(String) -> 判断为 GB，转为 Bytes")
-                            (parsed * 1024.0 * 1024.0 * 1024.0).toLong()
-                        }
+                        parsed < 100.0 -> (parsed * 1024.0 * 1024.0 * 1024.0).toLong()
+                        parsed < 100_000.0 -> (parsed * 1024.0 * 1024.0).toLong()
+                        else -> parsed.toLong()
                     }
                 }
             }
@@ -412,14 +431,15 @@ object WifiCrawl {
         val raw = SPUtil.getDeviceAddress(context).trim()
         val userPort = Regex(":(\\d+)$").find(raw)?.groupValues?.get(1)?.toIntOrNull()
 
-        val testPath = "/api/need_token"
+
+        val testPath = SPUtil.getNeedTokenPath(context)
         val t = System.currentTimeMillis()
 
         // 1) 先试 HTTPS
         val httpsPort = userPort ?: 443
         val httpsUrl = "https://$host:$httpsPort$testPath"
         Log.d(TAG, "probeProtocol: trying HTTPS $httpsUrl")
-        if (tryProbeRequest(httpsUrl, t)) {
+        if (tryProbeRequest(httpsUrl, t, context)) {
             Log.d(TAG, "probeProtocol: HTTPS OK")
             return@withContext "https"
         }
@@ -428,7 +448,7 @@ object WifiCrawl {
         val httpPort = userPort ?: 80
         val httpUrl = "http://$host:$httpPort$testPath"
         Log.d(TAG, "probeProtocol: trying HTTP $httpUrl")
-        if (tryProbeRequest(httpUrl, t)) {
+        if (tryProbeRequest(httpUrl, t, context)) {
             Log.d(TAG, "probeProtocol: HTTP OK")
             return@withContext "http"
         }
@@ -438,9 +458,9 @@ object WifiCrawl {
     }
 
     /** 单次探测请求：成功返回 true（响应是合法 JSON） */
-    private suspend fun tryProbeRequest(url: String, t: Long): Boolean {
+    private suspend fun tryProbeRequest(url: String, t: Long, context: Context): Boolean {
         return try {
-            val sign = NetUtil.generateKanoSign("GET", "/api/need_token", t)
+            val sign = NetUtil.generateKanoSign("GET", SPUtil.getNeedTokenPath(context), t, context)
             val req = Request.Builder()
                 .url(url)
                 .addHeader("kano-t", t.toString())
@@ -460,53 +480,113 @@ object WifiCrawl {
     // ===== AT 指令网络详情 =====
 
     /**
-     * 通过 /api/AT 接口获取网络信号详情（RSRP/SINR/RSRQ/频段/运营商等）。
-     * 并行执行 AT+COPS?（运营商+网络类型）、AT+QENG（信号参数）和 AT+CESQ（备选信号参数）。
-     * 优先使用 QENG（原生 dBm/dB 值），无 QENG 时 fallback 到 CESQ（3GPP 编码值需换算）。
-     * 失败时返回 null，不影响主流程。
+     * 通过 /api/AT 接口获取网络信号详情。
+     *
+     * **平台自适应路由**：
+     * - 首次调用通过 AT+CGMI 检测芯片平台（Spreadtrum / Quectel），结果缓存到磁盘
+     * - **展讯平台**：用 AT+C5GREG?（NR 注册状态）+ AT+CESQ（信号质量）+ AT+COPS?（运营商）
+     * - **Quectel 平台**：用 AT+QENG="servingcell"（信号详情）+ AT+COPS?（运营商）
+     *
+     * 并行执行 5 路 AT 请求，失败不影响主流程。
      */
     private suspend fun fetchAtNetworkInfo(t: Long, auth: String, context: Context): AtSignalInfo? {
         try {
+            val atPath = SPUtil.getAtCommandPath(context)
+
+            // ── 平台检测（缓存优先，仅首次探测）──
+            var platform = SPUtil.getCachedPlatform(context)
+            if (platform.isEmpty()) {
+                val cgmiCmd = java.net.URLEncoder.encode("AT+CGMI", "UTF-8")
+                val cgmiResp = fetchApi("$atPath?command=$cgmiCmd&slot=0", t, auth, context)
+                val cgmiStr = cgmiResp?.optString("result")?.ifEmpty { cgmiResp?.optString("response") } ?: ""
+                platform = when {
+                    cgmiStr.contains("Spreadtrum", ignoreCase = true) -> "spreadtrum"
+                    cgmiStr.contains("Quectel", ignoreCase = true) -> "quectel"
+                    cgmiStr.isNotEmpty() -> "other"
+                    else -> ""
+                }
+                if (platform.isNotEmpty()) {
+                    SPUtil.setCachedPlatform(context, platform)
+                }
+                Log.d(TAG, "Platform detected: $platform (CGMI: $cgmiStr)")
+            }
+
+            val isSpreadtrum = platform == "spreadtrum"
+
+            // ── 命令编码 ──
             val copsCmd = java.net.URLEncoder.encode("AT+COPS?", "UTF-8")
-            val qengCmd = java.net.URLEncoder.encode("AT+QENG=\"servingcell\"", "UTF-8")
             val cesqCmd = java.net.URLEncoder.encode("AT+CESQ", "UTF-8")
             val cgsnCmd = java.net.URLEncoder.encode("AT+CGSN", "UTF-8")
             val cgeqosCmd = java.net.URLEncoder.encode("AT+CGEQOSRDP=1", "UTF-8")
+            val qengCmd = java.net.URLEncoder.encode("AT+QENG=\"servingcell\"", "UTF-8")
+            val c5gregCmd = java.net.URLEncoder.encode("AT+C5GREG?", "UTF-8")
+            // 新增 AT 命令
+            val cgmmCmd = java.net.URLEncoder.encode("AT+CGMM", "UTF-8")
+            val cgmrCmd = java.net.URLEncoder.encode("AT+CGMR", "UTF-8")
+            val cregCmd = java.net.URLEncoder.encode("AT+CREG?", "UTF-8")
+            val cgcontrdpCmd = java.net.URLEncoder.encode("AT+CGCONTRDP=1", "UTF-8")
+            val cpinCmd = java.net.URLEncoder.encode("AT+CPIN?", "UTF-8")
+            val cfunCmd = java.net.URLEncoder.encode("AT+CFUN?", "UTF-8")
+            val cpasCmd = java.net.URLEncoder.encode("AT+CPAS", "UTF-8")
+            val cgattCmd = java.net.URLEncoder.encode("AT+CGATT?", "UTF-8")
 
-            // 并行获取 COPS、QENG、CESQ、CGSN、CGEQOSRDP
-            val results = kotlinx.coroutines.coroutineScope {
-                val copsDef = async {
-                    val resp = fetchApi("/api/AT?command=$copsCmd&slot=0", t, auth, context)
-                    resp?.optString("result")?.ifEmpty { resp.optString("response") } ?: ""
-                }
-                val qengDef = async {
-                    val resp = fetchApi("/api/AT?command=$qengCmd&slot=0", t, auth, context)
-                    resp?.optString("result")?.ifEmpty { resp.optString("response") } ?: ""
-                }
-                val cesqDef = async {
-                    val resp = fetchApi("/api/AT?command=$cesqCmd&slot=0", t, auth, context)
-                    resp?.optString("result")?.ifEmpty { resp.optString("response") } ?: ""
-                }
-                val cgsnDef = async {
-                    val resp = fetchApi("/api/AT?command=$cgsnCmd&slot=0", t, auth, context)
-                    resp?.optString("result")?.ifEmpty { resp.optString("response") } ?: ""
-                }
-                val cgeqosDef = async {
-                    val resp = fetchApi("/api/AT?command=$cgeqosCmd&slot=0", t, auth, context)
-                    resp?.optString("result")?.ifEmpty { resp.optString("response") } ?: ""
-                }
-                awaitAll(copsDef, qengDef, cesqDef, cgsnDef, cgeqosDef)
+            // ── 辅助函数 ──
+            suspend fun atQuery(cmd: String): String {
+                val resp = fetchApi("$atPath?command=$cmd&slot=0", t, auth, context)
+                return resp?.optString("result")?.ifEmpty { resp.optString("response") } ?: ""
             }
 
-            val copsStr: String = results[0]
-            val qengStr: String = results[1]
-            val cesqStr: String = results[2]
-            val cgsnStr: String = results[3]
-            val cgeqosStr: String = results[4]
-            if (copsStr.isEmpty() && qengStr.isEmpty() && cesqStr.isEmpty()
-                && cgsnStr.isEmpty() && cgeqosStr.isEmpty()) return null
+            val results = kotlinx.coroutines.coroutineScope {
+                val copsDef = async { atQuery(copsCmd) }
+                val signalDetailDef = async { atQuery(if (isSpreadtrum) c5gregCmd else qengCmd) }
+                val cesqDef = async { atQuery(cesqCmd) }
+                val cgsnDef = async { atQuery(cgsnCmd) }
+                val cgeqosDef = async { atQuery(cgeqosCmd) }
+                val cgmmDef = async { atQuery(cgmmCmd) }
+                val cgmrDef = async { atQuery(cgmrCmd) }
+                val cregDef = async { atQuery(cregCmd) }
+                val cgcontrdpDef = async { atQuery(cgcontrdpCmd) }
+                val cpinDef = async { atQuery(cpinCmd) }
+                val cfunDef = async { atQuery(cfunCmd) }
+                val cpasDef = async { atQuery(cpasCmd) }
+                val cgattDef = async { atQuery(cgattCmd) }
+                awaitAll(copsDef, signalDetailDef, cesqDef, cgsnDef, cgeqosDef,
+                    cgmmDef, cgmrDef, cregDef, cgcontrdpDef, cpinDef,
+                    cfunDef, cpasDef, cgattDef)
+            }
 
-            return parseAtResponses(copsStr, qengStr, cesqStr, cgsnStr, cgeqosStr)
+            val copsStr = results[0] as String
+            val signalDetailStr = results[1] as String
+            val cesqStr = results[2] as String
+            val cgsnStr = results[3] as String
+            val cgeqosStr = results[4] as String
+            val cgmmStr = results[5] as String
+            val cgmrStr = results[6] as String
+            val cregStr = results[7] as String
+            val cgcontrdpStr = results[8] as String
+            val cpinStr = results[9] as String
+            val cfunStr = results[10] as String
+            val cpasStr = results[11] as String
+            val cgattStr = results[12] as String
+
+            val qengStr = if (!isSpreadtrum) signalDetailStr else ""
+            val c5gregStr = if (isSpreadtrum) signalDetailStr else ""
+
+            val hasAnyData = listOf(copsStr, signalDetailStr, cesqStr, cgsnStr, cgeqosStr,
+                cgmmStr, cgmrStr, cregStr, cgcontrdpStr, cpinStr,
+                cfunStr, cpasStr, cgattStr
+            ).any { it.isNotEmpty() }
+
+            if (!hasAnyData) return null
+
+            return parseAtResponses(
+                copsRaw = copsStr, qengRaw = qengStr, cesqRaw = cesqStr,
+                cgsnRaw = cgsnStr, cgeqosRaw = cgeqosStr, c5gregRaw = c5gregStr,
+                platform = platform,
+                cgmmRaw = cgmmStr, cgmrRaw = cgmrStr, cregRaw = cregStr,
+                cgcontrdpRaw = cgcontrdpStr, cpinRaw = cpinStr,
+                cfunRaw = cfunStr, cpasRaw = cpasStr, cgattRaw = cgattStr
+            )
         } catch (e: Exception) {
             Log.w(TAG, "AT network info fetch failed: ${e.message}")
             return null
@@ -514,31 +594,23 @@ object WifiCrawl {
     }
 
     /**
-     * 解析 AT+COPS?、AT+QENG 和 AT+CESQ 的响应。
+     * 解析 AT 响应。
      *
-     * 优先解析 QENG（原生 dBm/dB 值），如无 QENG 数据则 fallback 到 CESQ（3GPP 编码值需换算）。
+     * COPS → 运营商（含 PLMN 映射为真实名称）+ ACT → 网络制式
+     * Quectel: QENG → 原生信号（RSRP/SINR/RSRQ/频段/PCI/EARFCN）
+     * Spreadtrum: C5GREG → NR 注册状态 + CESQ → 信号质量（3GPP 换算）
      *
-     * AT+COPS? 响应格式:
-     *   +COPS: <mode>,<format>,"<operator>",<act>
-     *   例: +COPS: 0,0,"CHN-UNICOM",7
-     *   act: 0=GSM,2=UTRAN,7=LTE(E-UTRAN),13=NR(5G)
-     *
-     * AT+QENG="servingcell" 响应格式 (Quectel):
-     *   LTE: "servingcell","CONNECT","LTE",<earfcn>,<band_num>,<bw_ul>,<tac>,<cellId>,<pci>,<rsrp>,<rsrq>,<rssi>,<sinr>,...
-     *   NR:  "servingcell","CONNECT","NR5G-SA","FDD",<mcc>,<mnc>,"n78",<arfcn>,<freq>,<bw>,<pci>,<rsrp>,<sinr>,<rsrq>,...
-     *
-     * AT+CESQ 响应格式 (3GPP TS 27.007):
-     *   +CESQ: <rxlev>,<ber>,<rscp>,<ecno>,<rsrq>,<rsrp>
-     *   扩展格式（部分 Quectel 模块）:
-     *   +CESQ: <rxlev>,<ber>,<rscp>,<ecno>,<rsrq>,<rsrp>,<sinr>,<avg_rsrp>,<avg_rsrq>
-     *   99/255 = 不可用/不支持该 RAT
-     *
- *   CESQ 3GPP 值换算：
- *   LTE:  RSRP(dBm)=rsrp-140,  RSRQ(dB)=rsrq/2-19.5,  SINR(dB)=sinr/5-20
- *   NR:   RSRP(dBm)=rsrp-156,  RSRQ(dB)=rsrq/2-43,     SINR(dB)=sinr/2-23
+     * CESQ 3GPP 换算：
+     *   LTE: RSRP(dBm)=rsrp-140, RSRQ(dB)=rsrq/2-19.5, SINR(dB)=sinr/5-20
+     *   NR:  RSRP(dBm)=rsrp-156, RSRQ(dB)=rsrq/2-43,  SINR(dB)=sinr/2-23
      */
     private fun parseAtResponses(copsRaw: String, qengRaw: String, cesqRaw: String = "",
-                                 cgsnRaw: String = "", cgeqosRaw: String = ""): AtSignalInfo? {
+                                 cgsnRaw: String = "", cgeqosRaw: String = "",
+                                 c5gregRaw: String = "", platform: String = "",
+                                 cgmmRaw: String = "", cgmrRaw: String = "",
+                                 cregRaw: String = "", cgcontrdpRaw: String = "",
+                                 cpinRaw: String = "", cfunRaw: String = "",
+                                 cpasRaw: String = "", cgattRaw: String = ""): AtSignalInfo? {
         // ── 解析 COPS ──
         var operator = ""
         var networkType = ""
@@ -559,10 +631,13 @@ object WifiCrawl {
         }
 
         networkType = when (actCode) {
-            0, 1 -> "GSM"; 2 -> "3G WCDMA"; 4 -> "3G TD-SCDMA"
-            6 -> "3G CDMA"; 7 -> "4G LTE"; 13 -> "5G NR"
+            0, 1 -> "GSM"; 2 -> "3G"; 4 -> "3G"
+            6 -> "3G"; 7 -> "4G"; 13 -> "5G"
             else -> ""
         }
+
+        // ── PLMN → 真实运营商名称映射 ──
+        val carrier = mapPlmnToCarrier(operator)
 
         // ── 解析 QENG（优先，原生 dBm/dB 值无需换算）──
         var rsrp = Int.MIN_VALUE
@@ -571,6 +646,8 @@ object WifiCrawl {
         var band = ""
         var pci = -1
         var earfcn = -1
+        var tac = ""
+        var cellId = ""
         var dataSource = ""  // "QENG" | "CESQ" | ""
         val qengClean = qengRaw.replace("\r", "").replace("\nOK", "").replace("OK", "").trim()
 
@@ -593,22 +670,37 @@ object WifiCrawl {
                     rsrp   = parts.getOrElse(bandIdx + 5) { "" }.toIntOrNull() ?: Int.MIN_VALUE
                     sinr   = parts.getOrElse(bandIdx + 6) { "" }.toIntOrNull() ?: Int.MIN_VALUE
                     rsrq   = parts.getOrElse(bandIdx + 7) { "" }.toIntOrNull() ?: Int.MIN_VALUE
-                } else if (parts.size > bandIdx + 6) {
-                    // LTE 4G: band → bw → tac → cellId → pci → rsrp → rsrq → rssi → sinr
+                    
+                    // NR SA 额外尝试解析 TAC/CI (如果有的话，通常在 mcc/mnc 后面)
+                    if (parts.size >= 7) {
+                        cellId = parts[5]
+                        tac = parts.getOrElse(bandIdx - 1) { "" } // 简易推测
+                    }
+                } else if (parts.size > bandIdx + 5) {
+                    // LTE 4G: "servingcell",<state>,"LTE",<is_tdd>,<mcc>,<mnc>,<cellid>,<pcid>,<earfcn>,<band>,...
                     // 需要向前查找 earfcn（band 前 2-4 个字段）
                     for (j in maxOf(0, bandIdx - 4) until bandIdx) {
                         val v = parts[j].toIntOrNull()
                         if (v != null && v in 1..300000) { earfcn = v; break }
                     }
-                    pci  = parts.getOrElse(bandIdx + 4) { "" }.toIntOrNull() ?: -1
-                    rsrp = parts.getOrElse(bandIdx + 5) { "" }.toIntOrNull() ?: Int.MIN_VALUE
-                    rsrq = parts.getOrElse(bandIdx + 6) { "" }.toIntOrNull() ?: Int.MIN_VALUE
-                    sinr = parts.getOrElse(bandIdx + 8) { "" }.toIntOrNull() ?: Int.MIN_VALUE
+                    
+                    // 标准 Quectel LTE 偏移
+                    if (parts.size >= 13) {
+                        cellId = parts[6]
+                        pci = parts[7].toIntOrNull() ?: pci
+                        tac = parts[12]
+                    }
+                    
+                    rsrp = parts.getOrElse(bandIdx + 1) { "" }.toIntOrNull() ?: Int.MIN_VALUE
+                    rsrq = parts.getOrElse(bandIdx + 2) { "" }.toIntOrNull() ?: Int.MIN_VALUE
+                    sinr = parts.getOrElse(bandIdx + 4) { "" }.toIntOrNull() ?: Int.MIN_VALUE
                 }
             } else if (parts.size >= 15) {
                 // 无频段字段，用已知位置解析 LTE
                 // LTE 标准位: [3]earfcn [4]band_num [6]tac [8]pci [9]rsrp [10]rsrq [12]sinr
                 earfcn = parts[3].toIntOrNull() ?: -1
+                tac    = parts[6]
+                cellId = parts[7]
                 pci    = parts[8].toIntOrNull() ?: -1
                 rsrp   = parts[9].toIntOrNull() ?: Int.MIN_VALUE
                 rsrq   = parts[10].toIntOrNull() ?: Int.MIN_VALUE
@@ -620,7 +712,38 @@ object WifiCrawl {
             }
         }
 
-        // ── 解析 CESQ（fallback，3GPP 编码值需换算）──
+        // ── 解析 C5GREG（展讯平台 5G NR 注册状态）──
+        // 格式: +C5GREG: <stat>,<tac>,<ci>,<act>[,<mode>,...]
+        // 例: +C5GREG: 2,1,"835500","8350C6180",11,9
+        // stat=1=已注册归属网络, act=11~13=5G
+        var c5gRegistered = false
+        if (c5gregRaw.isNotEmpty()) {
+            val c5gClean = c5gregRaw.replace("\r", "").replace("\nOK", "").replace("OK", "").trim()
+            // 匹配格式: +C5GREG: <n>,<stat>,"<tac>","<ci>",<act>,<mode>
+            val c5gRe = Regex("""\+C5GREG:\s*(\d+)\s*,\s*(\d+)\s*,\s*"([^",]*)"\s*,\s*"([^",]*)"\s*,\s*(\d+)(?:,\s*(\d+))?""")
+            c5gRe.find(c5gClean)?.let { m ->
+                val c5gStat = m.groupValues[2].toIntOrNull() ?: -1
+                tac = m.groupValues[3]
+                cellId = m.groupValues[4]
+                val c5gAct = m.groupValues[5].toIntOrNull() ?: -1
+                val c5gMode = m.groupValues.getOrNull(6)?.toIntOrNull() ?: -1
+                c5gRegistered = c5gStat == 1 || c5gStat == 5
+
+                // C5GREG ACT 优先于 COPS 判断 5G 模式
+                if (c5gAct in 11..13) {
+                    if (networkType.isEmpty() || networkType == "4G") {
+                        networkType = when (c5gMode) {
+                            9 -> "5G NSA"
+                            1 -> "5G SA"
+                            else -> "5G"
+                        }
+                    }
+                }
+                Log.d(TAG, "C5GREG: stat=$c5gStat act=$c5gAct mode=$c5gMode → networkType=$networkType")
+            }
+        }
+
+        // ── 解析 CESQ（Quectel fallback / 展讯主信号源，3GPP 编码值需换算）──
         if (dataSource.isEmpty()) {
             // 尝试从 qengRaw 或 cesqRaw 中提取 +CESQ / ++CESQ 行
             val searchIn = listOf(qengRaw, cesqRaw)
@@ -670,8 +793,9 @@ object WifiCrawl {
                         sinrRaw = parts[6].toIntOrNull() ?: 255
                     }
 
-                    // 从 COPS 已知 RAT，或从响应内容推断
-                    var resolvedNr = actCode == 13
+                    // 从 COPS ACT / C5GREG 注册状态 已知 RAT，或从 CESQ 取值范围推断
+                    var resolvedNr = actCode == 13 || c5gRegistered
+                        || networkType.contains("5G", ignoreCase = true)
 
                     // 取值策略：标准字段优先，若为 255/99 则 fallback 到扩展字段
                     // 先用宽松范围（同时囊括 LTE 和 NR 范围）提取原始值
@@ -683,7 +807,7 @@ object WifiCrawl {
                     if (!resolvedNr && (rawRsrp in 98..127 || rawRsrq in 35..127)) {
                         // RSRP > 97 或 RSRQ > 34 仅 NR 才有，断定设备在 NR 模式
                         resolvedNr = true
-                        if (networkType.isEmpty()) networkType = "5G NR"
+                        if (networkType.isEmpty()) networkType = "5G"
                         Log.d(TAG, "CESQ RAT auto-detected as NR (rawRsrp=$rawRsrp rawRsrq=$rawRsrq)")
                     }
 
@@ -719,9 +843,9 @@ object WifiCrawl {
         // 如果 QENG 没解析到网络类型但 COPS 也没识别，从原始数据推断
         if (networkType.isEmpty()) {
             if (qengClean.contains("NR", ignoreCase = true)) {
-                networkType = "5G NR"
+                networkType = "5G"
             } else if (cesqRaw.contains("NR", ignoreCase = true)) {
-                networkType = "5G NR"
+                networkType = "5G"
             }
         }
 
@@ -763,27 +887,173 @@ object WifiCrawl {
             }
         }
 
+        // ── 解析 AT+CGMM（模块型号）──
+        var moduleModel = ""
+        if (cgmmRaw.isNotEmpty()) {
+            moduleModel = atClean(cgmmRaw).trim()
+            Log.d(TAG, "CGMM: $moduleModel")
+        }
+
+        // ── 解析 AT+CGMR（固件详细版本）──
+        var firmwareDetail = ""
+        if (cgmrRaw.isNotEmpty()) {
+            firmwareDetail = atClean(cgmrRaw).lines()
+                .filter { it.isNotBlank() }.joinToString(" | ").trim()
+            Log.d(TAG, "CGMR: $firmwareDetail")
+        }
+
+        // ── 解析 AT+CREG?（网络注册状态）──
+        var cregStat = -1
+        var lteRegistration = ""
+        if (cregRaw.isNotEmpty()) {
+            val clean = atClean(cregRaw)
+            val cregRe = Regex("""\+CREG:\s*(\d+)\s*,\s*(\d+)\s*,"?([^"",]*)"?\s*,\s*"?([^"",]*)"?\s*,\s*(\d+)""")
+            cregRe.find(clean)?.let { m ->
+                cregStat = m.groupValues[2].toIntOrNull() ?: -1
+                lteRegistration = when (cregStat) {
+                    0 -> "未注册/搜索中"; 1 -> "已注册(归属)"; 2 -> "搜索中"
+                    3 -> "注册被拒"; 4 -> "未知"; 5 -> "已注册(漫游)"; 8 -> "已注册(归属PS)"
+                    else -> "状态$cregStat"
+                }
+            }
+        }
+
+        // ── 解析 AT+CGCONTRDP=1（WAN IP + DNS）──
+        var wanIpAt = ""
+        var dnsServers = ""
+        if (cgcontrdpRaw.isNotEmpty()) {
+            val clean = atClean(cgcontrdpRaw)
+            // +CGCONTRDP: <cid>,<bearer>,<apn>,"<ip>",null,null,null,<dns1>,<dns2>,...
+            val dpRe = Regex("""\+CGCONTRDP:\s*\d+\s*,\s*\d+\s*,[\w.\-]*,"([^"]*)",[^"]*,[^"]*,[^"]*,\s*"?([^"",]*)"?\s*,\s*"?([^"",]*)"?""")
+            dpRe.find(clean)?.let { m ->
+                wanIpAt = m.groupValues[1]
+                val d1 = m.groupValues[2].filter { it != '"' }
+                val d2 = m.groupValues[3].filter { it != '"' }
+                dnsServers = listOf(d1, d2).filter { it.isNotEmpty() }.joinToString(", ")
+            }
+            Log.d(TAG, "CGCONTRDP: IP=$wanIpAt DNS=$dnsServers")
+        }
+
+        // ── 解析 AT+CPIN?（PIN 状态）──
+        var pinStatusAt = ""
+        if (cpinRaw.isNotEmpty()) {
+            val clean = atClean(cpinRaw)
+            val cpinRe = Regex("""\+CPIN:\s*(.+)""")
+            cpinRe.find(clean)?.let { m ->
+                pinStatusAt = m.groupValues[1].trim()
+            }
+        }
+
+        // ── 解析 AT+CFUN?（射频功能）──
+        var rfFunc = ""
+        if (cfunRaw.isNotEmpty()) {
+            val clean = atClean(cfunRaw)
+            val funRe = Regex("""\+CFUN:\s*(\d+)""")
+            funRe.find(clean)?.let { m ->
+                rfFunc = when (m.groupValues[1]) {
+                    "1" -> "全功能(射频开启)"
+                    "0" -> "最小功能"
+                    "4" -> "飞行模式(射频关闭)"
+                    else -> m.groupValues[1]
+                }
+            }
+        }
+
+        // ── 解析 AT+CPAS（模块状态）──
+        var moduleState = ""
+        if (cpasRaw.isNotEmpty()) {
+            val clean = atClean(cpasRaw)
+            val pasRe = Regex("""\+CPAS:\s*(\d+)""")
+            pasRe.find(clean)?.let { m ->
+                moduleState = when (m.groupValues[1]) {
+                    "0" -> "就绪(可接受AT)"
+                    "1" -> "不可用"
+                    "2" -> "未知"
+                    "3" -> "振铃中"
+                    "4" -> "通话中"
+                    "5" -> "睡眠中"
+                    else -> m.groupValues[1]
+                }
+            }
+        }
+
+        // ── 解析 AT+CGATT?（PS 域附着）──
+        var psAttached = ""
+        if (cgattRaw.isNotEmpty()) {
+            val clean = atClean(cgattRaw)
+            val gattRe = Regex("""\+CGATT:\s*(\d+)""")
+            gattRe.find(clean)?.let { m ->
+                psAttached = if (m.groupValues[1] == "1") "已附着(数据可用)" else "未附着"
+            }
+        }
+
         // 没有任何有效数据 → null
-        if (rsrp == Int.MIN_VALUE && sinr == Int.MIN_VALUE && rsrq == Int.MIN_VALUE
-            && networkType.isEmpty() && operator.isEmpty()
-            && imei.isEmpty() && subscriptionRate.isEmpty()) {
+        val hasOldData = rsrp != Int.MIN_VALUE || sinr != Int.MIN_VALUE || rsrq != Int.MIN_VALUE
+            || networkType.isNotEmpty() || operator.isNotEmpty() || carrier.isNotEmpty()
+            || imei.isNotEmpty() || subscriptionRate.isNotEmpty()
+        val hasNewData = moduleModel.isNotEmpty() || firmwareDetail.isNotEmpty()
+            || cregStat >= 0 || wanIpAt.isNotEmpty() || dnsServers.isNotEmpty()
+            || pinStatusAt.isNotEmpty() || rfFunc.isNotEmpty() || moduleState.isNotEmpty() || psAttached.isNotEmpty()
+        if (!hasOldData && !hasNewData) {
             return null
         }
 
         return AtSignalInfo(
             networkType = networkType,
             operator = operator,
+            carrier = carrier,
             rsrp = rsrp,
             sinr = sinr,
             rsrq = rsrq,
             band = band,
             pci = pci,
             earfcn = earfcn,
-            rawQeng = qengRaw.ifEmpty { cesqRaw },
+            rawQeng = qengRaw.ifEmpty { c5gregRaw.ifEmpty { cesqRaw } },
             rawCops = copsRaw,
             imei = imei,
-            subscriptionRate = subscriptionRate
+            subscriptionRate = subscriptionRate,
+            tac = tac,
+            cellId = cellId,
+            // 新增字段
+            moduleModel = moduleModel,
+            firmwareDetail = firmwareDetail,
+            cregStat = cregStat,
+            lteRegistration = lteRegistration,
+            wanIpAt = wanIpAt,
+            dnsServers = dnsServers,
+            pinStatusAt = pinStatusAt,
+            rfFunc = rfFunc,
+            moduleState = moduleState,
+            psAttached = psAttached
         )
+    }
+
+    /** AT 响应清理：去掉 \r\n、OK、多余空白 */
+    private fun atClean(raw: String): String = raw
+        .replace("\r\n", "\n").replace("\r", "\n")
+        .replace("\nOK", "").replace("OK\n", "")
+        .replace("OK", "").trim()
+
+    /** 运营商识别 (MCC 460)：基于 PLMN 或 IMSI 前缀 */
+    private fun mapPlmnToCarrier(input: String): String {
+        if (input.length < 5) return ""
+        
+        // 统一取前 5 位 (MCC 3 + MNC 2) 处理中国主流运营商
+        // 460 00/02/07/08 -> 移动
+        // 460 01/06/09    -> 联通
+        // 460 03/05/11    -> 电信
+        // 460 15          -> 广电
+        
+        if (input.startsWith("460")) {
+            return when (input.substring(3, 5)) {
+                "00", "02", "07", "08" -> "中国移动"
+                "01", "06", "09" -> "中国联通"
+                "03", "05", "11" -> "中国电信"
+                "15" -> "中国广电"
+                else -> ""
+            }
+        }
+        return ""
     }
 }
 
@@ -828,21 +1098,48 @@ data class WifiEntity(
     val swapTotalKb: Long,        // Swap 总量 KB
     val swapUsedKb: Long,         // Swap 已用 KB
     val swapFreeKb: Long,         // Swap 空闲 KB
+    // === Goform 设备身份+网络（新增）===
+    val wanIp: String,            // WAN IPv4 地址
+    val wanIpv6: String,          // WAN IPv6 地址
+    val pdpTypeGoform: String,    // PDP 承载类型（IPv4/IPv6/IPv4v6）
+    val goformImei: String,       // IMEI（Goform 来源）
+    val goformImsi: String,       // IMSI（Goform 来源）
+    val goformIccid: String,      // ICCID（Goform 来源）
+    val hardwareVersion: String,  // 硬件版本号（Goform 来源）
+    val webVersion: String,       // Web/固件版本号（Goform 来源）
+    val macAddress: String,       // 设备 MAC 地址
+    val pinStatusCode: Int,       // SIM PIN 状态：0=已解锁，1=需PIN，2=PUK锁定，-1=无数据
+    val monthlyUploadBytes: Long, // 当月上行流量 (Bytes)
+    val monthlyDownloadBytes: Long, // 当月下行流量 (Bytes)
 )
 
 data class AtSignalInfo(
     val networkType: String,   // "5G SA" / "4G LTE" / "NR" / "LTE"
-    val operator: String,      // 运营商名称
+    val operator: String,      // 运营商原始值（如 "46001" / "CHN-UNICOM"）
+    val carrier: String,       // PLMN 映射的真实运营商（如 "中国联通 CUCC"）
     val rsrp: Int,             // RSRP (dBm)，负值，如 -95
     val sinr: Int,             // SINR (dB)，如 15
     val rsrq: Int,             // RSRQ (dB)，如 -10
     val band: String,          // 频段，如 "n78" / "B3"
     val pci: Int,              // Physical Cell ID
     val earfcn: Int,           // EARFCN / NR-ARFCN
-    val rawQeng: String,       // AT+QENG 原始响应（调试用）
+    val rawQeng: String,       // 信号原始响应（调试用）
     val rawCops: String,       // AT+COPS 原始响应（调试用）
     val imei: String,          // AT+CGSN 获取的 IMEI
     val subscriptionRate: String, // AT+CGEQOSRDP=1 获取的签约速率
+    val tac: String,           // Tracking Area Code (LTE) / NR TAC
+    val cellId: String,        // Cell ID (LTE) / NR CI
+    // === AT 新增字段 ===
+    val moduleModel: String,       // AT+CGMM 模块型号
+    val firmwareDetail: String,    // AT+CGMR 固件详细版本
+    val cregStat: Int,             // AT+CREG? 网络注册状态码
+    val lteRegistration: String,   // AT+CREG? 注册状态文本
+    val wanIpAt: String,           // AT+CGCONTRDP=1 获取的 WAN IP
+    val dnsServers: String,        // AT+CGCONTRDP=1 获取的 DNS 服务器
+    val pinStatusAt: String,        // AT+CPIN? PIN 状态 (READY/SIM PIN/SIM PUK)
+    val rfFunc: String,            // AT+CFUN? 射频功能状态
+    val moduleState: String,       // AT+CPAS 模块活动状态
+    val psAttached: String,        // AT+CGATT? PS 域附着
 )
 
 data class CpuTempItem(

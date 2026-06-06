@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
+import com.ufi_toolswidget.util.AnimationUtil
 import com.ufi_toolswidget.util.BackgroundUtil
 import com.ufi_toolswidget.util.ThemeUtil
 
@@ -14,10 +15,10 @@ class SettingsActivity : AppCompatActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_settings)
         BackgroundUtil.applyWindowBackground(this)
-        ThemeUtil.applyToSettingsActivity(this)
+        ThemeUtil.applyTheme(this, ThemeUtil.PageType.SETTINGS_LIST)
 
         // 返回
-        findViewById<android.view.View>(R.id.btn_back).setOnClickListener { finish() }
+        AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_back)) { finish() }
 
         // ===== 软件设置 → AppSettingsActivity =====
         findViewById<android.view.View>(R.id.card_app_settings).setOnClickListener {
@@ -43,6 +44,6 @@ class SettingsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         BackgroundUtil.applyWindowBackground(this)
-        ThemeUtil.applyToSettingsActivity(this)
+        ThemeUtil.applyTheme(this, ThemeUtil.PageType.SETTINGS_LIST)
     }
 }

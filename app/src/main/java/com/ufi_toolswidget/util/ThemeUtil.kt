@@ -20,36 +20,118 @@ import com.ufi_toolswidget.R
  */
 object ThemeUtil {
 
+    /** 页面类型枚举，用于统一主题应用入口 */
+    enum class PageType {
+        MAIN,           // 主页
+        SETTINGS_LIST,  // 设置列表页 (SettingsActivity)
+        APP_SETTINGS,   // 软件设置页 (AppSettingsActivity)
+        WIDGET_SETTINGS,// 小组件设置页
+        FORM,           // 表单页 (配置修改、初始化)
+        SECONDARY       // 通用二级页 (关于页等)
+    }
+
+    /**
+     * 统一的主题应用入口。
+     * 自动处理：窗口初始化 + 页面特定样式应用。
+     * 注意：必须在 setContentView 之后调用，以便寻找视图。
+     */
+    fun applyTheme(activity: Activity, type: PageType) {
+        try {
+            // 1. 基础 UI 初始化 (背景 + 沉浸式)
+            BackgroundUtil.initActivity(activity)
+
+            // 2. 根据页面类型调用具体的样式应用逻辑
+            activity.window.decorView.post {
+                try {
+                    if (activity.isFinishing || activity.isDestroyed) return@post
+                    when (type) {
+                        PageType.MAIN -> applyToMainActivity(activity)
+                        PageType.SETTINGS_LIST -> applyToSettingsActivity(activity)
+                        PageType.APP_SETTINGS -> applyToAppSettingsActivity(activity)
+                        PageType.WIDGET_SETTINGS -> applyToWidgetSettingsPage(activity)
+                        PageType.FORM -> applyToFormPage(activity)
+                        PageType.SECONDARY -> applyToSecondaryPage(activity)
+                    }
+                } catch (e: Exception) {
+                    DebugLogger.logExc("ThemeUtil", "异步应用主题失败 [$type]: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            DebugLogger.logExc("ThemeUtil", "同步初始化主题失败: ${e.message}")
+        }
+    }
+
     /**
      * 对 Activity 的主页布局应用当前主题色。
      */
-    fun applyToMainActivity(activity: Activity) {
+    private fun applyToMainActivity(activity: Activity) {
         val ctx = activity
         val textPrimary = ThemeColors.textPrimary(ctx)
         val textSecondary = ThemeColors.textSecondary(ctx)
-        val accent = ThemeColors.accent(ctx)
-        val accentSecondary = ThemeColors.accentSecondary(ctx)
+        val dataHighlight = ThemeColors.dataHighlight(ctx)
+        val btnBg = ThemeColors.btnBg(ctx)
         val cardBg = ThemeColors.cardBg(ctx)
 
-        // ── 设备名称（标题级，强调色）──
-        activity.findViewById<TextView>(R.id.main_tv_model)?.setTextColor(accent)
+        // ── 设备名称（标题级，专用高亮色）──
+        activity.findViewById<TextView>(R.id.main_tv_model)?.setTextColor(dataHighlight)
 
         // ── 版本副标题（注释灰字）──
         activity.findViewById<TextView>(R.id.main_tv_subtitle)?.setTextColor(textSecondary)
 
         // ── 设置入口：图标强调色 + 标签主色 ──
-        activity.findViewById<ImageView>(R.id.btn_settings_icon)?.setColorFilter(accent)
+        activity.findViewById<ImageView>(R.id.btn_settings_icon)?.setColorFilter(ThemeColors.iconTint(ctx))
         activity.findViewById<TextView>(R.id.btn_settings_label)?.setTextColor(textPrimary)
 
-        // ── 数据网格标签（信号/温度/CPU/内存） → 注释灰字 ──
-        val gridLabels = activity.findViewById<ViewGroup>(R.id.card_network)
-        applyTextColorToLabels(gridLabels, textSecondary)
+        // ── 板块标题 → 主色 ──
+        activity.findViewById<TextView>(R.id.tv_section_network)?.setTextColor(textPrimary)
 
-        // ── 数据网格图标 → 强调色（随主题切换）──
-        activity.findViewById<ImageView>(R.id.main_iv_antenna)?.setColorFilter(accent)
-        activity.findViewById<ImageView>(R.id.main_iv_temp)?.setColorFilter(accent)
-        activity.findViewById<ImageView>(R.id.main_iv_cpu)?.setColorFilter(accent)
-        activity.findViewById<ImageView>(R.id.main_iv_chip)?.setColorFilter(accent)
+        // ── 加载页文字：与流量标签（"今日已用"/"本月累计"）一致 → 辅色 ──
+        activity.findViewById<TextView>(R.id.loading_title)?.setTextColor(textPrimary)
+        activity.findViewById<TextView>(R.id.loading_subtitle)?.setTextColor(textSecondary)
+        activity.findViewById<TextView>(R.id.loading_hint)?.setTextColor(textSecondary)
+
+        // ── 数据网格标签（信号/温度/CPU/内存） → 注释灰字 ──
+        val cardNetwork = activity.findViewById<ViewGroup>(R.id.card_network)
+        if (cardNetwork != null) {
+            // 手动指定标签着色，避免递归逻辑误伤
+            val labelIds = listOf(R.id.main_item_network, R.id.main_item_temp, R.id.main_item_cpu, R.id.main_item_mem)
+            labelIds.forEach { itemId ->
+                activity.findViewById<ViewGroup>(itemId)?.let { item ->
+                    // 每个 item 里的第一个 TextView 是标签 (小字)
+                    for (i in 0 until item.childCount) {
+                        val v = item.getChildAt(i)
+                        if (v is ViewGroup) {
+                            for (j in 0 until v.childCount) {
+                                val subV = v.getChildAt(j)
+                                if (subV is TextView && subV.textSize <= 11f * ctx.resources.displayMetrics.density) {
+                                    subV.setTextColor(textSecondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 流量统计区域的标签 (今日已用 / 本月累计)
+            val parentRow = activity.findViewById<TextView>(R.id.main_tv_daily)?.parent?.parent as? ViewGroup
+            parentRow?.let { row ->
+                for (i in 0 until row.childCount) {
+                    val col = row.getChildAt(i) as? ViewGroup ?: continue
+                    for (j in 0 until col.childCount) {
+                        val v = col.getChildAt(j)
+                        if (v is TextView && v.id != R.id.main_tv_daily && v.id != R.id.main_tv_flow) {
+                            v.setTextColor(textSecondary)
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 数据网格图标 → 图标着色（随主题切换）──
+        activity.findViewById<ImageView>(R.id.main_iv_antenna)?.setColorFilter(ThemeColors.iconTint(ctx))
+        activity.findViewById<ImageView>(R.id.main_iv_temp)?.setColorFilter(ThemeColors.iconTint(ctx))
+        activity.findViewById<ImageView>(R.id.main_iv_cpu)?.setColorFilter(ThemeColors.iconTint(ctx))
+        activity.findViewById<ImageView>(R.id.main_iv_chip)?.setColorFilter(ThemeColors.iconTint(ctx))
 
         // ── 数据网格数值 → 正文 ──
         activity.findViewById<TextView>(R.id.main_tv_net_signal)?.setTextColor(textPrimary)
@@ -57,9 +139,9 @@ object ThemeUtil {
         activity.findViewById<TextView>(R.id.main_tv_cpu)?.setTextColor(textPrimary)
         activity.findViewById<TextView>(R.id.main_tv_mem)?.setTextColor(textPrimary)
 
-        // ── 今日已用 / 本月累计数字 → 强调色 ──
-        activity.findViewById<TextView>(R.id.main_tv_daily)?.setTextColor(accent)
-        activity.findViewById<TextView>(R.id.main_tv_flow)?.setTextColor(accent)
+        // ── 今日已用 / 本月累计数字 → 专用高亮色 ──
+        activity.findViewById<TextView>(R.id.main_tv_daily)?.setTextColor(dataHighlight)
+        activity.findViewById<TextView>(R.id.main_tv_flow)?.setTextColor(dataHighlight)
 
         // ── 硬件参数区域 ──
         val cardDevice = activity.findViewById<ViewGroup>(R.id.card_device)
@@ -71,11 +153,12 @@ object ThemeUtil {
         }
 
         // ── 检查更新按钮（重构后的容器） ──
-        activity.findViewById<View>(R.id.btn_check_update_text)?.let { v ->
-            v.background = makeCardBg(accent, 12f)
-            if (v is TextView) {
-                v.setTextColor(0xFFFFFFFF.toInt())
-                v.isClickable = false // 确保不拦截父容器触摸
+        activity.findViewById<View>(R.id.btn_check_update)?.let { v ->
+            v.findViewById<View>(R.id.common_btn_text)?.let { text ->
+                text.background = makeCardBg(btnBg, 12f)
+                if (text is TextView) {
+                    text.setTextColor(0xFFFFFFFF.toInt())
+                }
             }
         }
 
@@ -91,22 +174,19 @@ object ThemeUtil {
         val textPrimary = ThemeColors.textPrimary(ctx)
         val textSecondary = ThemeColors.textSecondary(ctx)
         val accent = ThemeColors.accent(ctx)
+        val iconTint = ThemeColors.iconTint(ctx)
         val cardBg = ThemeColors.cardBg(ctx)
 
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
-        applyTextColorsToContainer(root, textPrimary, textSecondary, accent, cardBg)
+        applyTextColorsToContainer(root, textPrimary, textSecondary, accent, iconTint, cardBg)
 
-        // "应用" 按钮背景
-        activity.findViewById<MaterialButton>(R.id.btn_apply_custom_color)?.apply {
-            backgroundTintList = ColorStateList.valueOf(accent)
-            setTextColor(0xFFFFFFFF.toInt())
-        }
+        // 自定义颜色"应用"按钮已迁移至弹窗内动态创建，无需在此处理
     }
 
     /**
      * 对 SettingsActivity 布局应用当前主题色。
      */
-    fun applyToSettingsActivity(activity: Activity) {
+    private fun applyToSettingsActivity(activity: Activity) {
         val ctx = activity
         val textPrimary = ThemeColors.textPrimary(ctx)
         val textSecondary = ThemeColors.textSecondary(ctx)
@@ -121,21 +201,25 @@ object ThemeUtil {
      * 对二级页面通用主题应用：文字色、返回按钮图标。
      * 各子 Activity 可额外调用控件级方法来处理 ToggleGroup/CheckBox/TextInputLayout 等。
      */
-    fun applyToSecondaryPage(activity: Activity) {
+    private fun applyToSecondaryPage(activity: Activity) {
         val ctx = activity
         val textPrimary = ThemeColors.textPrimary(ctx)
         val textSecondary = ThemeColors.textSecondary(ctx)
         val accent = ThemeColors.accent(ctx)
+        val iconTint = ThemeColors.iconTint(ctx)
+        val btnBg = ThemeColors.btnBg(ctx)
         val cardBg = ThemeColors.cardBg(ctx)
 
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
-        applySecondaryTextColors(root, textPrimary, textSecondary, accent, cardBg)
+        applySecondaryTextColors(root, textPrimary, textSecondary, accent, iconTint, cardBg)
 
         // 统一处理检查更新按钮（如果存在）
-        activity.findViewById<View>(R.id.btn_check_update_text)?.let { v ->
-            v.background = makeCardBg(accent, 12f)
-            if (v is TextView) {
-                v.setTextColor(0xFFFFFFFF.toInt())
+        activity.findViewById<View>(R.id.btn_check_update)?.let { v ->
+            v.findViewById<View>(R.id.common_btn_text)?.let { text ->
+                text.background = makeCardBg(btnBg, 12f)
+                if (text is TextView) {
+                    text.setTextColor(0xFFFFFFFF.toInt())
+                }
             }
         }
 
@@ -147,28 +231,29 @@ object ThemeUtil {
     }
 
     /** 对表单类页面（配置修改、初始化设置）应用主题：文字 + TextInputLayout + 保存按钮 */
-    fun applyToFormPage(activity: Activity) {
+    private fun applyToFormPage(activity: Activity) {
         val ctx = activity
         val textPrimary = ThemeColors.textPrimary(ctx)
         val textSecondary = ThemeColors.textSecondary(ctx)
         val accent = ThemeColors.accent(ctx)
+        val iconTint = ThemeColors.iconTint(ctx)
+        val btnBg = ThemeColors.btnBg(ctx)
         val cardBg = ThemeColors.cardBg(ctx)
         val dividerColor = ThemeColors.divider(ctx)
         val isDark = ThemeColors.isDark(ctx)
 
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
-        applySecondaryTextColors(root, textPrimary, textSecondary, accent, cardBg)
+        applySecondaryTextColors(root, textPrimary, textSecondary, accent, iconTint, cardBg)
 
-        // 统一处理主要提交按钮（保存配置、初始化开始）
-        listOf(R.id.btn_save_text, R.id.btn_setup_confirm_text)
-            .forEach { id ->
-                activity.findViewById<View>(id)?.let { v ->
-                    v.background = makeCardBg(accent, 12f)
-                    if (v is TextView) {
-                        v.setTextColor(0xFFFFFFFF.toInt())
-                    }
+        // 统一处理主要提交按钮（初始化设置）
+        activity.findViewById<View>(R.id.btn_setup_confirm)?.let { v ->
+            v.findViewById<View>(R.id.common_btn_text)?.let { text ->
+                text.background = makeCardBg(btnBg, 12f)
+                if (text is TextView) {
+                    text.setTextColor(0xFFFFFFFF.toInt())
                 }
             }
+        }
 
         // 跳过按钮
         activity.findViewById<View>(R.id.tv_skip)?.let { v ->
@@ -180,18 +265,31 @@ object ThemeUtil {
 
         // 新式输入框 (FrameLayout + EditText) 背景着色
         val inputBgColor = if (isDark) 0xFF333333.toInt() else 0xFFF2F2F2.toInt()
-        listOf(R.id.container_device_address, R.id.container_token)
-            .mapNotNull { activity.findViewById<View>(it) }
-            .forEach { it.backgroundTintList = ColorStateList.valueOf(inputBgColor) }
+        
+        // 查找所有 common_input_container 并着色
+        findViewsWithId(root, R.id.common_input_container).forEach {
+            it.backgroundTintList = ColorStateList.valueOf(inputBgColor)
+        }
 
         // EditText Hint 着色
         val hintColor = ColorStateList.valueOf(textSecondary)
-        listOf(R.id.et_device_address, R.id.et_token)
-            .mapNotNull { activity.findViewById<TextView>(it) }
-            .forEach { (it as? android.widget.EditText)?.setHintTextColor(hintColor) }
+        findViewsWithId(root, R.id.common_input_edit_text).forEach {
+            (it as? android.widget.EditText)?.setHintTextColor(hintColor)
+        }
             
         // 查找并处理分隔线
         findAndThemeDividers(root, dividerColor)
+    }
+
+    /** 递归查找具有特定 ID 的所有视图 */
+    private fun findViewsWithId(root: ViewGroup?, id: Int): List<View> {
+        val result = mutableListOf<View>()
+        if (root == null) return result
+        for (child in root.children) {
+            if (child.id == id) result.add(child)
+            if (child is ViewGroup) result.addAll(findViewsWithId(child, id))
+        }
+        return result
     }
 
     /** 递归查找并处理分隔线（基于 alpha 0.1/0.12 且高度 1dp 的 View） */
@@ -209,24 +307,91 @@ object ThemeUtil {
     }
 
     /** 对小组件设置页应用主题：文字 + CheckBox + TextInputLayout */
-    fun applyToWidgetSettingsPage(activity: Activity) {
+    private fun applyToWidgetSettingsPage(activity: Activity) {
         val ctx = activity
         val textPrimary = ThemeColors.textPrimary(ctx)
         val textSecondary = ThemeColors.textSecondary(ctx)
         val accent = ThemeColors.accent(ctx)
+        val iconTint = ThemeColors.iconTint(ctx)
         val cardBg = ThemeColors.cardBg(ctx)
 
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
-        applySecondaryTextColors(root, textPrimary, textSecondary, accent, cardBg)
-
-        // CheckBox
-        applyCheckBoxesTheme(root, accent, textPrimary)
-
-        // TextInputLayout
-        applyTextInputTheme(root, accent, textSecondary)
+        applySecondaryTextColors(root, textPrimary, textSecondary, accent, iconTint, cardBg)
     }
 
     // ==================== 控件级辅助 ====================
+
+    /**
+     * 设置通用设置项卡片 (layout_common_setting_item)
+     */
+    fun setupSettingItem(view: View?, iconRes: Int, title: String, subtitle: String) {
+        if (view == null) return
+        view.findViewById<ImageView>(R.id.common_item_icon)?.setImageResource(iconRes)
+        view.findViewById<TextView>(R.id.common_item_title)?.text = title
+        view.findViewById<TextView>(R.id.common_item_subtitle)?.text = subtitle
+    }
+
+    /**
+     * 设置通用输入框 (layout_common_input_field)
+     */
+    fun setupInputField(view: View?, title: String, subtitle: String, hint: String, inputType: Int) {
+        if (view == null) return
+        view.findViewById<TextView>(R.id.common_input_title)?.text = title
+        view.findViewById<TextView>(R.id.common_input_subtitle)?.text = subtitle
+        view.findViewById<android.widget.EditText>(R.id.common_input_edit_text)?.apply {
+            setHint(hint)
+            this.inputType = inputType
+        }
+    }
+
+    /**
+     * 设置通用开关 (layout_common_switch)
+     */
+    fun setupSwitch(view: View?, initialValue: Boolean, onCheckedChange: (Boolean) -> Unit) {
+        if (view == null) return
+        val track = view.findViewById<View>(R.id.common_switch_track)
+        val thumb = view.findViewById<View>(R.id.common_switch_thumb)
+        val ctx = view.context
+        
+        var isChecked = initialValue
+        
+        fun updateVisuals(animate: Boolean) {
+            val accent = ThemeColors.accent(ctx)
+            val isDark = ThemeColors.isDark(ctx)
+            val offColor = if (isDark) 0xFF444444.toInt() else 0xFFE0E0E0.toInt()
+            
+            val targetX = if (isChecked) (track.width - thumb.width - (thumb.layoutParams as ViewGroup.MarginLayoutParams).marginStart * 2).toFloat() else 0f
+            val targetBg = if (isChecked) accent else offColor
+            
+            if (animate) {
+                thumb.animate().translationX(targetX).setDuration(200).start()
+                // 背景颜色渐变
+                val anim = android.animation.ValueAnimator.ofArgb(
+                    (track.background as? GradientDrawable)?.color?.defaultColor ?: offColor, 
+                    targetBg
+                )
+                anim.duration = 200
+                anim.addUpdateListener { track.background = makeCardBg(it.animatedValue as Int, 100f) }
+                anim.start()
+            } else {
+                track.post {
+                    val margin = (thumb.layoutParams as ViewGroup.MarginLayoutParams).marginStart
+                    thumb.translationX = if (isChecked) (track.width - thumb.width - margin * 2).toFloat() else 0f
+                    track.background = makeCardBg(targetBg, 100f)
+                }
+            }
+        }
+        
+        updateVisuals(false)
+        
+        track.setOnClickListener {
+            isChecked = !isChecked
+            updateVisuals(true)
+            onCheckedChange(isChecked)
+        }
+    }
+
+    private fun dpToPx(ctx: android.content.Context, dp: Int): Int = (dp * ctx.resources.displayMetrics.density).toInt()
 
     /** 给 ToggleGroup 中的每个子按钮设置描边色和文字色 */
     private fun applyToggleGroupTheme(toggleGroup: MaterialButtonToggleGroup?, accent: Int, textColor: Int) {
@@ -270,13 +435,14 @@ object ThemeUtil {
     // ==================== 内部辅助 ====================
 
     /**
-     * 递归遍历容器，根据 textSize 自动区分标题/正文/注释
+     * 递归遍历容器，根据 textSize 自动区分标题/正文/注释。
      */
     private fun applyTextColorsToContainer(
         root: ViewGroup?,
         textPrimary: Int,
         textSecondary: Int,
         accent: Int,
+        iconTint: Int,
         cardBg: Int
     ) {
         if (root == null) return
@@ -284,17 +450,19 @@ object ThemeUtil {
         for (child in root.children) {
             if (child is ViewGroup) {
                 // 判断是否为卡片容器（有背景）
+                // 跳过开关轨道（由 setupSwitch 管理背景色）
                 val bg = child.background
-                if (bg != null) {
+                if (bg != null && child.id != R.id.common_switch_track) {
                     try { child.background = makeCardBg(cardBg) } catch (_: Exception) {}
                 }
-                applyTextColorsToContainer(child, textPrimary, textSecondary, accent, cardBg)
+                applyTextColorsToContainer(child, textPrimary, textSecondary, accent, iconTint, cardBg)
             }
             if (child is TextView) {
-                if (child.textSize > 20f * density) {
-                    child.setTextColor(textPrimary)
-                } else if (child.textSize <= 12.5f * density) {
-                    child.setTextColor(textSecondary)
+                // 统一阈值逻辑：标题(>20sp) → 主色，正文(14-20sp) → 主色，注释(≤13.5sp) → 副色
+                when {
+                    child.textSize > 20f * density -> child.setTextColor(textPrimary)
+                    child.textSize <= 13.6f * density -> child.setTextColor(textSecondary)
+                    else -> child.setTextColor(textPrimary)
                 }
             }
             // 图标 ImageView 着色
@@ -302,10 +470,19 @@ object ThemeUtil {
                 // 跳过大图标（如关于页的应用图标，通常 > 48dp）
                 val isLargeIcon = child.width > 150 || child.height > 150 || child.id == R.id.iv_app_icon
                 if (!isLargeIcon) {
-                    child.setColorFilter(textSecondary)
+                    // 箭头用次要色，设置项主图标用品牌/强调色
+                    if (child.rotation == 180f || child.alpha < 0.5f) {
+                        child.setColorFilter(textSecondary)
+                    } else {
+                        child.setColorFilter(iconTint)
+                    }
                 } else {
                     child.clearColorFilter()
                 }
+            }
+            // 返回按钮图标着色
+            if (child is android.widget.Button && child.id == R.id.btn_back) {
+                (child as? MaterialButton)?.iconTint = ColorStateList.valueOf(iconTint)
             }
         }
     }
@@ -323,6 +500,7 @@ object ThemeUtil {
     ) {
         if (root == null) return
         val density = root.resources.displayMetrics.density
+        val iconTint = ThemeColors.iconTint(root.context)
         for (child in root.children) {
             if (child is ViewGroup) {
                 val isCard = child.id != android.R.id.content && child.childCount >= 2
@@ -350,6 +528,10 @@ object ThemeUtil {
                     child.setColorFilter(accent)
                 }
             }
+            // 返回按钮图标着色
+            if (child is android.widget.Button && child.id == R.id.btn_back) {
+                (child as? MaterialButton)?.iconTint = ColorStateList.valueOf(iconTint)
+            }
         }
     }
 
@@ -362,6 +544,7 @@ object ThemeUtil {
         textPrimary: Int,
         textSecondary: Int,
         accent: Int,
+        iconTint: Int,
         cardBg: Int
     ) {
         if (root == null) return
@@ -369,18 +552,20 @@ object ThemeUtil {
         for (child in root.children) {
             if (child is ViewGroup) {
                 // 子卡片容器应用圆角背景
+                // 跳过开关轨道（由 setupSwitch 管理背景色），避免主题刷新时覆盖开关状态
                 try {
-                    if (child.background != null && child is ViewGroup) {
+                    if (child.background != null
+                        && child.id != R.id.common_switch_track) {
                         child.background = makeCardBg(cardBg)
                     }
                 } catch (_: Exception) {}
-                applySecondaryTextColors(child, textPrimary, textSecondary, accent, cardBg)
+                applySecondaryTextColors(child, textPrimary, textSecondary, accent, iconTint, cardBg)
             }
-            if (child is TextView && child !is android.widget.Button && child.id != android.R.id.text1 && child.id != R.id.btn_check_update_text && child.id != R.id.btn_save_text && child.id != R.id.btn_setup_confirm_text) {
-                // 跳过系统下拉列表项和自定义按钮文字
+            if (child is TextView && child !is android.widget.Button && child.id != android.R.id.text1 && child.id != R.id.common_btn_text) {
+                // 跳过系统下拉列表项和通用动作按钮文字（这些由具体页面或 applyTheme 逻辑单独处理）
                 when {
                     child.textSize > 20f * density -> child.setTextColor(textPrimary)
-                    child.textSize <= 13.5f * density -> child.setTextColor(textSecondary)
+                    child.textSize <= 13.6f * density -> child.setTextColor(textSecondary)
                     else -> child.setTextColor(textPrimary)
                 }
             }
@@ -388,7 +573,12 @@ object ThemeUtil {
                 // 跳过大图标（如关于页的应用图标，通常 > 48dp）
                 val isLargeIcon = child.width > 150 || child.height > 150 || child.id == R.id.iv_app_icon
                 if (!isLargeIcon) {
-                    child.setColorFilter(textSecondary)
+                    // 箭头用次要色，设置项图标用强调色（与 SettingsActivity/AppSettingsActivity 一致）
+                    if (child.rotation == 180f || child.alpha < 0.5f) {
+                        child.setColorFilter(textSecondary)
+                    } else {
+                        child.setColorFilter(iconTint)
+                    }
                 } else {
                     child.clearColorFilter()
                 }
@@ -398,13 +588,13 @@ object ThemeUtil {
                 val mb = child as? MaterialButton
                 when {
                     child.id == R.id.btn_back -> {
-                        mb?.iconTint = ColorStateList.valueOf(textPrimary)
+                        mb?.iconTint = ColorStateList.valueOf(iconTint)
                     }
                     (mb?.strokeWidth ?: 0) > 0 -> {
                         // 描边按钮 (OutlinedButton)
                         child.setTextColor(textPrimary)
                         mb?.strokeColor = ColorStateList.valueOf(textSecondary)
-                        mb?.iconTint = ColorStateList.valueOf(accent)
+                        mb?.iconTint = ColorStateList.valueOf(iconTint)
                     }
                 }
             }
