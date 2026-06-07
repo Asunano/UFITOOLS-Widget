@@ -29,6 +29,8 @@ import androidx.work.WorkManager
 import com.google.android.material.checkbox.MaterialCheckBox
 import android.content.BroadcastReceiver
 import com.ufi_toolswidget.util.AnimationUtil
+import com.ufi_toolswidget.util.CommonDialogHelper
+import com.ufi_toolswidget.util.CommonSettingsItemHelper
 import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.ThemeChangeNotifier
 import com.ufi_toolswidget.util.ThemeColors
@@ -113,6 +115,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         initWidgetIntervalItem()
         initWidgetBgImageItem()
         initWidgetBgOpacityItem()
+        initWidgetClipToOutlineItem()
     }
 
     override fun onResume() {
@@ -129,6 +132,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         updateWidgetIntervalSubtitle()
         updateWidgetBgImageSubtitle()
         updateWidgetBgOpacitySubtitle()
+        updateWidgetClipToOutlineSwitch()
     }
 
     override fun onDestroy() {
@@ -138,17 +142,16 @@ class WidgetSettingsActivity : AppCompatActivity() {
 
     // ==================== 0. 跟随应用主题（开关） ====================
     private fun initFollowAppThemeItem() {
-        val item = findViewById<View>(R.id.item_widget_follow_theme)
-        findInItem<ImageView>(R.id.item_widget_follow_theme, R.id.common_item_icon)?.setImageResource(R.drawable.ic_sun_moon)
-        item.findViewById<TextView>(R.id.common_switch_label).text = "跟随应用主题"
-        
         val isFollow = SPUtil.getWidgetFollowAppTheme(this)
-        ThemeUtil.setupSwitch(item, isFollow) { isChecked ->
+        CommonSettingsItemHelper.setupSwitchItem(
+            itemView = findViewById(R.id.item_widget_follow_theme),
+            iconRes = R.drawable.ic_sun_moon,
+            label = "跟随应用主题",
+            initialChecked = isFollow
+        ) { isChecked ->
             SPUtil.setWidgetFollowAppTheme(this, isChecked)
             updateFollowAppThemeSubtitle()
-            // 当状态改变时，通知小组件刷新
             BaseWifiWidget.renderAllWidgets(this)
-            // 也可以选择性启用/禁用下方的主题选择项
             updateWidgetThemeItemState(isChecked, animate = true)
         }
         updateFollowAppThemeSubtitle()
@@ -252,8 +255,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         activeWidgetThemeDialog?.takeIf { it.isShowing }?.dismiss()
         activeWidgetThemeDialog = null
 
-        val dialog = Dialog(this)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val dialog = CommonDialogHelper.createDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
@@ -263,7 +265,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_sun_moon)
         dialog.findViewById<View>(R.id.common_dialog_button_container).visibility = View.GONE
 
-        applyThemeToDialogRoot(dialog)
+        CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
 
         val cornerRadius = 12f * resources.displayMetrics.density
         val selectedBg = makeSelectedBg(accent, cornerRadius)
@@ -291,7 +293,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
             })
         }
 
-        setupDialogWindow(dialog)
+        CommonDialogHelper.setupDialogWindow(this, dialog)
         activeWidgetThemeDialog = dialog
         dialog.show()
     }
@@ -321,8 +323,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         activeWidgetColorDialog?.takeIf { it.isShowing }?.dismiss()
         activeWidgetColorDialog = null
 
-        val dialog = Dialog(this)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val dialog = CommonDialogHelper.createDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
@@ -333,7 +334,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_palette)
         dialog.findViewById<View>(R.id.common_dialog_button_container).visibility = View.GONE
 
-        applyThemeToDialogRoot(dialog)
+        CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
 
         val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
         val chipRadius = 12f * resources.displayMetrics.density
@@ -361,7 +362,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         content.addView(customPanel)
         if (widgetColorThemeIndex == -1) customPanel.visibility = View.VISIBLE
 
-        setupDialogWindow(dialog)
+        CommonDialogHelper.setupDialogWindow(this, dialog)
         activeWidgetColorDialog = dialog
         dialog.show()
     }
@@ -577,15 +578,15 @@ class WidgetSettingsActivity : AppCompatActivity() {
         showMem = SPUtil.getShowMem(this)
         showTime = SPUtil.getShowTime(this)
 
-        try {
-            findInItem<ImageView>(R.id.item_display_info, R.id.common_item_icon)?.setImageResource(R.drawable.ic_eye)
-            findInItem<TextView>(R.id.item_display_info, R.id.common_item_title)?.text = "显示信息"
-        } catch (_: Exception) {}
+        CommonSettingsItemHelper.setupSettingItem(
+            findViewById(R.id.item_display_info),
+            iconRes = R.drawable.ic_eye,
+            title = "显示信息",
+            showSubtitle = true,
+            subtitle = "",
+            onClick = ::showDisplayInfoDialog
+        )
         updateDisplayInfoSubtitle()
-
-        findViewById<View>(R.id.item_display_info).setOnClickListener {
-            showDisplayInfoDialog()
-        }
     }
 
     private fun updateDisplayInfoSubtitle() {
@@ -601,14 +602,13 @@ class WidgetSettingsActivity : AppCompatActivity() {
         activeDisplayInfoDialog?.takeIf { it.isShowing }?.dismiss()
         activeDisplayInfoDialog = null
 
-        val dialog = Dialog(this)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val dialog = CommonDialogHelper.createDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
 
         dialog.findViewById<TextView>(R.id.common_dialog_title).text = "显示信息"
         dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_eye)
 
-        applyThemeToDialogRoot(dialog)
+        CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
 
         val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
 
@@ -668,6 +668,9 @@ class WidgetSettingsActivity : AppCompatActivity() {
             grid.addView(switchWrapper)
         }
 
+        // 对 content 内动态添加的视图递归着色（applyThemeToViewTree 会跳过 common_dialog_content 容器）
+        CommonDialogHelper.applyThemeToViewTree(grid, this)
+
         // 按钮区域
         val btnContainer = dialog.findViewById<LinearLayout>(R.id.common_dialog_button_container)
         btnContainer.visibility = View.VISIBLE
@@ -703,7 +706,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
             setOnClickListener { dialog.dismiss() }
         }
 
-        setupDialogWindow(dialog)
+        CommonDialogHelper.setupDialogWindow(this, dialog)
         activeDisplayInfoDialog = dialog
         dialog.show()
     }
@@ -739,8 +742,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         activeWidgetIntervalDialog?.takeIf { it.isShowing }?.dismiss()
         activeWidgetIntervalDialog = null
 
-        val dialog = Dialog(this)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val dialog = CommonDialogHelper.createDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
@@ -751,7 +753,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_clock_bolt)
         dialog.findViewById<View>(R.id.common_dialog_button_container).visibility = View.GONE
 
-        applyThemeToDialogRoot(dialog)
+        CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
 
         val cornerRadius = 12f * resources.displayMetrics.density
         val selectedBg = makeSelectedBg(accent, cornerRadius)
@@ -788,7 +790,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         content.addView(customPanel)
         if (!isPreset && widgetIntervalMinutes > 0) customPanel.visibility = View.VISIBLE
 
-        setupDialogWindow(dialog)
+        CommonDialogHelper.setupDialogWindow(this, dialog)
         activeWidgetIntervalDialog = dialog
         dialog.show()
     }
@@ -1055,8 +1057,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         activeBgImageDialog?.takeIf { it.isShowing }?.dismiss()
         activeBgImageDialog = null
 
-        val dialog = Dialog(this)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val dialog = CommonDialogHelper.createDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
@@ -1066,7 +1067,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_photo)
         dialog.findViewById<View>(R.id.common_dialog_button_container).visibility = View.GONE
 
-        applyThemeToDialogRoot(dialog)
+        CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
 
         val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
         val cornerRadius = 12f * resources.displayMetrics.density
@@ -1093,7 +1094,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
             })
         }
 
-        setupDialogWindow(dialog)
+        CommonDialogHelper.setupDialogWindow(this, dialog)
         activeBgImageDialog = dialog
         dialog.show()
     }
@@ -1124,8 +1125,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         activeBgOpacityDialog?.takeIf { it.isShowing }?.dismiss()
         activeBgOpacityDialog = null
 
-        val dialog = Dialog(this)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val dialog = CommonDialogHelper.createDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
@@ -1136,7 +1136,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_opacity)
         dialog.findViewById<View>(R.id.common_dialog_button_container).visibility = View.GONE
 
-        applyThemeToDialogRoot(dialog)
+        CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
 
         val cornerRadius = 12f * resources.displayMetrics.density
         val selectedBg = makeSelectedBg(accent, cornerRadius)
@@ -1171,7 +1171,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         content.addView(customPanel)
         if (!isPreset) customPanel.visibility = View.VISIBLE
 
-        setupDialogWindow(dialog)
+        CommonDialogHelper.setupDialogWindow(this, dialog)
         activeBgOpacityDialog = dialog
         dialog.show()
     }
@@ -1278,6 +1278,25 @@ class WidgetSettingsActivity : AppCompatActivity() {
         return panel
     }
 
+    // ==================== 6. 圆角裁剪兜底（开关） ====================
+    private fun initWidgetClipToOutlineItem() {
+        CommonSettingsItemHelper.setupSwitchItem(
+            itemView = findViewById(R.id.item_widget_clip_to_outline),
+            iconRes = R.drawable.ic_rounded_corners,
+            label = "兼容性小组件圆角",
+            subtitle = "如果桌面小组件没有圆角效果，可开启此项强制圆角",
+            initialChecked = SPUtil.getWidgetClipToOutline(this),
+            onToggle = { checked ->
+                SPUtil.setWidgetClipToOutline(this, checked)
+                BaseWifiWidget.renderAllWidgets(this)
+            }
+        )
+    }
+
+    private fun updateWidgetClipToOutlineSwitch() {
+        // 开关 UI 状态由 ThemeUtil.setupSwitch 在 onResume 重新初始化时同步
+    }
+
     // ==================== Worker 更新 ====================
     private fun updateWidgetWorker() {
         if (widgetIntervalMinutes <= 0) {
@@ -1303,22 +1322,6 @@ class WidgetSettingsActivity : AppCompatActivity() {
 
     private fun dp2px(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
 
-    private fun setupDialogWindow(dialog: Dialog) {
-        dialog.window?.apply {
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            setDimAmount(0.08f)
-            setLayout(
-                (resources.displayMetrics.widthPixels * 0.88f).toInt(),
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-            setWindowAnimations(R.style.DialogAnimationTheme)
-        }
-        // ── 动态模糊背景：API 31+ 原生模糊 ──
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            AnimationUtil.applyDialogBlurIn(dialog)
-        }
-    }
-
     /** 带动画退场关闭弹窗：先执行模糊退场动画(260ms)，再关闭弹窗并执行回调 */
     private fun dismissDialogWithAnimation(dialog: Dialog, onComplete: () -> Unit = {}) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1329,39 +1332,6 @@ class WidgetSettingsActivity : AppCompatActivity() {
         } else {
             dialog.dismiss()
             onComplete()
-        }
-    }
-
-    private fun applyThemeToDialogRoot(dialog: Dialog) {
-        val root = dialog.findViewById<ViewGroup>(android.R.id.content)
-            ?.let { if (it.childCount > 0) it.getChildAt(0) as? ViewGroup else it } ?: return
-        val textPrimary = ThemeColors.textPrimary(this)
-        val accent = ThemeColors.accent(this)
-        val cardBg = ThemeColors.cardBg(this)
-
-        val borderColor = if (SPUtil.getNightMode(this) == AppCompatDelegate.MODE_NIGHT_YES)
-            0x4DFFFFFF.toInt() else 0x35000000
-        root.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(cardBg)
-            cornerRadius = 16f * resources.displayMetrics.density
-            setStroke(2, borderColor)
-        }
-
-        applyThemeToViewTree(root, textPrimary, accent, cardBg)
-    }
-
-    private fun applyThemeToViewTree(view: View, textPrimary: Int, accent: Int, cardBg: Int) {
-        if (view is ViewGroup && view.id != R.id.common_dialog_content) {
-            for (i in 0 until view.childCount) {
-                applyThemeToViewTree(view.getChildAt(i), textPrimary, accent, cardBg)
-            }
-        }
-        if (view is TextView && view.id != R.id.common_dialog_btn_primary) {
-            view.setTextColor(textPrimary)
-        }
-        if (view is ImageView) {
-            view.setColorFilter(ThemeColors.iconTint(this))
         }
     }
 
