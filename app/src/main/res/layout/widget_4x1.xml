@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:elevation="6dp"
+    android:outlineProvider="background"
+    android:background="@drawable/bg_widget_mask_transparent">
+
+    <!-- 背景图层 -->
+    <ImageView
+        android:id="@+id/widget_bg_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/bg_widget_mask" />
+
+    <!-- 描边层 -->
+    <ImageView
+        android:id="@+id/widget_bg_stroke"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/bg_widget_stroke" />
+
+    <!-- 正常数据内容区：单行横向 -->
+    <LinearLayout
+        android:id="@+id/widget_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp">
+
+        <!-- 1) 路由器 + 型号 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/iv_router"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_router"
+                android:scaleType="fitCenter"
+                android:layout_marginEnd="2dp" />
+
+            <TextView
+                android:id="@+id/tv_model"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="..."
+                android:textColor="#777777"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <!-- 2) 信号格 + 网络类型 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/iv_signal_bars"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_signal_0"
+                android:scaleType="fitCenter" />
+
+            <ImageView
+                android:id="@+id/iv_network"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_marginStart="2dp"
+                android:src="@drawable/ic_network_4g"
+                android:scaleType="fitCenter" />
+        </LinearLayout>
+
+        <!-- 3) 电量图标 + 电量文本 + 充电标志 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/iv_battery"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:src="@drawable/ic_battery_0"
+                android:scaleType="fitCenter" />
+
+            <TextView
+                android:id="@+id/tv_battery"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="2dp"
+                android:text="--"
+                android:textColor="#777777"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/tv_charging"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="2dp"
+                android:text=""
+                android:textColor="#F59E0B"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <!-- 4) 温度图标 + 温度文本 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/iv_temp"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:src="@drawable/ic_temp"
+                android:scaleType="fitCenter" />
+
+            <TextView
+                android:id="@+id/tv_temp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="2dp"
+                android:text="--"
+                android:textColor="#777777"
+                android:textSize="9sp" />
+        </LinearLayout>
+
+        <!-- 5) 更新时间（右对齐） -->
+        <TextView
+            android:id="@+id/tv_update_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:text="..."
+            android:textColor="#777777"
+            android:textSize="8sp" />
+
+    </LinearLayout>
+    <!-- end of widget_content -->
+
+    <!-- 错误覆盖层：紧凑型 -->
+    <LinearLayout
+        android:id="@+id/widget_error_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:visibility="gone"
+        android:clickable="false">
+
+        <ImageView
+            android:id="@+id/widget_error_icon"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@drawable/ic_router_off"
+            android:scaleType="fitCenter"
+            android:layout_marginEnd="6dp" />
+
+        <TextView
+            android:id="@+id/widget_error_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="设备连接失败"
+            android:textColor="#777777"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+    </LinearLayout>
+
+</FrameLayout>

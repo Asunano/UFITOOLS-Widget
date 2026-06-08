@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
+        android:name=".UfiToolsApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -65,8 +66,20 @@
             android:theme="@style/Theme.UFITOOLSWidget" />
 
         <activity
+            android:name=".WidgetDynamicColorActivity"
+            android:label="动态配色"
+            android:parentActivityName=".ExperimentalFeaturesActivity"
+            android:theme="@style/Theme.UFITOOLSWidget" />
+
+        <activity
             android:name=".AboutActivity"
             android:label="关于"
+            android:parentActivityName=".SettingsActivity"
+            android:theme="@style/Theme.UFITOOLSWidget" />
+
+        <activity
+            android:name=".ExperimentalFeaturesActivity"
+            android:label="实验功能"
             android:parentActivityName=".SettingsActivity"
             android:theme="@style/Theme.UFITOOLSWidget" />
 
@@ -115,6 +128,54 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_4x2_info" />
+        </receiver>
+
+        <!-- 2×1 迷你版暂时禁用 -->
+        <receiver
+            android:name=".widget.WifiWidget2x1"
+            android:exported="true"
+            android:enabled="false"
+            android:label="UFI 迷你 (2×1)">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="com.ufi_toolswidget.ACTION_WIDGET_REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_2x1_info" />
+        </receiver>
+
+        <!-- 4×1 条形版暂时禁用 -->
+        <receiver
+            android:name=".widget.WifiWidget4x1"
+            android:exported="true"
+            android:enabled="false"
+            android:label="UFI 条形 (4×1)">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="com.ufi_toolswidget.ACTION_WIDGET_REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_4x1_info" />
+        </receiver>
+
+        <!-- 4×4 详情版暂时禁用 -->
+        <receiver
+            android:name=".widget.WifiWidget4x4"
+            android:exported="true"
+            android:enabled="false"
+            android:label="UFI 详情 (4×4)">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="com.ufi_toolswidget.ACTION_WIDGET_REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_4x4_info" />
         </receiver>
     </application>
 

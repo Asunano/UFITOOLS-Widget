@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material You 动态配色图标：三色圆交叠，象征壁纸取色 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 蓝色圆（左上） -->
+    <path
+        android:pathData="M8.5,8.5m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0"
+        android:fillColor="#1976D2"
+        android:fillAlpha="0.75" />
+    <!-- 红色圆（右上） -->
+    <path
+        android:pathData="M15.5,8.5m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0"
+        android:fillColor="#E53935"
+        android:fillAlpha="0.75" />
+    <!-- 绿色圆（底部） -->
+    <path
+        android:pathData="M12,15m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0"
+        android:fillColor="#43A047"
+        android:fillAlpha="0.75" />
+</vector>

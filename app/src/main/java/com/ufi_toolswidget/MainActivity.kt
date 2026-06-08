@@ -1,66 +1,33 @@
 package com.ufi_toolswidget
 
-import android.Manifest
-import android.animation.AnimatorListenerAdapter
-import android.animation.ValueAnimator
 import android.app.Dialog
-import android.app.DownloadManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.content.res.ColorStateList
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.graphics.Color
-import android.view.animation.DecelerateInterpolator
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.util.Log
 import android.view.View
-import java.util.Locale
 import android.view.ViewGroup
 import android.view.Window
-import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
 import android.widget.*
-import android.widget.ImageView
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
-import androidx.core.view.WindowCompat
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import com.ufi_toolswidget.util.AnimationUtil
-import com.ufi_toolswidget.util.BackgroundUtil
-import com.ufi_toolswidget.util.CommonDialogHelper
-import com.ufi_toolswidget.util.CrashHandler
-import com.ufi_toolswidget.util.DebugLogger
-import com.ufi_toolswidget.util.ScaleTouchListener
-import com.ufi_toolswidget.util.SPUtil
-import com.ufi_toolswidget.util.ThemeChangeNotifier
-import com.ufi_toolswidget.util.ThemeColors
-import com.ufi_toolswidget.util.ThemeUtil
-import com.ufi_toolswidget.util.UpdateChecker
-import com.ufi_toolswidget.util.WifiCrawl
-import com.ufi_toolswidget.util.WifiEntity
+import com.ufi_toolswidget.util.*
 import com.ufi_toolswidget.widget.BaseWifiWidget
 import com.ufi_toolswidget.worker.WifiWorker
 import com.google.android.material.button.MaterialButton
-import androidx.lifecycle.ViewModelProvider
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
-import java.io.File
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
@@ -128,8 +95,11 @@ class MainActivity : AppCompatActivity() {
                 viewModel.getWifiEntity()?.let { cachedData ->
                     DebugLogger.logUi(TAG, "onResume: applying cached entity from ViewModel")
                     hideLoadingView(false)
-                    hasShownFirstLoadAnimation = true  // 避免 refreshData 重复触发动画
-                    applyWifiEntityToUi(cachedData)
+                    if (!hasShownFirstLoadAnimation) {
+                        hasShownFirstLoadAnimation = true
+                        setupAnimations()  // 首次加载 / 屏幕旋转后播放入场动画
+                    }
+                    applyWifiEntityToUi(cachedData)  // 后填充数据，内容在动画中淡入
                 }
                 refreshData()
                 startAutoRefreshTimer()
@@ -175,7 +145,7 @@ class MainActivity : AppCompatActivity() {
             }
             // 3. 入场动画（安全包装）
             try {
-                if (AnimationUtil.pendingTransitionBitmap != null) {
+                if (AnimationUtil.pendingTransitionBitmap?.get() != null) {
                     AnimationUtil.applyCrossfadeEnterFromRecreate(this)
                 }
             } catch (e: Exception) {
@@ -208,7 +178,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 静默检查更新（启动时触发，受开关和频率限制）
+     * 静默检查更新（启动时触发，受开关和频率限制）。
+     * 使用 lifecycleScope 确保 Activity 销毁时协程自动取消。
      */
     private fun checkUpdateSilently() {
         if (!SPUtil.getAutoCheckUpdate(this)) return
@@ -223,13 +194,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         DebugLogger.logSys(TAG, "checkUpdateSilently: starting background check")
-        UpdateChecker.checkUpdate(this) { info, error ->
-            if (info != null && !isFinishing && !isDestroyed) {
-                SPUtil.setLastUpdateCheckTime(this, now)
-                showUpdateDialog(info)
-            } else if (error == null) {
-                // 如果没有新版本且没有错误，也记录本次检查时间
-                SPUtil.setLastUpdateCheckTime(this, now)
+        lifecycleScope.launch {
+            when (val result = UpdateChecker.checkUpdate(this@MainActivity)) {
+                is UpdateChecker.UpdateResult.NewVersion -> {
+                    SPUtil.setLastUpdateCheckTime(this@MainActivity, now)
+                    showUpdateDialog(result.info)
+                }
+                is UpdateChecker.UpdateResult.Latest -> {
+                    SPUtil.setLastUpdateCheckTime(this@MainActivity, now)
+                }
+                is UpdateChecker.UpdateResult.Error -> {
+                    // 静默检查，错误不提示用户
+                }
             }
         }
     }
@@ -334,6 +310,10 @@ class MainActivity : AppCompatActivity() {
         AnimationUtil.applyScaleClickAnimation(findViewById(R.id.main_item_ip)) {
             viewModel.getWifiEntity()?.let { showIpDetailDialog(it) }
         }
+        // 电池 点击 → 详情弹窗
+        AnimationUtil.applyScaleClickAnimation(findViewById(R.id.main_item_battery)) {
+            viewModel.getWifiEntity()?.let { showBatteryDetailDialog(it) }
+        }
 
         // 状态视图
         mainContentView = findViewById(R.id.main_content)
@@ -353,16 +333,16 @@ class MainActivity : AppCompatActivity() {
             findViewById<TextView>(R.id.common_btn_text).text = "检查更新"
             setOnClickListener {
                 Toast.makeText(this@MainActivity, "正在检查更新...", Toast.LENGTH_SHORT).show()
-                UpdateChecker.checkUpdate(this@MainActivity) { info, error ->
-                    when {
-                        error != null -> {
-                            Toast.makeText(this@MainActivity, error, Toast.LENGTH_LONG).show()
+                lifecycleScope.launch {
+                    when (val result = UpdateChecker.checkUpdate(this@MainActivity)) {
+                        is UpdateChecker.UpdateResult.NewVersion -> {
+                            showUpdateDialog(result.info)
                         }
-                        info != null -> {
-                            showUpdateDialog(info)
-                        }
-                        else -> {
+                        is UpdateChecker.UpdateResult.Latest -> {
                             Toast.makeText(this@MainActivity, "当前已是最新版本 ✓", Toast.LENGTH_SHORT).show()
+                        }
+                        is UpdateChecker.UpdateResult.Error -> {
+                            Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
                         }
                     }
                 }
@@ -432,14 +412,14 @@ class MainActivity : AppCompatActivity() {
         }
         DebugLogger.logUi(TAG, "Updating UI: net=$newNetText")
         AnimationUtil.smoothUpdateText(tvNetSignal, newNetText)
-        AnimationUtil.smoothUpdateText(tvTemp, getHighestTemp(data))
+        AnimationUtil.smoothUpdateText(tvTemp, MainDialogHelper.getHighestTemp(data))
         AnimationUtil.smoothUpdateText(tvCpu, data.cpu.ifEmpty { "--" })
         AnimationUtil.smoothUpdateText(tvMem, data.mem.ifEmpty { "--" })
         AnimationUtil.smoothUpdateText(tvDaily, data.dailyFlow.ifEmpty { "--" })
         AnimationUtil.smoothUpdateText(tvFlow, data.flow.ifEmpty { "--" })
 
         // 电池
-        val (batteryPct, batterySub) = buildBatteryParts(data)
+        val (batteryPct, batterySub) = MainDialogHelper.buildBatteryParts(data)
         AnimationUtil.smoothUpdateText(tvBattery, batteryPct)
         if (batterySub != null) {
             if (tvBatterySub.visibility != View.VISIBLE) {
@@ -523,14 +503,14 @@ class MainActivity : AppCompatActivity() {
                     title = "检测到异常退出",
                     iconRes = android.R.drawable.ic_dialog_alert,
                     onFill = { content ->
-                        content.addView(sectionTitleView("崩溃信息"))
+                        content.addView(MainDialogHelper.sectionTitleView(this@MainActivity, "崩溃信息"))
                         val timeStr = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.getDefault())
                             .format(java.util.Date(crashTime))
-                        content.addView(keyValueView("发生时间", timeStr))
+                        content.addView(MainDialogHelper.keyValueView(this@MainActivity, "发生时间", timeStr))
                         if (summary.isNotEmpty()) {
-                            content.addView(keyValueView("异常摘要", summary.take(150)))
+                            content.addView(MainDialogHelper.keyValueView(this@MainActivity, "异常摘要", summary.take(150)))
                         }
-                        content.addView(keyValueView("提示", "日志已自动保存（已脱敏），建议分享给开发者以帮助修复问题"))
+                        content.addView(MainDialogHelper.keyValueView(this@MainActivity, "提示", "日志已自动保存（已脱敏），建议分享给开发者以帮助修复问题"))
                     },
                     primaryBtnText = "查看并分享日志",
                     onPrimaryClick = { dlg ->
@@ -763,28 +743,11 @@ class MainActivity : AppCompatActivity() {
         // 不同类型 → 关闭旧的，创建新的
         dismissActiveDialog()
 
-        val dialog = object : Dialog(this, R.style.Theme_UFITOOLSWidget_Transparent) {
-            fun realDismiss() {
-                super.dismiss()
-                activeDialog = null
-                viewModel.setActiveDialogType(null)
-            }
-
-            override fun dismiss() {
-                if (window == null) {
-                    realDismiss()
-                    return
-                }
-                viewModel.setActiveDialogType(null)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    AnimationUtil.applyDialogBlurOut(this) { realDismiss() }
-                } else {
-                    realDismiss()
-                }
-            }
+        val dialog = CommonDialogHelper.createAnimatedDialog(this) {
+            activeDialog = null
+            viewModel.setActiveDialogType(null)
         }
 
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.setContentView(layoutRes)
 
         // ── 动态应用主题色到弹窗根布局 ──
@@ -856,69 +819,72 @@ class MainActivity : AppCompatActivity() {
             null
         } ?: return
 
-        when (viewModel.activeDialogType.value) {
-            "temperature" -> {
-                // 精细化缓存：使用 hashCode 校验数据对象是否有任何变化
-                val currentHash = data.cpuTempList.hashCode().toLong()
-                if (content.tag != currentHash) {
-                    content.removeAllViews()
-                    content.fillTemperature(data)
-                    content.tag = currentHash
+        with(MainDialogHelper) {
+            when (viewModel.activeDialogType.value) {
+                "temperature" -> {
+                    val currentHash = data.cpuTempList.hashCode().toLong()
+                    if (content.tag != currentHash) {
+                        content.removeAllViews()
+                        content.fillTemperature(this@MainActivity, data)
+                        content.tag = currentHash
+                    }
                 }
-            }
-            "cpu" -> {
-                // 精细化缓存：校验频率和使用率的完整 hashCode
-                val currentHash = data.cpuFreqInfo.hashCode().toLong() + data.cpuUsageInfo.hashCode().toLong()
-                if (content.tag != currentHash) {
-                    content.removeAllViews()
-                    content.fillCpuDetail(data)
-                    content.tag = currentHash
+                "cpu" -> {
+                    val currentHash = data.cpuFreqInfo.hashCode().toLong() + data.cpuUsageInfo.hashCode().toLong()
+                    if (content.tag != currentHash) {
+                        content.removeAllViews()
+                        content.fillCpuDetail(this@MainActivity, data)
+                        content.tag = currentHash
+                    }
                 }
-            }
-            "mem" -> {
-                // 精细化缓存：校验内存所有关键数值
-                val currentHash = data.memUsedKb + data.memAvailableKb + data.swapUsedKb
-                if (content.tag != currentHash) {
-                    content.removeAllViews()
-                    content.fillMemDetail(data)
-                    content.tag = currentHash
+                "mem" -> {
+                    val currentHash = data.memUsedKb + data.memAvailableKb + data.swapUsedKb
+                    if (content.tag != currentHash) {
+                        content.removeAllViews()
+                        content.fillMemDetail(this@MainActivity, data)
+                        content.tag = currentHash
+                    }
                 }
-            }
-            "storage" -> {
-                // 精细化缓存：校验内外存储已用量
-                val currentHash = data.internalUsedStorage + data.externalUsedStorage
-                if (content.tag != currentHash) {
-                    content.removeAllViews()
-                    content.fillStorageDetail(data)
-                    content.tag = currentHash
+                "storage" -> {
+                    val currentHash = data.internalUsedStorage + data.externalUsedStorage
+                    if (content.tag != currentHash) {
+                        content.removeAllViews()
+                        content.fillStorageDetail(this@MainActivity, data)
+                        content.tag = currentHash
+                    }
                 }
-            }
-            "firmware" -> {
-                // 精细化缓存：校验版本号变更
-                val currentHash = data.appVer.hashCode().toLong() + data.webVersion.hashCode().toLong()
-                if (content.tag != currentHash) {
-                    content.removeAllViews()
-                    content.fillFirmwareDetail(data)
-                    content.tag = currentHash
+                "firmware" -> {
+                    val currentHash = data.appVer.hashCode().toLong() + data.webVersion.hashCode().toLong()
+                    if (content.tag != currentHash) {
+                        content.removeAllViews()
+                        content.fillFirmwareDetail(this@MainActivity, data)
+                        content.tag = currentHash
+                    }
                 }
-            }
-            "ip" -> {
-                // 精细化缓存：校验 IP 地址变更
-                val currentHash = data.clientIp.hashCode().toLong() + data.wanIp.hashCode().toLong() +
-                                 (data.atNetworkInfo?.wanIpAt?.hashCode()?.toLong() ?: 0L)
-                if (content.tag != currentHash) {
-                    content.removeAllViews()
-                    content.fillIpDetail(data)
-                    content.tag = currentHash
+                "ip" -> {
+                    val currentHash = data.clientIp.hashCode().toLong() + data.wanIp.hashCode().toLong() +
+                                     (data.atNetworkInfo?.wanIpAt?.hashCode()?.toLong() ?: 0L)
+                    if (content.tag != currentHash) {
+                        content.removeAllViews()
+                        content.fillIpDetail(this@MainActivity, data)
+                        content.tag = currentHash
+                    }
                 }
-            }
-            "network" -> {
-                // 精细化缓存：校验 AT 网络详情对象的完整 hashCode
-                val currentHash = data.atNetworkInfo?.hashCode()?.toLong() ?: 0L
-                if (content.tag != currentHash) {
-                    content.removeAllViews()
-                    content.fillNetworkDetail(data)
-                    content.tag = currentHash
+                "battery" -> {
+                    val currentHash = data.battery.hashCode().toLong() + data.batteryCurrent.hashCode().toLong() + data.batteryVoltage.hashCode().toLong()
+                    if (content.tag != currentHash) {
+                        content.removeAllViews()
+                        content.fillBatteryDetail(this@MainActivity, data)
+                        content.tag = currentHash
+                    }
+                }
+                "network" -> {
+                    val currentHash = data.atNetworkInfo?.hashCode()?.toLong() ?: 0L
+                    if (content.tag != currentHash) {
+                        content.removeAllViews()
+                        content.fillNetworkDetail(this@MainActivity, data)
+                        content.tag = currentHash
+                    }
                 }
             }
         }
@@ -994,7 +960,7 @@ class MainActivity : AppCompatActivity() {
             type = "network",
             title = "网络详情",
             iconRes = R.drawable.ic_antenna,
-            onFill = { it.fillNetworkDetail(data) }
+            onFill = { with(MainDialogHelper) { it.fillNetworkDetail(this@MainActivity, data) } }
         )
         dialog?.findViewById<LinearLayout>(R.id.common_dialog_content)?.tag = 
             data.atNetworkInfo?.hashCode()?.toLong() ?: 0L
@@ -1005,7 +971,7 @@ class MainActivity : AppCompatActivity() {
             type = "firmware",
             title = "固件与版本",
             iconRes = R.drawable.ic_check,
-            onFill = { it.fillFirmwareDetail(data) }
+            onFill = { with(MainDialogHelper) { it.fillFirmwareDetail(this@MainActivity, data) } }
         )
         dialog?.findViewById<LinearLayout>(R.id.common_dialog_content)?.tag = 
             data.appVer.hashCode().toLong() + data.webVersion.hashCode().toLong()
@@ -1016,72 +982,11 @@ class MainActivity : AppCompatActivity() {
             type = "ip",
             title = "网络地址详情",
             iconRes = R.drawable.ic_router,
-            onFill = { it.fillIpDetail(data) }
+            onFill = { with(MainDialogHelper) { it.fillIpDetail(this@MainActivity, data) } }
         )
         dialog?.findViewById<LinearLayout>(R.id.common_dialog_content)?.tag = 
             data.clientIp.hashCode().toLong() + data.wanIp.hashCode().toLong() + 
             (data.atNetworkInfo?.wanIpAt?.hashCode()?.toLong() ?: 0L)
-    }
-
-    private fun LinearLayout.fillIpDetail(data: WifiEntity) {
-        // ── 局域网地址 ──
-        addView(sectionTitleView("局域网 (LAN)"))
-        if (data.clientIp.isNotEmpty()) {
-            addView(keyValueView("设备 IP", data.clientIp))
-        }
-        val gateway = SPUtil.getDeviceHost(context)
-        addView(keyValueView("网关地址", gateway))
-
-        // ── 广域网地址 ──
-        val info = data.atNetworkInfo
-        val wanIpv4 = if (data.wanIp.isNotEmpty()) data.wanIp else info?.wanIpAt ?: ""
-        if (wanIpv4.isNotEmpty() || data.wanIpv6.isNotEmpty()) {
-            addView(dividerView())
-            addView(sectionTitleView("广域网 (WAN)"))
-            if (wanIpv4.isNotEmpty()) {
-                addView(keyValueView("IPv4 地址", wanIpv4))
-            }
-            if (data.wanIpv6.isNotEmpty()) {
-                addView(keyValueView("IPv6 地址", data.wanIpv6))
-            }
-            if (data.pdpTypeGoform.isNotEmpty()) {
-                addView(keyValueView("承载类型", data.pdpTypeGoform))
-            }
-            if (info?.dnsServers?.isNotEmpty() == true) {
-                addView(keyValueView("DNS 服务", info.dnsServers))
-            }
-        }
-    }
-
-    private fun LinearLayout.fillFirmwareDetail(data: WifiEntity) {
-        // ── 软件信息 ──
-        addView(sectionTitleView("软件版本"))
-        try {
-            val appVersion = packageManager.getPackageInfo(packageName, 0).versionName
-            addView(keyValueView("应用版本", "v$appVersion"))
-        } catch (_: Exception) {
-            // getPackageInfo 失败，不显示应用版本行（非关键）
-        }
-        if (data.appVer.isNotEmpty()) addView(keyValueView("接口版本", data.appVer))
-        if (data.appVerCode.isNotEmpty()) addView(keyValueView("构建代码", data.appVerCode))
-
-        // ── 模块信息 (AT) ──
-        val info = data.atNetworkInfo
-        if (info != null && (info.moduleModel.isNotEmpty() || info.firmwareDetail.isNotEmpty())) {
-            addView(dividerView())
-            addView(sectionTitleView("通信模块"))
-            if (info.moduleModel.isNotEmpty()) addView(keyValueView("型号", info.moduleModel))
-            if (info.firmwareDetail.isNotEmpty()) addView(keyValueView("固件", info.firmwareDetail))
-        }
-
-        // ── 设备信息 (Goform) ──
-        if (data.hardwareVersion.isNotEmpty() || data.webVersion.isNotEmpty() || data.macAddress.isNotEmpty()) {
-            addView(dividerView())
-            addView(sectionTitleView("设备信息"))
-            if (data.hardwareVersion.isNotEmpty()) addView(keyValueView("硬件版本", data.hardwareVersion))
-            if (data.webVersion.isNotEmpty()) addView(keyValueView("固件版本", data.webVersion))
-            if (data.macAddress.isNotEmpty()) addView(keyValueView("MAC 地址", data.macAddress))
-        }
     }
 
     private fun showTemperatureDialog(data: WifiEntity) {
@@ -1089,23 +994,10 @@ class MainActivity : AppCompatActivity() {
             type = "temperature",
             title = "设备温度",
             iconRes = R.drawable.ic_temp,
-            onFill = { it.fillTemperature(data) }
+            onFill = { with(MainDialogHelper) { it.fillTemperature(this@MainActivity, data) } }
         )
         dialog?.findViewById<LinearLayout>(R.id.common_dialog_content)?.tag = 
             data.cpuTempList.hashCode().toLong()
-    }
-
-    private fun LinearLayout.fillTemperature(data: WifiEntity) {
-        if (data.cpuTempList.isEmpty()) {
-            addView(emptyHintView("暂无温度数据"))
-        } else {
-            addView(sectionTitleView("各分区温度"))
-            data.cpuTempList.sortedByDescending { it.temp }.forEach { item ->
-                val celsius = if (item.temp > 1000) item.temp / 1000.0 else item.temp
-                val name = item.type.removeSuffix("-thmzone").replace("_", " ")
-                addView(keyValueView(name, "%.1f℃".format(celsius), celsius >= 60))
-            }
-        }
     }
 
     private fun showCpuDetailDialog(data: WifiEntity) {
@@ -1113,35 +1005,10 @@ class MainActivity : AppCompatActivity() {
             type = "cpu",
             title = "CPU 详情",
             iconRes = R.drawable.ic_cpu,
-            onFill = { it.fillCpuDetail(data) }
+            onFill = { with(MainDialogHelper) { it.fillCpuDetail(this@MainActivity, data) } }
         )
         dialog?.findViewById<LinearLayout>(R.id.common_dialog_content)?.tag = 
             data.cpuFreqInfo.hashCode().toLong() + data.cpuUsageInfo.hashCode().toLong()
-    }
-
-    private fun LinearLayout.fillCpuDetail(data: WifiEntity) {
-        var hasData = false
-        if (data.cpuFreqInfo.isNotEmpty()) {
-            addView(sectionTitleView("核心频率 (MHz)"))
-            data.cpuFreqInfo.toSortedMap(compareBy { it.removePrefix("cpu").toIntOrNull() ?: 99 })
-                .forEach { (key, freq) ->
-                    addView(keyValueView(key, "${freq.cur} / ${freq.max} MHz"))
-                }
-            hasData = true
-        }
-        if (data.cpuUsageInfo.isNotEmpty()) {
-            if (hasData) addView(dividerView())
-            addView(sectionTitleView("核心使用率"))
-            val sorted = data.cpuUsageInfo.toList().sortedBy { (k, _) ->
-                if (k == "cpu") -1 else k.removePrefix("cpu").toIntOrNull() ?: 99
-            }
-            sorted.forEach { (key, usage) ->
-                val label = if (key == "cpu") "总体" else key
-                addView(keyValueView(label, "$usage%"))
-            }
-            hasData = true
-        }
-        if (!hasData) addView(emptyHintView("暂无详细 CPU 数据"))
     }
 
     private fun showMemDetailDialog(data: WifiEntity) {
@@ -1149,34 +1016,10 @@ class MainActivity : AppCompatActivity() {
             type = "mem",
             title = "内存详情",
             iconRes = R.drawable.ic_chip,
-            onFill = { it.fillMemDetail(data) }
+            onFill = { with(MainDialogHelper) { it.fillMemDetail(this@MainActivity, data) } }
         )
         dialog?.findViewById<LinearLayout>(R.id.common_dialog_content)?.tag = 
             data.memUsedKb + data.memAvailableKb + data.swapUsedKb
-    }
-
-    private fun LinearLayout.fillMemDetail(data: WifiEntity) {
-        var hasData = false
-        if (data.memTotalKb > 0) {
-            addView(sectionTitleView("内存 (RAM)"))
-            addView(keyValueView("总量", formatKb(data.memTotalKb)))
-            addView(keyValueView("已用", formatKb(data.memUsedKb)))
-            addView(keyValueView("可用", formatKb(data.memAvailableKb)))
-            addView(keyValueView("使用率", data.mem))
-            hasData = true
-        }
-        if (data.swapTotalKb > 0) {
-            if (hasData) addView(dividerView())
-            addView(sectionTitleView("交换分区 (SWAP)"))
-            addView(keyValueView("总量", formatKb(data.swapTotalKb)))
-            addView(keyValueView("已用", formatKb(data.swapUsedKb)))
-            addView(keyValueView("空闲", formatKb(data.swapFreeKb)))
-            val swapPct = if (data.swapTotalKb > 0)
-                "%.1f%%".format(data.swapUsedKb * 100.0 / data.swapTotalKb) else "--"
-            addView(keyValueView("使用率", swapPct))
-            hasData = true
-        }
-        if (!hasData) addView(emptyHintView("暂无详细内存数据"))
     }
 
     private fun showStorageDetailDialog(data: WifiEntity) {
@@ -1184,307 +1027,34 @@ class MainActivity : AppCompatActivity() {
             type = "storage",
             title = "存储详情",
             iconRes = R.drawable.ic_router,
-            onFill = { it.fillStorageDetail(data) }
+            onFill = { with(MainDialogHelper) { it.fillStorageDetail(this@MainActivity, data) } }
         )
         dialog?.findViewById<LinearLayout>(R.id.common_dialog_content)?.tag = 
             data.internalUsedStorage + data.externalUsedStorage
     }
 
-    private fun LinearLayout.fillStorageDetail(data: WifiEntity) {
-        var hasData = false
-        if (data.internalTotalStorage > 0) {
-            addView(sectionTitleView("内部存储"))
-            addView(keyValueView("总量", formatStorageGb(data.internalTotalStorage)))
-            addView(keyValueView("已用", formatStorageGb(data.internalUsedStorage)))
-            val avail = if (data.internalAvailableStorage > 0) data.internalAvailableStorage
-                else data.internalTotalStorage - data.internalUsedStorage
-            addView(keyValueView("可用", formatStorageGb(avail)))
-            val pct = if (data.internalTotalStorage > 0)
-                "%.1f%%".format(data.internalUsedStorage * 100.0 / data.internalTotalStorage) else "--"
-            addView(keyValueView("使用率", pct))
-            hasData = true
+    private fun showBatteryDetailDialog(data: WifiEntity) {
+        val batteryLevel = data.batteryPercent
+        val iconRes = when {
+            batteryLevel >= 80 -> R.drawable.ic_battery_4
+            batteryLevel >= 60 -> R.drawable.ic_battery_3
+            batteryLevel >= 40 -> R.drawable.ic_battery_2
+            batteryLevel >= 10 -> R.drawable.ic_battery_1
+            else -> R.drawable.ic_battery_0
         }
-        if (data.externalTotalStorage > 0) {
-            if (hasData) addView(dividerView())
-            addView(sectionTitleView("外部存储"))
-            addView(keyValueView("总量", formatStorageGb(data.externalTotalStorage)))
-            addView(keyValueView("已用", formatStorageGb(data.externalUsedStorage)))
-            val extAvail = if (data.externalAvailableStorage > 0) data.externalAvailableStorage
-                else data.externalTotalStorage - data.externalUsedStorage
-            addView(keyValueView("可用", formatStorageGb(extAvail)))
-            val extPct = if (data.externalTotalStorage > 0)
-                "%.1f%%".format(data.externalUsedStorage * 100.0 / data.externalTotalStorage) else "--"
-            addView(keyValueView("使用率", extPct))
-            hasData = true
-        }
-        if (!hasData) addView(emptyHintView("暂无详细存储数据"))
+        val dialog = showCommonDialog(
+            type = "battery",
+            title = "电池详情",
+            iconRes = iconRes,
+            onFill = { with(MainDialogHelper) { it.fillBatteryDetail(this@MainActivity, data) } }
+        )
+        dialog?.findViewById<LinearLayout>(R.id.common_dialog_content)?.tag =
+            data.battery.hashCode().toLong() + data.batteryCurrent.hashCode().toLong() + data.batteryVoltage.hashCode().toLong()
     }
 
-    /** 填充网络详情（AT 指令：RSRP/SINR/RSRQ/频段/运营商） */
-    private fun LinearLayout.fillNetworkDetail(data: WifiEntity) {
-        val info = data.atNetworkInfo
-        if (info == null) {
-            addView(emptyHintView("暂无 AT 网络数据\n（设备可能不支持 AT 指令接口）"))
-            return
-        }
-
-        // 运营商 + 网络类型
-        addView(sectionTitleView("当前网络"))
-        // 优先显示映射后的真实运营商名称，其次原始值
-        val carrierText = info.carrier.ifEmpty { info.operator }
-        if (carrierText.isNotEmpty()) {
-            addView(keyValueView("运营商", carrierText))
-        }
-        if (info.networkType.isNotEmpty()) {
-            addView(keyValueView("网络制式", info.networkType))
-        }
-
-        // RSRP (dBm)：-90 以上优秀，-105 以下差
-        if (info.rsrp > Int.MIN_VALUE) {
-            addView(dividerView())
-            addView(sectionTitleView("信号参数"))
-            val rsrpLabel = when {
-                info.rsrp >= -85 -> "excellent"
-                info.rsrp >= -100 -> "good"
-                info.rsrp >= -110 -> "fair"
-                else -> "poor"
-            }
-            addView(keyValueView("RSRP", "${info.rsrp} dBm  ($rsrpLabel)", info.rsrp < -110))
-
-            // SINR (dB)：15+ 优秀，5 以下差
-            if (info.sinr > Int.MIN_VALUE) {
-                val sinrLabel = when {
-                    info.sinr >= 20 -> "excellent"
-                    info.sinr >= 10 -> "good"
-                    info.sinr >= 0 -> "fair"
-                    else -> "poor"
-                }
-                addView(keyValueView("SINR", "${info.sinr} dB  ($sinrLabel)", info.sinr < 0))
-            }
-
-            // RSRQ (dB)：-10 以上优秀，-20 以下差
-            if (info.rsrq > Int.MIN_VALUE) {
-                val rsrqLabel = when {
-                    info.rsrq >= -10 -> "excellent"
-                    info.rsrq >= -15 -> "good"
-                    info.rsrq >= -20 -> "fair"
-                    else -> "poor"
-                }
-                addView(keyValueView("RSRQ", "${info.rsrq} dB  ($rsrqLabel)", info.rsrq < -20))
-            }
-        }
-
-        // 频段 / PCI / EARFCN / TAC / CI
-        var hasCell = false
-        if (info.band.isNotEmpty() || info.pci >= 0 || info.earfcn >= 0 || info.tac.isNotEmpty() || info.cellId.isNotEmpty()) {
-            addView(dividerView())
-            addView(sectionTitleView("小区信息"))
-            if (info.band.isNotEmpty()) { addView(keyValueView("频段", info.band)); hasCell = true }
-            if (info.pci >= 0) { addView(keyValueView("PCI", info.pci.toString())); hasCell = true }
-            if (info.earfcn >= 0) {
-                val label = if (info.band.startsWith("n", ignoreCase = true)) "NR-ARFCN" else "EARFCN"
-                addView(keyValueView(label, info.earfcn.toString())); hasCell = true
-            }
-            if (info.tac.isNotEmpty()) {
-                val label = if (info.band.startsWith("n", ignoreCase = true)) "NR-TAC" else "TAC"
-                addView(keyValueView(label, info.tac)); hasCell = true
-            }
-            if (info.cellId.isNotEmpty()) {
-                val label = if (info.band.startsWith("n", ignoreCase = true)) "NR-CI" else "Cell ID"
-                addView(keyValueView(label, info.cellId)); hasCell = true
-            }
-        }
-
-        // ── 设备标识 + SIM（AT + Goform）──
-        var hasIdentity = false
-        if (info.imei.isNotEmpty() || data.goformImei.isNotEmpty() || data.goformImsi.isNotEmpty() || data.goformIccid.isNotEmpty()) {
-            addView(dividerView())
-            addView(sectionTitleView("设备标识"))
-            if (info.imei.isNotEmpty()) {
-                addView(keyValueView("IMEI", info.imei)); hasIdentity = true
-            } else if (data.goformImei.isNotEmpty()) {
-                addView(keyValueView("IMEI", data.goformImei)); hasIdentity = true
-            }
-            if (data.goformImsi.isNotEmpty()) {
-                addView(keyValueView("IMSI", data.goformImsi)); hasIdentity = true
-            }
-            if (data.goformIccid.isNotEmpty()) {
-                addView(keyValueView("ICCID", data.goformIccid)); hasIdentity = true
-            }
-        }
-
-        // ── SIM PIN 状态 ──
-        val pinDisplay = when {
-            info.pinStatusAt.isNotEmpty() -> info.pinStatusAt
-            data.pinStatusCode in 0..2 -> when (data.pinStatusCode) {
-                0 -> "READY (已解锁)"
-                1 -> "SIM PIN (需输入)"
-                2 -> "SIM PUK (已锁定)"
-                else -> ""
-            }
-            else -> ""
-        }
-        if (pinDisplay.isNotEmpty()) {
-            addView(dividerView())
-            addView(sectionTitleView("SIM 状态"))
-            addView(keyValueView("PIN 状态", pinDisplay, pinDisplay.contains("PUK") || pinDisplay.contains("SIM PIN")))
-        }
-
-        // 签约速率（AT+CGEQOSRDP=1）
-        if (info.subscriptionRate.isNotEmpty()) {
-            addView(dividerView())
-            addView(sectionTitleView("签约速率 (QoS)"))
-            info.subscriptionRate.lines().forEach { line ->
-                if (line.isNotBlank()) {
-                    addView(keyValueView("", line.trim()))
-                }
-            }
-        }
-
-        // ── 网络注册状态（AT+CREG?）──
-        if (info.lteRegistration.isNotEmpty()) {
-            addView(dividerView())
-            addView(sectionTitleView("网络注册"))
-            addView(keyValueView("状态", info.lteRegistration))
-        }
-
-        // ── 模块状态 ──
-        var hasModule = false
-        if (info.rfFunc.isNotEmpty()) {
-            if (!hasModule) { addView(dividerView()); addView(sectionTitleView("模块状态")) }
-            addView(keyValueView("射频", info.rfFunc)); hasModule = true
-        }
-        if (info.moduleState.isNotEmpty()) {
-            if (!hasModule) { addView(dividerView()); addView(sectionTitleView("模块状态")) }
-            addView(keyValueView("状态", info.moduleState)); hasModule = true
-        }
-        if (info.psAttached.isNotEmpty()) {
-            if (!hasModule) { addView(dividerView()); addView(sectionTitleView("模块状态")) }
-            addView(keyValueView("PS 域", info.psAttached)); hasModule = true
-        }
-
-        // ── 月流量明细（Goform 独立字段）──
-        if (data.monthlyUploadBytes > 0 || data.monthlyDownloadBytes > 0) {
-            addView(dividerView())
-            addView(sectionTitleView("月流量明细"))
-            if (data.monthlyDownloadBytes > 0) {
-                val dlGb = data.monthlyDownloadBytes / (1024.0 * 1024.0 * 1024.0)
-                addView(keyValueView("下行", String.format(Locale.getDefault(), "%.2f GB", dlGb)))
-            }
-            if (data.monthlyUploadBytes > 0) {
-                val ulGb = data.monthlyUploadBytes / (1024.0 * 1024.0 * 1024.0)
-                addView(keyValueView("上行", String.format(Locale.getDefault(), "%.2f GB", ulGb)))
-            }
-        }
-
-        // 检查是否真的没有任何数据
-        val hasNewAtData = info.moduleModel.isNotEmpty() || info.firmwareDetail.isNotEmpty()
-            || info.lteRegistration.isNotEmpty() || info.wanIpAt.isNotEmpty() || info.dnsServers.isNotEmpty()
-            || info.pinStatusAt.isNotEmpty() || info.rfFunc.isNotEmpty() || info.moduleState.isNotEmpty() || info.psAttached.isNotEmpty()
-        val hasGoformIdData = data.goformImei.isNotEmpty() || data.goformImsi.isNotEmpty() || data.goformIccid.isNotEmpty()
-            || data.hardwareVersion.isNotEmpty() || data.webVersion.isNotEmpty() || data.macAddress.isNotEmpty()
-            || data.wanIp.isNotEmpty() || data.wanIpv6.isNotEmpty()
-            || data.monthlyUploadBytes > 0 || data.monthlyDownloadBytes > 0 || data.pinStatusCode in 0..2
-
-        if (info.rsrp <= Int.MIN_VALUE && info.sinr <= Int.MIN_VALUE && info.rsrq <= Int.MIN_VALUE
-            && info.networkType.isEmpty() && info.operator.isEmpty() && !hasCell
-            && info.imei.isEmpty() && info.subscriptionRate.isEmpty()
-            && !hasNewAtData && !hasGoformIdData) {
-            removeAllViews()
-            addView(emptyHintView("AT 指令返回了空数据\n（设备可能暂未注册到网络）"))
-        }
-    }
-
-    // ===== 弹窗 UI 辅助方法 =====
-
-    private fun sectionTitleView(title: String): TextView {
-        return TextView(this).apply {
-            text = title
-            textSize = 13f
-            setTextColor(ThemeColors.textPrimary(this@MainActivity))
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setPadding(0, 12, 0, 6)
-        }
-    }
-
-    private fun keyValueView(key: String, value: String, highlightRed: Boolean = false): TextView {
-        return TextView(this).apply {
-            text = "  $key :  $value"
-            textSize = 13f
-            setTextColor(if (highlightRed) 0xFFE53935.toInt()
-                else ThemeColors.textPrimary(this@MainActivity))
-            setPadding(0, 3, 0, 3)
-        }
-    }
-
-    private fun dividerView(): View {
-        return View(this).apply {
-            layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 2
-            )
-            setBackgroundColor(ThemeColors.divider(this@MainActivity))
-            alpha = 0.3f
-        }
-    }
-
-    private fun emptyHintView(hint: String): TextView {
-        return TextView(this).apply {
-            text = hint
-            textSize = 14f
-            setTextColor(ThemeColors.textSecondary(this@MainActivity))
-            gravity = android.view.Gravity.CENTER
-            setPadding(0, 24, 0, 24)
-        }
-    }
-
-    /** 从 cpu_temp_list 取最高温度显示 */
-    private fun getHighestTemp(data: WifiEntity): String {
-        if (data.cpuTempList.isNotEmpty()) {
-            val highest = data.cpuTempList.maxByOrNull { it.temp }?.temp ?: 0.0
-            if (highest > 0) {
-                val celsius = if (highest > 1000) highest / 1000.0 else highest
-                return "%.1f℃".format(celsius)
-            }
-        }
-        return data.temp.ifEmpty { "--" }
-    }
-
-    /** 电池：分离为主百分比和副信息（电流/电压/充电状态，仅当前>100mA时显示） */
-    private fun buildBatteryParts(data: WifiEntity): Pair<String, String?> {
-        val pct = data.battery.ifEmpty { null }
-        val curStr = data.batteryCurrent.ifEmpty { null }
-        val vol = data.batteryVoltage.ifEmpty { null }
-
-        val main = pct ?: "--"
-
-        // 解析电流数值，只有 >50mA 才显示充电详情
-        val curMa = curStr?.let { parseCurrentMa(it) } ?: -1
-        if (curMa > 50 && curStr != null && vol != null && vol != "--") {
-            val sub = "⚡充电 $curStr · $vol"
-            return Pair(main, sub)
-        }
-
-        return Pair(main, null)
-    }
-
-    /** 解析电流字符串 (如 "500mA") 返回数值 mA，解析失败返回 -1 */
-    private fun parseCurrentMa(curStr: String): Int {
-        return try {
-            curStr.replace("mA", "").replace("A", "").trim().toFloatOrNull()?.toInt() ?: -1
-        } catch (_: Exception) { -1 }
-    }
-
-    private fun formatKb(kb: Long): String {
-        return when {
-            kb >= 1024 * 1024 -> String.format("%.2f GB", kb / (1024.0 * 1024.0))
-            kb >= 1024 -> String.format("%.1f MB", kb / 1024.0)
-            else -> "${kb} KB"
-        }
-    }
-
-    private fun formatStorageGb(bytes: Long): String {
-        return String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0))
-    }
+        // ── 以下方法已迁移至 MainDialogHelper ──
+    // fillNetworkDetail, sectionTitleView, keyValueView, dividerView, emptyHintView,
+    // getHighestTemp, buildBatteryParts, parseCurrentMa, formatKb, formatStorageGb
 
     // ===== 更新检查与下载 =====
 
@@ -1526,102 +1096,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun downloadAndInstall(url: String, tag: String, sha256: String) {
-        val finalUrl = UpdateChecker.applyMirrorToUrl(this, url)
-        if (finalUrl.isBlank()) {
-            Toast.makeText(this, "没有可下载的 APK", Toast.LENGTH_SHORT).show()
-            return
+        val receiver = UpdateChecker.prepareDownload(this, url, tag, sha256) { id ->
+            downloadId = id
+            Toast.makeText(this, "开始下载...", Toast.LENGTH_SHORT).show()
         }
-
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), 1001
-                )
-                return
-            }
+        if (receiver != null) {
+            downloadReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
+            downloadReceiver = receiver
         }
-
-        startDownload(url, tag, sha256)
-    }
-
-    private fun startDownload(url: String, tag: String, sha256: String) {
-        val fileName = "UFITOOLS-Widget-$tag.apk"
-        val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle("UFITOOLS-Widget")
-            .setDescription("正在下载 $tag 版本...")
-            .setNotificationVisibility(
-                DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalPublicDir(
-                Environment.DIRECTORY_DOWNLOADS, fileName)
-            .setAllowedOverMetered(true)
-
-        val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        downloadId = dm.enqueue(request)
-        Toast.makeText(this, "开始下载...", Toast.LENGTH_SHORT).show()
-
-        downloadReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                if (id == downloadId) {
-                    installApk(fileName, sha256)
-                    unregisterReceiver(this)
-                    downloadReceiver = null
-                }
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(downloadReceiver,
-                IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-                Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(downloadReceiver,
-                IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
-        }
-    }
-
-    private fun installApk(fileName: String, sha256: String) {
-        val file = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            fileName
-        )
-        if (!file.exists()) {
-            Toast.makeText(this, "下载文件不存在", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        // SHA256 校验
-        if (sha256.isNotBlank()) {
-            DebugLogger.logSys(TAG, "正在校验 APK SHA256...")
-            if (!UpdateChecker.verifySha256(file, sha256)) {
-                file.delete()
-                Toast.makeText(this, "文件校验失败，已删除损坏文件\n请重新下载", Toast.LENGTH_LONG).show()
-                DebugLogger.logExc(TAG, "APK SHA256 校验失败！")
-                return
-            }
-            DebugLogger.logSys(TAG, "APK SHA256 校验通过")
-        }
-
-        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-        } else {
-            Uri.fromFile(file)
-        }
-
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        startActivity(intent)
     }
 
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1001 && grantResults.isNotEmpty()
+        if (requestCode == UpdateChecker.PERMISSION_REQUEST_CODE && grantResults.isNotEmpty()
             && grantResults[0] == PackageManager.PERMISSION_GRANTED
         ) {
             Toast.makeText(this, "请重新点击下载", Toast.LENGTH_SHORT).show()

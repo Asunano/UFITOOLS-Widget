@@ -9,8 +9,11 @@ import android.os.Bundle
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.button.MaterialButton
 import com.ufi_toolswidget.util.BackgroundUtil
 import com.ufi_toolswidget.util.SimpleCropView
+import com.ufi_toolswidget.util.ThemeColors
+import com.ufi_toolswidget.util.ThemeUtil
 import java.io.File
 import java.io.FileOutputStream
 
@@ -28,6 +31,9 @@ class ImageCropActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_image_crop)
 
+        // 应用主题
+        ThemeUtil.applyTheme(this, ThemeUtil.PageType.FORM)
+
         cropView = findViewById(R.id.crop_view)
         sourceUri = intent.data
         targetW = intent.getIntExtra("targetW", 1080)
@@ -41,7 +47,12 @@ class ImageCropActivity : AppCompatActivity() {
         loadSourceImage()
 
         findViewById<View>(R.id.btn_cancel).setOnClickListener { finish() }
-        findViewById<View>(R.id.btn_done).setOnClickListener { performCrop() }
+
+        // 设置确定按钮主题色
+        findViewById<MaterialButton>(R.id.btn_done).apply {
+            backgroundTintList = android.content.res.ColorStateList.valueOf(ThemeColors.accent(this@ImageCropActivity))
+            setOnClickListener { performCrop() }
+        }
     }
 
     private fun loadSourceImage() {

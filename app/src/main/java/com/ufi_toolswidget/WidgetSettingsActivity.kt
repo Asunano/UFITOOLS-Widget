@@ -35,14 +35,14 @@ import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.ThemeChangeNotifier
 import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.ThemeUtil
+import com.ufi_toolswidget.util.ThemedSliderUtil
+import com.ufi_toolswidget.view.ThemeSlider
 import com.ufi_toolswidget.widget.BaseWifiWidget
 import com.ufi_toolswidget.worker.WifiWorker
 import java.util.concurrent.TimeUnit
 
 class WidgetSettingsActivity : AppCompatActivity() {
 
-    /** 后台刷新间隔预设选项（分钟），0=关闭 */
-    private val presetWidgetIntervals = listOf(15, 30, 60, 120, 0)
     private var widgetIntervalMinutes: Int = 15
 
     // 小组件主题
@@ -100,6 +100,8 @@ class WidgetSettingsActivity : AppCompatActivity() {
             ThemeUtil.applyTheme(this@WidgetSettingsActivity, ThemeUtil.PageType.WIDGET_SETTINGS)
             updateWidgetThemeSubtitle()
             updateDisplayInfoSubtitle()
+            updateDisplayInfo2x1Subtitle()
+            updateDisplayInfo4x1Subtitle()
             updateWidgetIntervalSubtitle()
             updateWidgetBgImageSubtitle()
             updateWidgetBgOpacitySubtitle()
@@ -112,27 +114,32 @@ class WidgetSettingsActivity : AppCompatActivity() {
         initWidgetThemeItem()
         initWidgetColorThemeItem()
         initDisplayInfoItem()
+        initDisplayInfo2x1Item()
+        initDisplayInfo4x1Item()
         initWidgetIntervalItem()
         initWidgetBgImageItem()
         initWidgetBgOpacityItem()
-        initWidgetClipToOutlineItem()
+        initWidgetCompatibilityItem()
     }
 
     override fun onResume() {
         super.onResume()
         ThemeUtil.applyTheme(this, ThemeUtil.PageType.WIDGET_SETTINGS)
         
-        val isFollow = SPUtil.getWidgetFollowAppTheme(this)
         updateFollowAppThemeSubtitle()
-        updateWidgetThemeItemState(isFollow)
+        
+        // ── 动态配色锁定：开启动态配色后禁用主题相关设置 ──
+        applyDynamicColorLockState()
         
         updateWidgetThemeSubtitle()
         updateWidgetColorThemeSubtitle()
         updateDisplayInfoSubtitle()
+        updateDisplayInfo2x1Subtitle()
+        updateDisplayInfo4x1Subtitle()
         updateWidgetIntervalSubtitle()
         updateWidgetBgImageSubtitle()
         updateWidgetBgOpacitySubtitle()
-        updateWidgetClipToOutlineSwitch()
+        updateCompatibilitySubtitle()
     }
 
     override fun onDestroy() {
@@ -149,18 +156,54 @@ class WidgetSettingsActivity : AppCompatActivity() {
             label = "跟随应用主题",
             initialChecked = isFollow
         ) { isChecked ->
+            if (isWidgetDynamicActive()) return@setupSwitchItem // 动态配色开启时禁止操作
             SPUtil.setWidgetFollowAppTheme(this, isChecked)
             updateFollowAppThemeSubtitle()
-            BaseWifiWidget.renderAllWidgets(this)
+            BaseWifiWidget.renderAllWidgets(this, force = true)
             updateWidgetThemeItemState(isChecked, animate = true)
         }
         updateFollowAppThemeSubtitle()
-        updateWidgetThemeItemState(isFollow)
+        applyDynamicColorLockState()
     }
 
     private fun updateFollowAppThemeSubtitle() {
         // Switch layout doesn't usually have a subtitle in the common_switch layout, 
         // but we can add one if we want or just keep it simple.
+    }
+
+    /** 动态配色是否激活（API 31+ 且开关开启） */
+    private fun isWidgetDynamicActive(): Boolean {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SPUtil.getWidgetDynamicColor(this)
+    }
+
+    /**
+     * 当动态配色激活时：禁用"跟随应用主题"开关 + 隐藏"小组件主题"/"小组件配色"；
+     * 当动态配色关闭时：恢复开关交互，根据跟随主题状态正常显示/隐藏子项。
+     */
+    private fun applyDynamicColorLockState() {
+        val isDynamicActive = isWidgetDynamicActive()
+        val followItem = findViewById<View>(R.id.item_widget_follow_theme)
+        val track = followItem.findViewById<View>(R.id.common_switch_track)
+        val subtitle = followItem.findViewById<android.widget.TextView>(R.id.common_switch_subtitle)
+
+        if (isDynamicActive) {
+            subtitle?.apply {
+                text = "动态配色已开启，跟随主题由系统壁纸自动控制"
+                visibility = View.VISIBLE
+            }
+            track?.isEnabled = false
+            track?.alpha = 0.5f
+            // 动态配色开启时，主题/配色完全由壁纸控制，隐藏用户设置项
+            findViewById<View>(R.id.item_widget_theme).visibility = View.GONE
+            findViewById<View>(R.id.item_widget_color_theme).visibility = View.GONE
+        } else {
+            subtitle?.visibility = View.GONE
+            track?.isEnabled = true
+            track?.alpha = 1f
+            // 恢复正常的跟随逻辑
+            val isFollow = SPUtil.getWidgetFollowAppTheme(this)
+            updateWidgetThemeItemState(isFollow)
+        }
     }
 
     private fun updateWidgetThemeItemState(isFollow: Boolean, animate: Boolean = false) {
@@ -255,7 +298,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         activeWidgetThemeDialog?.takeIf { it.isShowing }?.dismiss()
         activeWidgetThemeDialog = null
 
-        val dialog = CommonDialogHelper.createDialog(this)
+        val dialog = CommonDialogHelper.createAnimatedDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
@@ -283,7 +326,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 widgetTheme = key
                 SPUtil.setWidgetTheme(this, key)
                 updateWidgetThemeSubtitle()
-                BaseWifiWidget.renderAllWidgets(this)
+                BaseWifiWidget.renderAllWidgets(this, force = true)
                 dialog.dismiss()
             }.apply {
                 if (isSelected) {
@@ -323,7 +366,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         activeWidgetColorDialog?.takeIf { it.isShowing }?.dismiss()
         activeWidgetColorDialog = null
 
-        val dialog = CommonDialogHelper.createDialog(this)
+        val dialog = CommonDialogHelper.createAnimatedDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
@@ -418,7 +461,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 widgetColorThemeIndex = index
                 SPUtil.setWidgetColorThemeIndex(this, index)
                 updateWidgetColorThemeSubtitle()
-                BaseWifiWidget.renderAllWidgets(this)
+                BaseWifiWidget.renderAllWidgets(this, force = true)
                 dialog.dismiss()
             }
         }
@@ -538,7 +581,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                     widgetColorThemeIndex = -1
                     SPUtil.setWidgetColorThemeIndex(this@WidgetSettingsActivity, -1)
                     updateWidgetColorThemeSubtitle()
-                    BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity)
+                    BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
                     dialog.dismiss()
                     Toast.makeText(this@WidgetSettingsActivity, "自定义配色已应用", Toast.LENGTH_SHORT).show()
                 } else {
@@ -602,7 +645,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         activeDisplayInfoDialog?.takeIf { it.isShowing }?.dismiss()
         activeDisplayInfoDialog = null
 
-        val dialog = CommonDialogHelper.createDialog(this)
+        val dialog = CommonDialogHelper.createAnimatedDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
 
         dialog.findViewById<TextView>(R.id.common_dialog_title).text = "显示信息"
@@ -643,6 +686,20 @@ class WidgetSettingsActivity : AppCompatActivity() {
             )
         }
         content.addView(grid)
+
+        // 各尺寸适用范围提示
+        val tipView = TextView(this).apply {
+            text = "提示：以上设置对 4×2 标准版小组件生效。"
+            setTextColor(ThemeColors.textSecondary(this@WidgetSettingsActivity))
+            textSize = 11f
+            alpha = 0.8f
+            setLineSpacing(0f, 1.3f)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp2px(12) }
+        }
+        content.addView(tipView)
 
         items.forEach { (key, label) ->
             val switchWrapper = layoutInflater.inflate(R.layout.layout_common_switch, grid, false)
@@ -695,7 +752,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 SPUtil.setShowTime(this@WidgetSettingsActivity, showTime)
 
                 updateDisplayInfoSubtitle()
-                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity)
+                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
                 dialog.dismiss()
             }
         }
@@ -708,6 +765,245 @@ class WidgetSettingsActivity : AppCompatActivity() {
 
         CommonDialogHelper.setupDialogWindow(this, dialog)
         activeDisplayInfoDialog = dialog
+        dialog.show()
+    }
+
+    // ==================== 2.1  2×1 迷你版独立显示项+字体 ====================
+    private fun initDisplayInfo2x1Item() {
+        CommonSettingsItemHelper.setupSettingItem(
+            findViewById(R.id.item_display_info_2x1),
+            iconRes = R.drawable.ic_widget_small,
+            title = "2×1 迷你版设置",
+            showSubtitle = true,
+            subtitle = "",
+            onClick = ::showDisplayInfo2x1Dialog
+        )
+        updateDisplayInfo2x1Subtitle()
+    }
+
+    private fun updateDisplayInfo2x1Subtitle() {
+        val items = listOf(
+            SPUtil.getShowSignal2x1(this),
+            SPUtil.getShowBattery2x1(this),
+            SPUtil.getShowNetwork2x1(this)
+        )
+        val enabled = items.count { it }
+        val fontSize = SPUtil.getFontSize2x1(this)
+        val label = "${enabled}/3 项 · 字体 ${fontSize}sp"
+        try {
+            findInItem<TextView>(R.id.item_display_info_2x1, R.id.common_item_subtitle)?.text = label
+        } catch (_: Exception) {}
+    }
+
+    private fun showDisplayInfo2x1Dialog() {
+        val dialog = CommonDialogHelper.createAnimatedDialog(this)
+        dialog.setContentView(R.layout.layout_common_dialog)
+        dialog.findViewById<TextView>(R.id.common_dialog_title).text = "2×1 迷你版设置"
+        dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_widget_small)
+        CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
+
+        val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
+
+        // 显隐设置
+        val items = listOf(
+            "signal" to "信号格数",
+            "battery" to "电池状态",
+            "network" to "网络类型"
+        )
+        val tempStates = mutableMapOf(
+            "signal" to SPUtil.getShowSignal2x1(this),
+            "battery" to SPUtil.getShowBattery2x1(this),
+            "network" to SPUtil.getShowNetwork2x1(this)
+        )
+
+        items.forEach { (key, label) ->
+            val switchWrapper = layoutInflater.inflate(R.layout.layout_common_switch, content, false)
+            switchWrapper.findViewById<TextView>(R.id.common_switch_label).apply {
+                text = label
+                textSize = 13f
+            }
+            ThemeUtil.setupSwitch(switchWrapper, tempStates[key]!!) { isChecked ->
+                tempStates[key] = isChecked
+            }
+            content.addView(switchWrapper)
+        }
+
+        // 字体大小
+        val fontSizeLabel = TextView(this).apply {
+            text = "字体大小: ${SPUtil.getFontSize2x1(this@WidgetSettingsActivity)}sp"
+            textSize = 14f
+            setTextColor(ThemeColors.textPrimary(this@WidgetSettingsActivity))
+            gravity = android.view.Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp2px(16) }
+        }
+        content.addView(fontSizeLabel)
+
+        var currentFontSize = SPUtil.getFontSize2x1(this).toFloat()
+        val slider = com.ufi_toolswidget.view.ThemeSlider(this).apply {
+            minValue = 6f; maxValue = 14f; stepSize = 1f
+            currentValue = currentFontSize
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(44))
+            onValueChange = { v ->
+                currentFontSize = v
+                fontSizeLabel.text = "字体大小: ${v.toInt()}sp"
+            }
+        }
+        content.addView(slider)
+
+        CommonDialogHelper.applyThemeToViewTree(content, this)
+
+        val btnContainer = dialog.findViewById<LinearLayout>(R.id.common_dialog_button_container)
+        btnContainer.visibility = View.VISIBLE
+        dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary).apply {
+            text = "确定"
+            setOnClickListener {
+                SPUtil.setShowSignal2x1(this@WidgetSettingsActivity, tempStates["signal"]!!)
+                SPUtil.setShowBattery2x1(this@WidgetSettingsActivity, tempStates["battery"]!!)
+                SPUtil.setShowNetwork2x1(this@WidgetSettingsActivity, tempStates["network"]!!)
+                SPUtil.setFontSize2x1(this@WidgetSettingsActivity, currentFontSize.toInt())
+                updateDisplayInfo2x1Subtitle()
+                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                dialog.dismiss()
+            }
+        }
+        dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_secondary).apply {
+            visibility = View.VISIBLE; text = "取消"
+            setOnClickListener { dialog.dismiss() }
+        }
+
+        CommonDialogHelper.setupDialogWindow(this, dialog)
+        dialog.show()
+    }
+
+    // ==================== 2.2  4×1 条形版独立显示项+字体 ====================
+    private fun initDisplayInfo4x1Item() {
+        CommonSettingsItemHelper.setupSettingItem(
+            findViewById(R.id.item_display_info_4x1),
+            iconRes = R.drawable.ic_widget_large,
+            title = "4×1 条形版设置",
+            showSubtitle = true,
+            subtitle = "",
+            onClick = ::showDisplayInfo4x1Dialog
+        )
+        updateDisplayInfo4x1Subtitle()
+    }
+
+    private fun updateDisplayInfo4x1Subtitle() {
+        val items = listOf(
+            SPUtil.getShowModel4x1(this),
+            SPUtil.getShowSignal4x1(this),
+            SPUtil.getShowBattery4x1(this),
+            SPUtil.getShowTemp4x1(this),
+            SPUtil.getShowTime4x1(this)
+        )
+        val enabled = items.count { it }
+        val fontSize = SPUtil.getFontSize4x1(this)
+        val label = "${enabled}/5 项 · 字体 ${fontSize}sp"
+        try {
+            findInItem<TextView>(R.id.item_display_info_4x1, R.id.common_item_subtitle)?.text = label
+        } catch (_: Exception) {}
+    }
+
+    private fun showDisplayInfo4x1Dialog() {
+        val dialog = CommonDialogHelper.createAnimatedDialog(this)
+        dialog.setContentView(R.layout.layout_common_dialog)
+        dialog.findViewById<TextView>(R.id.common_dialog_title).text = "4×1 条形版设置"
+        dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_widget_large)
+        CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
+
+        val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
+
+        // 显隐设置
+        val items = listOf(
+            "model" to "设备名称",
+            "signal" to "信号详情",
+            "battery" to "电池状态",
+            "temp" to "硬件温度",
+            "time" to "更新时间"
+        )
+        val tempStates = mutableMapOf(
+            "model" to SPUtil.getShowModel4x1(this),
+            "signal" to SPUtil.getShowSignal4x1(this),
+            "battery" to SPUtil.getShowBattery4x1(this),
+            "temp" to SPUtil.getShowTemp4x1(this),
+            "time" to SPUtil.getShowTime4x1(this)
+        )
+
+        val grid = android.widget.GridLayout(this).apply {
+            columnCount = 2
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        content.addView(grid)
+
+        items.forEach { (key, label) ->
+            val switchWrapper = layoutInflater.inflate(R.layout.layout_common_switch, grid, false)
+            val params = android.widget.GridLayout.LayoutParams().apply {
+                width = 0; height = ViewGroup.LayoutParams.WRAP_CONTENT
+                columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+                setMargins(dp2px(4), dp2px(4), dp2px(4), dp2px(4))
+            }
+            switchWrapper.layoutParams = params
+            switchWrapper.findViewById<TextView>(R.id.common_switch_label).apply {
+                text = label; textSize = 12f
+            }
+            ThemeUtil.setupSwitch(switchWrapper, tempStates[key]!!) { isChecked ->
+                tempStates[key] = isChecked
+            }
+            grid.addView(switchWrapper)
+        }
+
+        CommonDialogHelper.applyThemeToViewTree(grid, this)
+
+        // 字体大小
+        val fontSizeLabel = TextView(this).apply {
+            text = "字体大小: ${SPUtil.getFontSize4x1(this@WidgetSettingsActivity)}sp"
+            textSize = 14f
+            setTextColor(ThemeColors.textPrimary(this@WidgetSettingsActivity))
+            gravity = android.view.Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp2px(16) }
+        }
+        content.addView(fontSizeLabel)
+
+        var currentFontSize = SPUtil.getFontSize4x1(this).toFloat()
+        val slider = com.ufi_toolswidget.view.ThemeSlider(this).apply {
+            minValue = 6f; maxValue = 14f; stepSize = 1f
+            currentValue = currentFontSize
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(44))
+            onValueChange = { v ->
+                currentFontSize = v
+                fontSizeLabel.text = "字体大小: ${v.toInt()}sp"
+            }
+        }
+        content.addView(slider)
+
+        val btnContainer = dialog.findViewById<LinearLayout>(R.id.common_dialog_button_container)
+        btnContainer.visibility = View.VISIBLE
+        dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary).apply {
+            text = "确定"
+            setOnClickListener {
+                SPUtil.setShowModel4x1(this@WidgetSettingsActivity, tempStates["model"]!!)
+                SPUtil.setShowSignal4x1(this@WidgetSettingsActivity, tempStates["signal"]!!)
+                SPUtil.setShowBattery4x1(this@WidgetSettingsActivity, tempStates["battery"]!!)
+                SPUtil.setShowTemp4x1(this@WidgetSettingsActivity, tempStates["temp"]!!)
+                SPUtil.setShowTime4x1(this@WidgetSettingsActivity, tempStates["time"]!!)
+                SPUtil.setFontSize4x1(this@WidgetSettingsActivity, currentFontSize.toInt())
+                updateDisplayInfo4x1Subtitle()
+                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                dialog.dismiss()
+            }
+        }
+        dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_secondary).apply {
+            visibility = View.VISIBLE; text = "取消"
+            setOnClickListener { dialog.dismiss() }
+        }
+
+        CommonDialogHelper.setupDialogWindow(this, dialog)
         dialog.show()
     }
 
@@ -727,12 +1023,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
     }
 
     private fun updateWidgetIntervalSubtitle() {
-        val isPreset = presetWidgetIntervals.contains(widgetIntervalMinutes)
-        val label = when {
-            widgetIntervalMinutes == 0 -> "关闭"
-            isPreset -> "${widgetIntervalMinutes} 分钟"
-            else -> "${widgetIntervalMinutes} 分钟（自定义）"
-        }
+        val label = if (widgetIntervalMinutes <= 0) "关闭" else "${widgetIntervalMinutes} 分钟"
         try {
             findInItem<TextView>(R.id.item_widget_interval, R.id.common_item_subtitle)?.text = label
         } catch (_: Exception) {}
@@ -742,237 +1033,110 @@ class WidgetSettingsActivity : AppCompatActivity() {
         activeWidgetIntervalDialog?.takeIf { it.isShowing }?.dismiss()
         activeWidgetIntervalDialog = null
 
-        val dialog = CommonDialogHelper.createDialog(this)
+        val dialog = CommonDialogHelper.createAnimatedDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
-
-        val textPrimary = ThemeColors.textPrimary(this)
-        val accent = ThemeColors.accent(this)
-        val cardBg = ThemeColors.cardBg(this)
 
         dialog.findViewById<TextView>(R.id.common_dialog_title).text = "后台刷新频率"
         dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_clock_bolt)
-        dialog.findViewById<View>(R.id.common_dialog_button_container).visibility = View.GONE
 
         CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
 
-        val cornerRadius = 12f * resources.displayMetrics.density
-        val selectedBg = makeSelectedBg(accent, cornerRadius)
-        val unselectedBg = makeUnselectedBg(cornerRadius)
+        val valueLabel = TextView(this).apply {
+            text = "${widgetIntervalMinutes} 分钟"
+            textSize = 28f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(ThemeColors.accent(this@WidgetSettingsActivity))
+            gravity = android.view.Gravity.CENTER
+        }
+
+        val slider = com.ufi_toolswidget.view.ThemeSlider(this).apply {
+            minValue = 1f
+            maxValue = 120f
+            stepSize = 1f
+            currentValue = if (widgetIntervalMinutes > 0) widgetIntervalMinutes.toFloat().coerceIn(1f, 120f) else 15f
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(44))
+            onValueChange = { value ->
+                widgetIntervalMinutes = value.toInt()
+                valueLabel.text = "${value.toInt()} 分钟"
+                SPUtil.setRefreshInterval(this@WidgetSettingsActivity, value.toInt())
+                updateWidgetIntervalSubtitle()
+            }
+        }
+        ThemedSliderUtil.setupSliderTickMarks(slider, 30f) { "${it}分" }
+
+        // 实时更新数值（拖动时不受抑制）
+        slider.onValueChanging = { value ->
+            valueLabel.text = "${value.toInt()} 分钟"
+        }
 
         val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
-        val isPreset = presetWidgetIntervals.contains(widgetIntervalMinutes)
+        content.addView(valueLabel)
+        content.addView(slider)
 
-        // 双栏 GridLayout
-        val grid = android.widget.GridLayout(this).apply {
-            columnCount = 2
-            alignmentMode = android.widget.GridLayout.ALIGN_BOUNDS
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        // 常用值预设（自动跟随滑块高亮）
+        val (presetRow, updatePresets) = CommonDialogHelper.createPresetRow(
+            context = this,
+            values = listOf(15, 30, 60, 120),
+            formatLabel = { "${it}分" },
+            currentValue = widgetIntervalMinutes,
+            onSelect = { slider.currentValue = it.toFloat() }
+        )
+        content.addView(presetRow)
+        slider.onValueChange = { value ->
+            widgetIntervalMinutes = value.toInt()
+            valueLabel.text = "${value.toInt()} 分钟"
+            updatePresets(value.toInt())
+            SPUtil.setRefreshInterval(this@WidgetSettingsActivity, value.toInt())
+            updateWidgetIntervalSubtitle()
         }
-        content.addView(grid)
 
-        // 预设选项
-        val options = listOf(15 to "15 分钟", 30 to "30 分钟", 60 to "1 小时", 120 to "2 小时", 0 to "关闭")
-        options.forEach { (mins, label) ->
-            grid.addView(buildWidgetIntervalOption(mins, label,
-                isPreset && mins == widgetIntervalMinutes,
-                textPrimary, selectedBg, unselectedBg, content, dialog, isGrid = true))
+        // 自定义输入面板
+        val customPanel = CommonDialogHelper.createInputPanel(
+            context = this,
+            hint = "输入 1-1440 分钟",
+            validate = { text ->
+                val mins = text.toIntOrNull()
+                when {
+                    mins == null -> "请输入有效数字"
+                    mins !in 1..1440 -> "请输入 1-1440 之间的分钟数"
+                    else -> null
+                }
+            },
+            onConfirm = { text ->
+                widgetIntervalMinutes = text.toInt()
+                SPUtil.setRefreshInterval(this@WidgetSettingsActivity, text.toInt())
+                updateWidgetIntervalSubtitle()
+                updateWidgetWorker()
+                dialog.dismiss()
+                Toast.makeText(this@WidgetSettingsActivity, "自定义间隔已设为 ${text}分钟", Toast.LENGTH_SHORT).show()
+            }
+        )
+        customPanel.layoutParams = (customPanel.layoutParams as ViewGroup.MarginLayoutParams).also {
+            it.topMargin = dp2px(12)
         }
-
-        // 自定义选项
-        grid.addView(buildWidgetIntervalOption(-1,
-            if (!isPreset && widgetIntervalMinutes > 0) "${widgetIntervalMinutes}分钟" else "自定义...",
-            !isPreset && widgetIntervalMinutes > 0,
-            textPrimary, selectedBg, unselectedBg, content, dialog, isGrid = true))
-
-        // 自定义输入面板（放在网格下方）
-        val customPanel = createCustomWidgetIntervalPanel(dialog, textPrimary, accent, cardBg)
         content.addView(customPanel)
-        if (!isPreset && widgetIntervalMinutes > 0) customPanel.visibility = View.VISIBLE
+
+        // 公共弹窗按钮
+        val btnPrimary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary)
+        btnPrimary.text = "确定"
+        btnPrimary.setOnClickListener { dialog.dismiss() }
+
+        val btnSecondary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_secondary)
+        btnSecondary.visibility = android.view.View.VISIBLE
+        btnSecondary.text = "自定义"
+        btnSecondary.setOnClickListener {
+            val showing = customPanel.visibility == android.view.View.VISIBLE
+            CommonDialogHelper.animatePanelVisibility(customPanel, !showing) {
+                if (!showing) {
+                    val et = customPanel.findViewWithTag<android.widget.EditText>("custom_input_field")
+                    et?.requestFocus()
+                }
+            }
+        }
 
         CommonDialogHelper.setupDialogWindow(this, dialog)
         activeWidgetIntervalDialog = dialog
         dialog.show()
-    }
-
-    private fun buildWidgetIntervalOption(
-        mins: Int, label: String, isSelected: Boolean,
-        textPrimary: Int, selectedBg: GradientDrawable, unselectedBg: GradientDrawable,
-        content: LinearLayout, dialog: Dialog,
-        isGrid: Boolean = false
-    ): View {
-        val option = TextView(this).apply {
-            text = label
-            textSize = 15f
-            gravity = android.view.Gravity.CENTER
-            setPadding(0, dp2px(14), 0, dp2px(14))
-            if (isGrid) {
-                val params = android.widget.GridLayout.LayoutParams()
-                params.width = 0
-                params.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                params.columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
-                params.setMargins(dp2px(4), dp2px(4), dp2px(4), dp2px(4))
-                layoutParams = params
-            } else {
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp2px(8) }
-            }
-            background = if (isSelected) selectedBg else unselectedBg
-            setTextColor(if (isSelected) 0xFFFFFFFF.toInt() else textPrimary)
-            isClickable = true
-            isFocusable = true
-            foreground = android.util.TypedValue().let { tv ->
-                val typedValue = android.util.TypedValue()
-                theme.resolveAttribute(android.R.attr.selectableItemBackground, typedValue, true)
-                resources.getDrawable(typedValue.resourceId, theme)
-            }
-        }
-
-        option.setOnClickListener {
-            if (mins == -1) {
-                val panel = content.findViewWithTag<View>("custom_widget_interval_panel")
-                panel?.visibility = if (panel?.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                if (panel?.visibility == View.VISIBLE) {
-                    val et = panel.findViewWithTag<EditText>("custom_widget_interval_field")
-                    val isPreset = presetWidgetIntervals.contains(widgetIntervalMinutes)
-                    if (!isPreset && widgetIntervalMinutes > 0) et.setText(widgetIntervalMinutes.toString())
-                    et.requestFocus()
-                }
-            } else {
-                widgetIntervalMinutes = mins
-                SPUtil.setRefreshInterval(this, mins)
-                updateWidgetIntervalSubtitle()
-                updateWidgetWorker()
-                refreshWidgetIntervalDialogOptions(content, dialog, textPrimary)
-                val labelRes = if (mins > 0) "${mins}分钟" else "关闭"
-                Toast.makeText(this, "后台刷新间隔已设为 $labelRes", Toast.LENGTH_SHORT).show()
-                dismissDialogWithAnimation(dialog)
-            }
-        }
-        return option
-    }
-
-    private fun refreshWidgetIntervalDialogOptions(
-        content: LinearLayout,
-        dialog: Dialog,
-        textPrimary: Int
-    ) {
-        val accent = ThemeColors.accent(this)
-        val cornerRadius = 12f * resources.displayMetrics.density
-        val selectedBg = makeSelectedBg(accent, cornerRadius)
-        val unselectedBg = makeUnselectedBg(cornerRadius)
-
-        content.removeAllViews()
-        val grid = android.widget.GridLayout(this).apply {
-            columnCount = 2
-            alignmentMode = android.widget.GridLayout.ALIGN_BOUNDS
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        content.addView(grid)
-        val options = listOf(15 to "15 分钟", 30 to "30 分钟", 60 to "1 小时", 120 to "2 小时", 0 to "关闭")
-        val isPreset = presetWidgetIntervals.contains(widgetIntervalMinutes)
-
-        options.forEach { (mins, label) ->
-            grid.addView(buildWidgetIntervalOption(mins, label,
-                isPreset && mins == widgetIntervalMinutes,
-                textPrimary, selectedBg, unselectedBg, content, dialog, isGrid = true))
-        }
-        grid.addView(buildWidgetIntervalOption(-1,
-            if (!isPreset && widgetIntervalMinutes > 0) "${widgetIntervalMinutes}分钟" else "自定义...",
-            !isPreset && widgetIntervalMinutes > 0,
-            textPrimary, selectedBg, unselectedBg, content, dialog, isGrid = true))
-
-        val customPanel = createCustomWidgetIntervalPanel(dialog, textPrimary, accent, ThemeColors.cardBg(this))
-        content.addView(customPanel)
-        if (!isPreset && widgetIntervalMinutes > 0) customPanel.visibility = View.VISIBLE
-    }
-
-    private fun createCustomWidgetIntervalPanel(
-        dialog: Dialog,
-        textPrimary: Int,
-        accent: Int,
-        cardBg: Int
-    ): View {
-        val panel = LinearLayout(this).apply {
-            tag = "custom_widget_interval_panel"
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp2px(8) }
-        }
-
-        val et = EditText(this).apply {
-            tag = "custom_widget_interval_field"
-            layoutParams = LinearLayout.LayoutParams(0, dp2px(40), 1f)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                setColor(cardBg)
-                cornerRadius = 8f * resources.displayMetrics.density
-                setStroke(1, if (AppCompatDelegate.getDefaultNightMode() == AppCompatDelegate.MODE_NIGHT_YES) 0x30FFFFFF.toInt() else 0x20000000)
-            }
-            gravity = android.view.Gravity.CENTER
-            hint = "输入 1-1440 分钟"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            maxLines = 1
-            setTextColor(textPrimary)
-            setHintTextColor(ThemeColors.textSecondary(this@WidgetSettingsActivity))
-            textSize = 13f
-            setPadding(dp2px(12), 0, dp2px(12), 0)
-        }
-        panel.addView(et)
-
-        val btnConfirm = TextView(this).apply {
-            text = "确定"
-            textSize = 13f
-            setTextColor(0xFFFFFFFF.toInt())
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            gravity = android.view.Gravity.CENTER
-            setPadding(dp2px(14), 0, dp2px(14), 0)
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                dp2px(40)
-            ).apply { marginStart = dp2px(8) }
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                setColor(accent)
-                cornerRadius = 20f * resources.displayMetrics.density
-            }
-            setOnClickListener {
-                val mins = et.text.toString().toIntOrNull()
-                if (mins != null && mins in 1..1440) {
-                    widgetIntervalMinutes = mins
-                    SPUtil.setRefreshInterval(this@WidgetSettingsActivity, mins)
-                    updateWidgetIntervalSubtitle()
-                    updateWidgetWorker()
-                    dismissDialogWithAnimation(dialog)
-                    Toast.makeText(this@WidgetSettingsActivity, "自定义间隔已设为 ${mins}分钟", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this@WidgetSettingsActivity, "请输入 1-1440 之间的分钟数", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-        panel.addView(btnConfirm)
-
-        panel.addView(TextView(this).apply {
-            text = "取消"
-            textSize = 13f
-            setTextColor(ThemeColors.textSecondary(this@WidgetSettingsActivity))
-            alpha = 0.5f
-            setPadding(dp2px(8), 0, dp2px(4), 0)
-            setOnClickListener {
-                panel.visibility = View.GONE
-                val content = panel.parent as? LinearLayout ?: return@setOnClickListener
-                refreshWidgetIntervalDialogOptions(content, dialog, textPrimary)
-            }
-        })
-
-        return panel
     }
 
     // ==================== 4. 自定义背景图（弹窗选择） ====================
@@ -1007,10 +1171,10 @@ class WidgetSettingsActivity : AppCompatActivity() {
         try { contentResolver.takePersistableUriPermission(uri, flags) } catch (_: SecurityException) {}
 
         // 小组件4x2尺寸比例: width/height ≈ 250/110 ≈ 2.2727
-        // 像素级别用 dp 换算为实际像素做比例对比
+        // 裁剪目标为推荐尺寸的 2.5 倍，确保背景图清晰度（缓存目标 640x320）
         val density = resources.displayMetrics.density
-        val widgetW = (250f * density).toInt()
-        val widgetH = (110f * density).toInt()
+        val widgetW = (625f * density).toInt()
+        val widgetH = (275f * density).toInt()
         val widgetRatio = widgetW.toFloat() / widgetH.toFloat()
 
         try {
@@ -1049,7 +1213,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         SPUtil.setWidgetBgImageUri(this, uri.toString())
         widgetBgImageUri = uri.toString()
         updateWidgetBgImageSubtitle()
-        BaseWifiWidget.renderAllWidgets(this)
+        BaseWifiWidget.renderAllWidgets(this, force = true)
         Toast.makeText(this, "小组件背景图片已更新", Toast.LENGTH_SHORT).show()
     }
 
@@ -1057,7 +1221,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         activeBgImageDialog?.takeIf { it.isShowing }?.dismiss()
         activeBgImageDialog = null
 
-        val dialog = CommonDialogHelper.createDialog(this)
+        val dialog = CommonDialogHelper.createAnimatedDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
@@ -1088,7 +1252,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 SPUtil.clearWidgetBgImageUri(this)
                 widgetBgImageUri = ""
                 updateWidgetBgImageSubtitle()
-                BaseWifiWidget.renderAllWidgets(this)
+                BaseWifiWidget.renderAllWidgets(this, force = true)
                 Toast.makeText(this, "小组件背景已清除", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             })
@@ -1125,176 +1289,209 @@ class WidgetSettingsActivity : AppCompatActivity() {
         activeBgOpacityDialog?.takeIf { it.isShowing }?.dismiss()
         activeBgOpacityDialog = null
 
-        val dialog = CommonDialogHelper.createDialog(this)
+        val dialog = CommonDialogHelper.createAnimatedDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
-
-        val textPrimary = ThemeColors.textPrimary(this)
-        val accent = ThemeColors.accent(this)
-        val cardBg = ThemeColors.cardBg(this)
 
         dialog.findViewById<TextView>(R.id.common_dialog_title).text = "背景透明度"
         dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_opacity)
-        dialog.findViewById<View>(R.id.common_dialog_button_container).visibility = View.GONE
 
         CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
 
-        val cornerRadius = 12f * resources.displayMetrics.density
-        val selectedBg = makeSelectedBg(accent, cornerRadius)
-        val unselectedBg = makeUnselectedBg(cornerRadius)
+        val valueLabel = TextView(this).apply {
+            text = "$widgetBgOpacity%"
+            textSize = 28f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(ThemeColors.accent(this@WidgetSettingsActivity))
+            gravity = android.view.Gravity.CENTER
+        }
+
+        val defVal = if (widgetBgOpacity in 0..100) widgetBgOpacity.toFloat() else 100f
+        val slider = com.ufi_toolswidget.view.ThemeSlider(this).apply {
+            minValue = 0f
+            maxValue = 100f
+            stepSize = 1f
+            currentValue = defVal
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(44))
+            onValueChange = { value ->
+                widgetBgOpacity = value.toInt()
+                valueLabel.text = "${value.toInt()}%"
+                SPUtil.setWidgetBgOpacity(this@WidgetSettingsActivity, value.toInt())
+                updateWidgetBgOpacitySubtitle()
+                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+            }
+        }
+        ThemedSliderUtil.setupSliderTickMarks(slider, 20f) { "${it}%" }
+
+        // 实时更新数值（拖动时不受抑制）
+        slider.onValueChanging = { value ->
+            valueLabel.text = "${value.toInt()}%"
+        }
 
         val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
-        val presets = listOf(100, 80, 60, 40, 20)
-        val isPreset = presets.contains(widgetBgOpacity)
+        content.addView(valueLabel)
+        content.addView(slider)
 
-        // 双栏 GridLayout
-        val grid = android.widget.GridLayout(this).apply {
-            columnCount = 2
-            alignmentMode = android.widget.GridLayout.ALIGN_BOUNDS
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        // 常用值预设（自动跟随滑块高亮）
+        val (presetRow, updatePresets) = CommonDialogHelper.createPresetRow(
+            context = this,
+            values = listOf(100, 80, 60, 40, 20),
+            formatLabel = { "${it}%" },
+            currentValue = widgetBgOpacity,
+            onSelect = { slider.currentValue = it.toFloat() }
+        )
+        content.addView(presetRow)
+        slider.onValueChange = { value ->
+            widgetBgOpacity = value.toInt()
+            valueLabel.text = "${value.toInt()}%"
+            updatePresets(value.toInt())
+            SPUtil.setWidgetBgOpacity(this@WidgetSettingsActivity, value.toInt())
+            updateWidgetBgOpacitySubtitle()
+            BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
         }
-        content.addView(grid)
 
-        presets.forEach { pct ->
-            val label = if (pct == 100) "100%（不透明）" else "${pct}%"
-            grid.addView(buildOpacityOption(pct, label, isPreset && pct == widgetBgOpacity,
-                textPrimary, selectedBg, unselectedBg, content, dialog, isGrid = true))
+        // 自定义输入面板
+        val customPanel = CommonDialogHelper.createInputPanel(
+            context = this,
+            hint = "输入 0-100",
+            validate = { text ->
+                val v = text.toIntOrNull()
+                when {
+                    v == null -> "请输入有效数字"
+                    v !in 0..100 -> "请输入 0-100 之间的数字"
+                    else -> null
+                }
+            },
+            onConfirm = { text ->
+                widgetBgOpacity = text.toInt()
+                SPUtil.setWidgetBgOpacity(this@WidgetSettingsActivity, text.toInt())
+                updateWidgetBgOpacitySubtitle()
+                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                dialog.dismiss()
+            }
+        )
+        customPanel.layoutParams = (customPanel.layoutParams as ViewGroup.MarginLayoutParams).also {
+            it.topMargin = dp2px(12)
         }
-
-        // 自定义选项
-        grid.addView(buildOpacityOption(-1,
-            if (!isPreset) "${widgetBgOpacity}%（自定义）" else "自定义...",
-            !isPreset, textPrimary, selectedBg, unselectedBg, content, dialog, isGrid = true))
-
-        // 自定义面板（放在网格下方）
-        val customPanel = createCustomOpacityPanel(dialog, textPrimary, accent, cardBg)
         content.addView(customPanel)
-        if (!isPreset) customPanel.visibility = View.VISIBLE
+
+        // 公共弹窗按钮
+        val btnPrimary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary)
+        btnPrimary.text = "确定"
+        btnPrimary.setOnClickListener { dialog.dismiss() }
+
+        val btnSecondary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_secondary)
+        btnSecondary.visibility = android.view.View.VISIBLE
+        btnSecondary.text = "自定义"
+        btnSecondary.setOnClickListener {
+            val showing = customPanel.visibility == android.view.View.VISIBLE
+            CommonDialogHelper.animatePanelVisibility(customPanel, !showing) {
+                if (!showing) {
+                    val et = customPanel.findViewWithTag<android.widget.EditText>("custom_input_field")
+                    et?.requestFocus()
+                }
+            }
+        }
 
         CommonDialogHelper.setupDialogWindow(this, dialog)
         activeBgOpacityDialog = dialog
         dialog.show()
     }
 
-    private fun buildOpacityOption(
-        pct: Int, label: String, isSelected: Boolean,
-        textPrimary: Int, selectedBg: GradientDrawable, unselectedBg: GradientDrawable,
-        content: LinearLayout, dialog: Dialog,
-        isGrid: Boolean = false
-    ): View {
-        return TextView(this).apply {
-            text = label
-            textSize = 15f
-            gravity = android.view.Gravity.CENTER
-            setPadding(0, dp2px(14), 0, dp2px(14))
-            if (isGrid) {
-                val params = android.widget.GridLayout.LayoutParams()
-                params.width = 0
-                params.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                params.columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
-                params.setMargins(dp2px(4), dp2px(4), dp2px(4), dp2px(4))
-                layoutParams = params
-            } else {
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp2px(8) }
-            }
-            background = if (isSelected) selectedBg else unselectedBg
-            setTextColor(if (isSelected) 0xFFFFFFFF.toInt() else textPrimary)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                if (pct == -1) {
-                    val panel = content.findViewWithTag<View>("custom_opacity_panel")
-                    panel?.visibility = if (panel?.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                    if (panel?.visibility == View.VISIBLE) {
-                        panel.findViewWithTag<EditText>("custom_opacity_field")?.requestFocus()
-                    }
-                } else {
-                    widgetBgOpacity = pct
-                    SPUtil.setWidgetBgOpacity(this@WidgetSettingsActivity, pct)
-                    updateWidgetBgOpacitySubtitle()
-                    BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity)
-                    dismissDialogWithAnimation(dialog)
-                }
-            }
-        }
-    }
-
-    private fun createCustomOpacityPanel(dialog: Dialog, textPrimary: Int, accent: Int, cardBg: Int): View {
-        val panel = LinearLayout(this).apply {
-            tag = "custom_opacity_panel"
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp2px(8) }
-        }
-
-        val et = EditText(this).apply {
-            tag = "custom_opacity_field"
-            layoutParams = LinearLayout.LayoutParams(0, dp2px(40), 1f)
-            background = makeUnselectedBg(8f * resources.displayMetrics.density)
-            gravity = android.view.Gravity.CENTER
-            hint = "输入 0-100"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            maxLines = 1
-            setTextColor(textPrimary)
-            setHintTextColor(ThemeColors.textSecondary(this@WidgetSettingsActivity))
-            textSize = 13f
-            if (widgetBgOpacity in 0..100 && !listOf(100, 80, 60, 40, 20).contains(widgetBgOpacity)) {
-                setText(widgetBgOpacity.toString())
-            }
-        }
-        panel.addView(et)
-
-        val btnConfirm = TextView(this).apply {
-            text = "确定"
-            textSize = 13f
-            setTextColor(0xFFFFFFFF.toInt())
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            gravity = android.view.Gravity.CENTER
-            setPadding(dp2px(14), 0, dp2px(14), 0)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp2px(40)).apply { marginStart = dp2px(8) }
-            background = makeSelectedBg(accent, 20f * resources.displayMetrics.density)
-            setOnClickListener {
-                val valStr = et.text.toString().trim()
-                val value = valStr.toIntOrNull()
-                if (value != null && value in 0..100) {
-                    widgetBgOpacity = value
-                    SPUtil.setWidgetBgOpacity(this@WidgetSettingsActivity, value)
-                    updateWidgetBgOpacitySubtitle()
-                    BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity)
-                    dismissDialogWithAnimation(dialog)
-                } else {
-                    Toast.makeText(this@WidgetSettingsActivity, "请输入 0-100 之间的数字", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-        panel.addView(btnConfirm)
-        return panel
-    }
-
-    // ==================== 6. 圆角裁剪兜底（开关） ====================
-    private fun initWidgetClipToOutlineItem() {
-        CommonSettingsItemHelper.setupSwitchItem(
-            itemView = findViewById(R.id.item_widget_clip_to_outline),
+    // ==================== 6. 兼容性设置（点击弹窗） ====================
+    private fun initWidgetCompatibilityItem() {
+        CommonSettingsItemHelper.setupSettingItem(
+            itemView = findViewById(R.id.item_widget_compatibility),
             iconRes = R.drawable.ic_rounded_corners,
-            label = "兼容性小组件圆角",
-            subtitle = "如果桌面小组件没有圆角效果，可开启此项强制圆角",
-            initialChecked = SPUtil.getWidgetClipToOutline(this),
-            onToggle = { checked ->
-                SPUtil.setWidgetClipToOutline(this, checked)
-                BaseWifiWidget.renderAllWidgets(this)
-            }
+            title = "兼容性设置",
+            subtitle = "圆角裁剪、隐藏名称等",
+            onClick = ::showCompatibilityDialog
         )
     }
 
-    private fun updateWidgetClipToOutlineSwitch() {
-        // 开关 UI 状态由 ThemeUtil.setupSwitch 在 onResume 重新初始化时同步
+    private fun updateCompatibilitySubtitle() {
+        val parts = mutableListOf<String>()
+        if (SPUtil.getWidgetClipToOutline(this)) parts.add("圆角")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SPUtil.getWidgetHideLabel(this)) parts.add("隐藏名称")
+        val subtitle = if (parts.isEmpty()) "圆角裁剪、隐藏名称等" else parts.joinToString("、")
+        try {
+            findViewById<TextView>(R.id.item_widget_compatibility)?.findViewById<TextView>(R.id.common_item_subtitle)?.text = subtitle
+        } catch (_: Exception) {}
+    }
+
+    private fun showCompatibilityDialog() {
+        val dialog = CommonDialogHelper.createAnimatedDialog(this)
+        dialog.setContentView(R.layout.layout_common_dialog)
+
+        dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_rounded_corners)
+        dialog.findViewById<TextView>(R.id.common_dialog_title).text = "兼容性设置"
+
+        CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
+
+        val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
+
+        // 临时状态
+        var tempClipToOutline = SPUtil.getWidgetClipToOutline(this)
+        var tempHideLabel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) SPUtil.getWidgetHideLabel(this) else false
+
+        // ── 圆角裁剪兜底 ──
+        val clipRow = layoutInflater.inflate(R.layout.layout_common_switch, content, false)
+        clipRow.findViewById<TextView>(R.id.common_switch_label).text = "兼容性小组件圆角"
+        ThemeUtil.setupSwitch(clipRow, tempClipToOutline) { tempClipToOutline = it }
+        content.addView(clipRow)
+
+        // ── 隐藏小组件名称 ──
+        val hideLabelRow = layoutInflater.inflate(R.layout.layout_common_switch, content, false)
+        hideLabelRow.findViewById<TextView>(R.id.common_switch_label).text = "隐藏小组件名称"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ThemeUtil.setupSwitch(hideLabelRow, tempHideLabel) { tempHideLabel = it }
+        } else {
+            hideLabelRow.alpha = 0.5f
+            val track = hideLabelRow.findViewById<View>(R.id.common_switch_track)
+            track.isClickable = false
+            track.isEnabled = false
+            track.setOnClickListener(null)
+            // 显示为关闭状态
+            val subtitle = TextView(this).apply {
+                text = "需要 Android 12+ 支持"
+                setTextColor(ThemeColors.textSecondary(this@WidgetSettingsActivity))
+                textSize = 11f
+                alpha = 0.7f
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { setMargins(dp2px(4), 0, 0, 0) }
+            }
+            (hideLabelRow as ViewGroup).addView(subtitle)
+        }
+        content.addView(hideLabelRow)
+
+        // 对 content 内动态添加的视图递归着色
+        CommonDialogHelper.applyThemeToViewTree(content, this)
+
+        // 按钮区域
+        val btnContainer = dialog.findViewById<LinearLayout>(R.id.common_dialog_button_container)
+        btnContainer.visibility = View.VISIBLE
+
+        dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary).apply {
+            text = "确定"
+            setOnClickListener {
+                SPUtil.setWidgetClipToOutline(this@WidgetSettingsActivity, tempClipToOutline)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    SPUtil.setWidgetHideLabel(this@WidgetSettingsActivity, tempHideLabel)
+                }
+                updateCompatibilitySubtitle()
+                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                dialog.dismiss()
+            }
+        }
+
+        dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_secondary).apply {
+            visibility = View.VISIBLE
+            text = "取消"
+            setOnClickListener { dialog.dismiss() }
+        }
+
+        CommonDialogHelper.setupDialogWindow(this, dialog)
+        dialog.show()
     }
 
     // ==================== Worker 更新 ====================
@@ -1321,19 +1518,6 @@ class WidgetSettingsActivity : AppCompatActivity() {
     }
 
     private fun dp2px(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
-
-    /** 带动画退场关闭弹窗：先执行模糊退场动画(260ms)，再关闭弹窗并执行回调 */
-    private fun dismissDialogWithAnimation(dialog: Dialog, onComplete: () -> Unit = {}) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            AnimationUtil.applyDialogBlurOut(dialog) {
-                try { dialog.dismiss() } catch (_: Exception) {}
-                onComplete()
-            }
-        } else {
-            dialog.dismiss()
-            onComplete()
-        }
-    }
 
     private fun makeSelectedBg(accent: Int, cornerRadius: Float): GradientDrawable {
         return GradientDrawable().apply {

@@ -30,12 +30,11 @@ import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.ThemeChangeNotifier
 import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.ThemeUtil
+import com.ufi_toolswidget.util.ThemedSliderUtil
+import com.ufi_toolswidget.view.ThemeSlider
 import com.ufi_toolswidget.widget.BaseWifiWidget
 
 class AppSettingsActivity : AppCompatActivity() {
-
-    /** 主界面刷新间隔预设选项（秒），0=关闭 */
-    private val presetIntervals = listOf(5, 10, 15, 30, 0)
 
     private var mainIntervalSeconds: Int = 5
 
@@ -275,7 +274,7 @@ class AppSettingsActivity : AppCompatActivity() {
             updateThemeColorSubtitle()
             updateRefreshIntervalSubtitle()
             updateBgImageSubtitle()
-            BaseWifiWidget.renderAllWidgets(this)
+            BaseWifiWidget.renderAllWidgets(this, force = true)
             ThemeChangeNotifier.notifyThemeChanged(this)
         }
     }
@@ -500,7 +499,7 @@ class AppSettingsActivity : AppCompatActivity() {
 
             updateDisplayModeSubtitle()
             updateRefreshIntervalSubtitle()
-            BaseWifiWidget.renderAllWidgets(this)
+            BaseWifiWidget.renderAllWidgets(this, force = true)
             ThemeChangeNotifier.notifyThemeChanged(this)
         }
     }
@@ -642,7 +641,7 @@ class AppSettingsActivity : AppCompatActivity() {
         return panel
     }
 
-    // ==================== 主界面刷新频率（弹窗选择） ====================
+    // ==================== 主界面刷新频率（滑块选择） ====================
     private var activeIntervalDialog: Dialog? = null
 
     private fun initRefreshIntervalItem() {
@@ -659,11 +658,7 @@ class AppSettingsActivity : AppCompatActivity() {
     }
 
     private fun updateRefreshIntervalSubtitle() {
-        val label = when {
-            mainIntervalSeconds == 0 -> "关闭"
-            presetIntervals.contains(mainIntervalSeconds) && mainIntervalSeconds > 0 -> "${mainIntervalSeconds} 秒"
-            else -> "${mainIntervalSeconds} 秒（自定义）"
-        }
+        val label = if (mainIntervalSeconds == 0) "关闭" else "${mainIntervalSeconds} 秒"
         try {
             findInItem<TextView>(R.id.item_refresh_interval, R.id.common_item_subtitle)?.text = label
         } catch (_: Exception) {}
@@ -677,215 +672,120 @@ class AppSettingsActivity : AppCompatActivity() {
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
-        val accent = ThemeColors.accent(this)
-        val cardBg = ThemeColors.cardBg(this)
 
         dialog.findViewById<TextView>(R.id.common_dialog_title).text = "主界面刷新频率"
         dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_clock_bolt)
-        dialog.findViewById<View>(R.id.common_dialog_button_container).visibility = View.GONE
 
+        // 先应用主题着色，再配置按钮
         CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
 
+        // --- 滑块与标签 ---
+        val valueLabel = TextView(this).apply {
+            text = "${mainIntervalSeconds} 秒"
+            textSize = 28f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(ThemeColors.accent(this@AppSettingsActivity))
+            gravity = android.view.Gravity.CENTER
+        }
+
+        val slider = ThemeSlider(this).apply {
+            minValue = 5f
+            maxValue = 120f
+            stepSize = 1f
+            currentValue = if (mainIntervalSeconds > 0) mainIntervalSeconds.toFloat().coerceIn(5f, 120f) else 5f
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp2px(44)
+            ).apply { topMargin = dp2px(8) }
+            onValueChange = { value ->
+                mainIntervalSeconds = value.toInt()
+                valueLabel.text = "${value.toInt()} 秒"
+                SPUtil.setMainRefreshSeconds(this@AppSettingsActivity, value.toInt())
+                updateRefreshIntervalSubtitle()
+            }
+        }
+        ThemedSliderUtil.setupSliderTickMarks(slider, 30f) { "${it}秒" }
+
+        // 实时更新数值（拖动时不受抑制）
+        slider.onValueChanging = { value ->
+            valueLabel.text = "${value.toInt()} 秒"
+        }
+
         val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
-        val cornerRadius = 12f * resources.displayMetrics.density
+        content.addView(valueLabel)
+        content.addView(slider)
 
-        val selectedBg = makeSelectedBg(accent, cornerRadius)
-        val unselectedBg = makeUnselectedBg(cornerRadius)
-
-        // 双栏 GridLayout
-        val grid = android.widget.GridLayout(this).apply {
-            columnCount = 2
-            alignmentMode = android.widget.GridLayout.ALIGN_BOUNDS
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        content.addView(grid)
-
-        // 预设选项：5秒, 10秒, 15秒, 30秒, 关闭
-        val options = listOf(5 to "5 秒", 10 to "10 秒", 15 to "15 秒", 30 to "30 秒", 0 to "关闭")
-        val isPreset = presetIntervals.contains(mainIntervalSeconds)
-
-        options.forEach { (secs, label) ->
-            grid.addView(buildIntervalOption(secs, label, isPreset && secs == mainIntervalSeconds,
-                textPrimary, selectedBg, unselectedBg, content, dialog, isGrid = true))
+        // 常用值预设（自动跟随滑块高亮）
+        val (presetRow, updatePresets) = CommonDialogHelper.createPresetRow(
+            context = this,
+            values = listOf(5, 10, 15, 30, 60),
+            formatLabel = { "${it}秒" },
+            currentValue = mainIntervalSeconds,
+            onSelect = { slider.currentValue = it.toFloat() }
+        )
+        content.addView(presetRow)
+        slider.onValueChange = { value ->
+            mainIntervalSeconds = value.toInt()
+            valueLabel.text = "${value.toInt()} 秒"
+            updatePresets(value.toInt())
+            SPUtil.setMainRefreshSeconds(this@AppSettingsActivity, value.toInt())
+            updateRefreshIntervalSubtitle()
         }
 
-        // 自定义选项
-        grid.addView(buildIntervalOption(-1,
-            if (!isPreset && mainIntervalSeconds > 0) "${mainIntervalSeconds}秒" else "自定义...",
-            !isPreset && mainIntervalSeconds > 0, textPrimary, selectedBg, unselectedBg, content, dialog, isGrid = true))
-
-        // 自定义输入面板（放在网格下方，默认隐藏）
-        val customPanel = createCustomIntervalPanel(dialog, textPrimary, accent, cardBg)
+        // --- 自定义输入面板（默认隐藏） ---
+        val customPanel = createCustomPanel(dialog, textPrimary)
+        customPanel.layoutParams = (customPanel.layoutParams as ViewGroup.MarginLayoutParams).also {
+            it.topMargin = dp2px(12)
+        }
         content.addView(customPanel)
-        if (!isPreset && mainIntervalSeconds > 0) customPanel.visibility = View.VISIBLE
+
+        // --- 按钮区域：使用公共弹窗按钮，由 applyThemeToDialogRoot 自动着色 ---
+        val btnPrimary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary)
+        btnPrimary.text = "确定"
+        btnPrimary.setOnClickListener { dismissDialogWithAnimation(dialog) }
+
+        val btnSecondary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_secondary)
+        btnSecondary.visibility = android.view.View.VISIBLE
+        btnSecondary.text = "自定义"
+        btnSecondary.setOnClickListener {
+            val showing = customPanel.visibility == android.view.View.VISIBLE
+            CommonDialogHelper.animatePanelVisibility(customPanel, !showing) {
+                if (!showing) {
+                    val et = customPanel.findViewWithTag<android.widget.EditText>("custom_input_field")
+                    et?.let {
+                        if (mainIntervalSeconds > 0 && mainIntervalSeconds !in 5..120) {
+                            it.setText(mainIntervalSeconds.toString())
+                        }
+                        it.requestFocus()
+                    }
+                }
+            }
+        }
 
         CommonDialogHelper.setupDialogWindow(this, dialog)
-
         activeIntervalDialog = dialog
         dialog.show()
     }
 
-    private fun buildIntervalOption(
-        secs: Int, label: String, isSelected: Boolean,
-        textPrimary: Int, selectedBg: GradientDrawable, unselectedBg: GradientDrawable,
-        content: LinearLayout, dialog: Dialog,
-        isGrid: Boolean = false
-    ): View {
-        val option = TextView(this).apply {
-            text = label
-            textSize = 15f
-            gravity = android.view.Gravity.CENTER
-            setPadding(0, dp2px(14), 0, dp2px(14))
-            if (isGrid) {
-                val params = android.widget.GridLayout.LayoutParams()
-                params.width = 0
-                params.height = ViewGroup.LayoutParams.WRAP_CONTENT
-                params.columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
-                params.setMargins(dp2px(4), dp2px(4), dp2px(4), dp2px(4))
-                layoutParams = params
-            } else {
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    bottomMargin = dp2px(8)
+    private fun createCustomPanel(dialog: Dialog, textPrimary: Int): View {
+        return CommonDialogHelper.createInputPanel(
+            context = this,
+            hint = "输入 5-3600 秒",
+            validate = { text ->
+                val secs = text.toIntOrNull()
+                when {
+                    secs == null -> "请输入有效数字"
+                    secs !in 5..3600 -> "请输入 5-3600 之间的秒数"
+                    else -> null
                 }
-            }
-            background = if (isSelected) selectedBg else unselectedBg
-            setTextColor(if (isSelected) 0xFFFFFFFF.toInt() else textPrimary)
-            isClickable = true
-            isFocusable = true
-            // 涟漪效果 — 匹配 AppCard
-            foreground = android.util.TypedValue().let { tv ->
-                val typedValue = android.util.TypedValue()
-                theme.resolveAttribute(android.R.attr.selectableItemBackground, typedValue, true)
-                resources.getDrawable(typedValue.resourceId, theme)
-            }
-        }
-
-        option.setOnClickListener {
-            if (secs == -1) {
-                // 切换自定义输入面板
-                val panel = content.findViewWithTag<View>("custom_interval_panel")
-                panel?.visibility = if (panel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                if (panel?.visibility == View.VISIBLE) {
-                    val et = panel.findViewWithTag<EditText>("custom_interval_field")
-                    val isPreset = presetIntervals.contains(mainIntervalSeconds)
-                    if (!isPreset && mainIntervalSeconds > 0) et.setText(mainIntervalSeconds.toString())
-                    et.requestFocus()
-                }
-            } else {
+            },
+            onConfirm = { text ->
+                val secs = text.toInt()
                 mainIntervalSeconds = secs
-                SPUtil.setMainRefreshSeconds(this, secs)
+                SPUtil.setMainRefreshSeconds(this@AppSettingsActivity, secs)
                 updateRefreshIntervalSubtitle()
-                refreshIntervalDialogOptions(content, dialog, textPrimary, unselectedBg)
                 dismissDialogWithAnimation(dialog)
             }
-        }
-        return option
-    }
-
-    private fun refreshIntervalDialogOptions(content: LinearLayout, dialog: Dialog, textPrimary: Int, unselectedBg: GradientDrawable) {
-        val accent = ThemeColors.accent(this)
-        val cornerRadius = 12f * resources.displayMetrics.density
-        val selectedBg = makeSelectedBg(accent, cornerRadius)
-
-        content.removeAllViews()
-
-        val grid = android.widget.GridLayout(this).apply {
-            columnCount = 2
-            alignmentMode = android.widget.GridLayout.ALIGN_BOUNDS
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        content.addView(grid)
-
-        val options = listOf(5 to "5 秒", 10 to "10 秒", 15 to "15 秒", 30 to "30 秒", 0 to "关闭")
-        val isPreset = presetIntervals.contains(mainIntervalSeconds)
-
-        options.forEach { (secs, label) ->
-            grid.addView(buildIntervalOption(secs, label, isPreset && secs == mainIntervalSeconds,
-                textPrimary, selectedBg, unselectedBg, content, dialog, isGrid = true))
-        }
-        grid.addView(buildIntervalOption(-1,
-            if (!isPreset && mainIntervalSeconds > 0) "${mainIntervalSeconds}秒" else "自定义...",
-            !isPreset && mainIntervalSeconds > 0, textPrimary, selectedBg, unselectedBg, content, dialog, isGrid = true))
-
-        val customPanel = createCustomIntervalPanel(dialog, textPrimary, accent, ThemeColors.cardBg(this))
-        content.addView(customPanel)
-        if (!isPreset && mainIntervalSeconds > 0) customPanel.visibility = View.VISIBLE
-    }
-
-    private fun createCustomIntervalPanel(dialog: Dialog, textPrimary: Int, accent: Int, cardBg: Int): View {
-        val panel = LinearLayout(this).apply {
-            tag = "custom_interval_panel"
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp2px(8)
-            }
-        }
-
-        val et = EditText(this).apply {
-            tag = "custom_interval_field"
-            layoutParams = LinearLayout.LayoutParams(0, dp2px(40), 1f)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE; setColor(cardBg); cornerRadius = 8f * resources.displayMetrics.density
-                setStroke(1, if (androidx.appcompat.app.AppCompatDelegate.getDefaultNightMode() == androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES) 0x30FFFFFF.toInt() else 0x20000000)
-            }
-            gravity = android.view.Gravity.CENTER
-            hint = "输入 1-3600 秒"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER
-            maxLines = 1
-            setTextColor(textPrimary)
-            setHintTextColor(ThemeColors.textSecondary(this@AppSettingsActivity))
-            textSize = 13f
-            setPadding(dp2px(12), 0, dp2px(12), 0)
-        }
-        panel.addView(et)
-
-        val btnConfirm = TextView(this).apply {
-            text = "确定"
-            textSize = 13f
-            setTextColor(0xFFFFFFFF.toInt())
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            gravity = android.view.Gravity.CENTER
-            setPadding(dp2px(14), 0, dp2px(14), 0)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp2px(40)).apply { marginStart = dp2px(8) }
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE; setColor(accent); cornerRadius = 20f * resources.displayMetrics.density
-            }
-            setOnClickListener {
-                val secs = et.text.toString().toIntOrNull()
-                if (secs != null && secs in 1..3600) {
-                    mainIntervalSeconds = secs
-                    SPUtil.setMainRefreshSeconds(this@AppSettingsActivity, secs)
-                    updateRefreshIntervalSubtitle()
-                    dismissDialogWithAnimation(dialog)
-                } else {
-                    android.widget.Toast.makeText(this@AppSettingsActivity, "请输入 1-3600 之间的秒数", android.widget.Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-        panel.addView(btnConfirm)
-
-        panel.addView(TextView(this).apply {
-            text = "取消"
-            textSize = 13f
-            setTextColor(ThemeColors.textSecondary(this@AppSettingsActivity))
-            alpha = 0.5f
-            setPadding(dp2px(8), 0, dp2px(4), 0)
-            setOnClickListener {
-                panel.visibility = View.GONE
-                val isPreset = presetIntervals.contains(mainIntervalSeconds)
-                // 恢复选项高亮
-                val content = panel.parent as? LinearLayout ?: return@setOnClickListener
-                refreshIntervalDialogOptions(content, dialog, textPrimary, buildIntervalUnselectedBg())
-            }
-        })
-
-        return panel
-    }
-
-    private fun buildIntervalUnselectedBg(): GradientDrawable {
-        return makeUnselectedBg(12f * resources.displayMetrics.density)
+        )
     }
 
     // ==================== 自定义背景图片 ====================

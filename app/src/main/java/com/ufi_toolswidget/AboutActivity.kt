@@ -32,6 +32,8 @@ import com.ufi_toolswidget.util.ThemeChangeNotifier
 import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.ThemeUtil
 import com.ufi_toolswidget.util.UpdateChecker
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import java.io.File
 
 class AboutActivity : AppCompatActivity() {
@@ -143,28 +145,26 @@ class AboutActivity : AppCompatActivity() {
                 // 记录本次检查所使用的镜像源
                 val usedMirror = currentMirror
 
-                UpdateChecker.checkUpdate(this@AboutActivity) { info, error ->
-                    progressUpdate.visibility = View.GONE
-                    btnCheck.isEnabled = true
-
-                    when {
-                        error != null -> {
-                            if (usedMirror == 0 && UpdateChecker.isNetworkError(error)) {
-                                // 使用官方源且网络出错 → 提示切换国内镜像
-                                tvUpdateStatus.text = "$error\n\n💡 检测到网络问题，建议切换至「国内镜像」源后重试"
+                lifecycleScope.launch {
+                    when (val result = UpdateChecker.checkUpdate(this@AboutActivity)) {
+                        is UpdateChecker.UpdateResult.Error -> {
+                            if (usedMirror == 0 && UpdateChecker.isNetworkError(result.message)) {
+                                tvUpdateStatus.text = "${result.message}\n\n💡 检测到网络问题，建议切换至「国内镜像」源后重试"
                                 showMirrorSwitchDialog()
                             } else {
-                                tvUpdateStatus.text = error
+                                tvUpdateStatus.text = result.message
                             }
                         }
-                        info != null -> {
-                            tvUpdateStatus.text = "发现新版本 ${info.versionName}"
-                            showUpdateDialog(info)
+                        is UpdateChecker.UpdateResult.NewVersion -> {
+                            tvUpdateStatus.text = "发现新版本 ${result.info.versionName}"
+                            showUpdateDialog(result.info)
                         }
-                        else -> {
+                        is UpdateChecker.UpdateResult.Latest -> {
                             tvUpdateStatus.text = "当前已是最新版本 ✓"
                         }
                     }
+                    progressUpdate.visibility = View.GONE
+                    btnCheck.isEnabled = true
                 }
             }
             setOnTouchListener(ScaleTouchListener())

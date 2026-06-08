@@ -31,20 +31,20 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="小组件设置"
+                    android:text="动态配色"
                     android:textColor="@color/text_main"
                     android:textSize="28sp"
                     android:textStyle="bold"
                     android:letterSpacing="0.02" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="自定义小组件外观、内容与刷新行为"
-                android:textColor="@color/text_main"
-                android:alpha="0.45"
-                android:textSize="13sp" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="从小组件背景图提取色调，自动适配文字颜色"
+                    android:textColor="@color/text_main"
+                    android:alpha="0.45"
+                    android:textSize="13sp" />
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton
@@ -54,60 +54,44 @@
                 android:layout_height="44dp"
                 android:layout_gravity="start|top"
                 android:layout_marginTop="6dp"
-                app:icon="@drawable/ic_arrow_back" />
+                app:icon="@drawable/ic_arrow_back"
+                app:iconTint="@color/text_main" />
         </FrameLayout>
 
-        <!-- ========== 跟随应用主题（开关） ========== -->
+        <!-- ========== 简要说明 ========== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="20dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="8dp"
+            android:text="从背景图提取主色，自动适配文字颜色"
+            android:textColor="@color/text_main"
+            android:alpha="0.5"
+            android:textSize="12sp" />
+
+        <!-- ========== 动态配色 Material You（开关，仅 API 31+ 显示） ========== -->
         <include
             layout="@layout/layout_common_switch_item"
-            android:id="@+id/item_widget_follow_theme" />
+            android:id="@+id/item_widget_dynamic_color" />
 
-        <!-- ========== 小组件主题（弹窗选择） ========== -->
+        <!-- ========== 动态配色对比度（弹窗选择，仅动态配色开启时显示） ========== -->
         <include
             layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_widget_theme" />
-
-        <!-- ========== 小组件颜色主题（弹窗选择） ========== -->
-        <include
-            layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_widget_color_theme" />
-
-        <!-- ========== 显示信息（弹窗多选） ========== -->
-        <include
-            layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_display_info" />
-
-        <!-- ========== 2×1 迷你版独立设置（暂时隐藏） ========== -->
-        <include
-            layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_display_info_2x1"
+            android:id="@+id/item_widget_dynamic_contrast"
             android:visibility="gone" />
 
-        <!-- ========== 4×1 条形版独立设置（暂时隐藏） ========== -->
+        <!-- ========== 动态配色高级设置（弹窗，仅动态配色开启时显示） ========== -->
         <include
             layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_display_info_4x1"
+            android:id="@+id/item_widget_dynamic_advanced"
             android:visibility="gone" />
 
-        <!-- ========== 后台刷新频率（弹窗选择） ========== -->
+        <!-- ========== 动态配色色源选择（弹窗，仅动态配色开启时显示） ========== -->
         <include
             layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_widget_interval" />
-
-        <!-- ========== 自定义背景图（弹窗选择） ========== -->
-        <include
-            layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_widget_bg_image" />
-
-        <!-- ========== 背景透明度（弹窗选择） ========== -->
-        <include
-            layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_widget_bg_opacity" />
-
-        <!-- ========== 兼容性设置（点击弹窗） ========== -->
-        <include
-            layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_widget_compatibility" />
+            android:id="@+id/item_widget_dynamic_color_source"
+            android:visibility="gone" />
 
     </LinearLayout>
 </ScrollView>

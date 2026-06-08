@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <set xmlns:android="http://schemas.android.com/apk/res/android"
-    android:duration="400"
+    android:duration="480"
     android:interpolator="@android:interpolator/overshoot"
     android:shareInterpolator="true">
     <!-- 弹性缩放：0.88 → 1.0，轻微回弹 -->

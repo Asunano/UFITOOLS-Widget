@@ -213,6 +213,7 @@ class ConfigModifyActivity : AppCompatActivity() {
                 secretKey = ""
                 SPUtil.setSecretKey(this, "")
                 SPUtil.setCachedPlatform(this, "")
+                SPUtil.invalidateResponseCaches(this)
                 onConfigChanged()
             },
             onSave = { values ->
@@ -225,6 +226,9 @@ class ConfigModifyActivity : AppCompatActivity() {
                 secretKey = values[3].trim()
                 SPUtil.setSecretKey(this, secretKey)
                 
+                // 接口路径或密钥变更，清除所有响应缓存以确保下轮使用新路径
+                SPUtil.invalidateResponseCaches(this)
+
                 val platform = values[4].trim().lowercase()
                 SPUtil.setCachedPlatform(this, if (platform == "auto") "" else platform)
 

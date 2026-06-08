@@ -357,8 +357,7 @@ object ThemeUtil {
         
         fun updateVisuals(animate: Boolean) {
             val accent = ThemeColors.accent(ctx)
-            val isDark = ThemeColors.isDark(ctx)
-            val offColor = if (isDark) 0xFF444444.toInt() else 0xFFE0E0E0.toInt()
+            val offColor = ThemeColors.accentSecondary(ctx)
             
             val targetX = if (isChecked) (track.width - thumb.width - (thumb.layoutParams as ViewGroup.MarginLayoutParams).marginStart * 2).toFloat() else 0f
             val targetBg = if (isChecked) accent else offColor

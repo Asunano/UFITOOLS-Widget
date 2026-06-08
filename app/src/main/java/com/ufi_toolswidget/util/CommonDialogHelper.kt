@@ -15,7 +15,9 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
+import android.view.WindowManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -44,6 +46,51 @@ object CommonDialogHelper {
      */
     fun createDialog(context: Context): Dialog {
         val dialog = Dialog(context, R.style.Theme_UFITOOLSWidget_Transparent)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        return dialog
+    }
+
+    /**
+     * 创建带自动退场动画的 Dialog（全局统一）。
+     *
+     * 重写 [Dialog.dismiss]：
+     * - API 31+：先清理模糊标志 → 执行 [AnimationUtil.applyDialogBlurOut] 渐退动画 → 回调 [onDismissed] → super.dismiss()
+     * - API <31：清理模糊标志 → 直接 super.dismiss() → 回调 [onDismissed]
+     *
+     * 调用方无需手动管理动画状态或调用 [AnimationUtil.applyDialogBlurOut]。
+     *
+     * @param context 上下文
+     * @param onDismissed 弹窗完全关闭后的回调（可选），用于重置调用方的引用/状态
+     */
+    fun createAnimatedDialog(context: Context, onDismissed: () -> Unit = {}): Dialog {
+        val dialog = object : Dialog(context, R.style.Theme_UFITOOLSWidget_Transparent) {
+            @Volatile private var isAnimatingOut = false
+
+            private fun realDismiss() {
+                isAnimatingOut = false
+                super.dismiss()
+                onDismissed()
+            }
+
+            override fun dismiss() {
+                if (isAnimatingOut) return  // 防止重入
+                val win = window
+                if (win == null) {
+                    realDismiss()
+                    return
+                }
+                isAnimatingOut = true
+                // 清理模糊标志，防止系统模糊层在退场动画期间暂留
+                cleanBlurBeforeDismiss()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    // API 31+：执行模糊退场动画后关闭
+                    AnimationUtil.applyDialogBlurOut(this) { realDismiss() }
+                } else {
+                    // API <31：直接关闭（XML 退出动画由 windowAnimations 处理）
+                    realDismiss()
+                }
+            }
+        }
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         return dialog
     }
@@ -178,6 +225,44 @@ object CommonDialogHelper {
         }
     }
 
+    // ── 模糊背景清理（退出动画前调用） ──
+
+    /**
+     * 在弹窗消失前清除 FLAG_BLUR_BEHIND 与模糊背景，
+     * 解决系统级模糊在退出动画期间产生暂留+闪烁的问题。
+     */
+    private fun Dialog.cleanBlurBeforeDismiss() {
+        val win = window ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // 清除 FLAG_BLUR_BEHIND，消除系统模糊层的暂留
+            val srcAttrs = win.attributes
+            val cleanAttrs = WindowManager.LayoutParams().apply {
+                copyFrom(srcAttrs)
+                flags = flags and WindowManager.LayoutParams.FLAG_BLUR_BEHIND.inv()
+                blurBehindRadius = 0
+            }
+            win.attributes = cleanAttrs
+        } else {
+            // 清除 legacy BitmapDrawable 模糊背景
+            win.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        }
+    }
+
+    /** 为 dialog 安装退出时清理模糊的钩子：按钮点击 + 外部取消 */
+    private fun Dialog.installBlurCleanupHooks() {
+        // 按钮点击：清理模糊后再 dismiss
+        findViewById<MaterialButton>(R.id.common_dialog_btn_primary)?.setOnClickListener {
+            cleanBlurBeforeDismiss()
+            dismiss() // 此时 dismiss() 的 XML 动画不再受模糊层干扰
+        }
+        findViewById<MaterialButton>(R.id.common_dialog_btn_secondary)?.setOnClickListener {
+            cleanBlurBeforeDismiss()
+            dismiss()
+        }
+        // 外部触摸取消：cancel() 会调用 dismiss()，在 cancel 回调中提前清理
+        setOnCancelListener { cleanBlurBeforeDismiss() }
+    }
+
     // ── 通用弹窗组装 ──
 
     /**
@@ -206,7 +291,13 @@ object CommonDialogHelper {
         val btnPrimary = dialog.findViewById<MaterialButton>(R.id.common_dialog_btn_primary)
         btnPrimary.text = primaryBtnText
         AnimationUtil.applyScaleClickAnimation(btnPrimary) {
-            if (onPrimaryClick != null) onPrimaryClick(dialog) else dialog.dismiss()
+            if (onPrimaryClick != null) {
+                dialog.cleanBlurBeforeDismiss()
+                onPrimaryClick(dialog)
+            } else {
+                dialog.cleanBlurBeforeDismiss()
+                dialog.dismiss()
+            }
         }
 
         val btnSecondary = dialog.findViewById<MaterialButton>(R.id.common_dialog_btn_secondary)
@@ -214,6 +305,7 @@ object CommonDialogHelper {
             btnSecondary.visibility = View.VISIBLE
             btnSecondary.text = secondaryBtnText
             AnimationUtil.applyScaleClickAnimation(btnSecondary) {
+                dialog.cleanBlurBeforeDismiss()
                 onSecondaryClick?.invoke(dialog) ?: dialog.dismiss()
             }
             (btnPrimary.layoutParams as? LinearLayout.LayoutParams)?.marginStart =
@@ -222,6 +314,9 @@ object CommonDialogHelper {
             btnSecondary.visibility = View.GONE
             (btnPrimary.layoutParams as? LinearLayout.LayoutParams)?.marginStart = 0
         }
+
+        // 外部触摸取消时也清理模糊
+        dialog.setOnCancelListener { dialog.cleanBlurBeforeDismiss() }
 
         setupDialogWindow(context, dialog, widthRatio)
         dialog.show()
@@ -338,26 +433,32 @@ object CommonDialogHelper {
             setBackgroundColor(warnDivider)
         }
 
-        // ── 5. 主按钮：红色实色，白字 ──
+        // ── 5+6. 按钮：点击前先清理模糊 ──
         dialog.findViewById<MaterialButton>(R.id.common_dialog_btn_primary).apply {
             text = confirmText
             backgroundTintList = ColorStateList.valueOf(warnColor)
             setTextColor(Color.WHITE)
             setOnClickListener {
+                dialog.cleanBlurBeforeDismiss()
                 dialog.dismiss()
                 onConfirm()
             }
         }
 
-        // ── 6. 次按钮：红色描边 ──
         dialog.findViewById<MaterialButton>(R.id.common_dialog_btn_secondary).apply {
             visibility = View.VISIBLE
             text = cancelText
             setTextColor(warnColor)
             strokeColor = ColorStateList.valueOf(warnColor)
             strokeWidth = (1 * density).toInt()
-            setOnClickListener { dialog.dismiss() }
+            setOnClickListener {
+                dialog.cleanBlurBeforeDismiss()
+                dialog.dismiss()
+            }
         }
+
+        // 外部触摸取消
+        dialog.setOnCancelListener { dialog.cleanBlurBeforeDismiss() }
 
         // ── 7. 窗口设置 ──
         dialog.setCanceledOnTouchOutside(true)
@@ -384,6 +485,187 @@ object CommonDialogHelper {
         val g = (((base shr 8) and 0xFF) * invA + ((overlay shr 8) and 0xFF) * a) / 255
         val b = ((base and 0xFF) * invA + (overlay and 0xFF) * a) / 255
         return 0xFF000000.toInt() or (r shl 16) or (g shl 8) or b
+    }
+
+    // ── 公共输入面板 ──
+
+    /**
+     * 创建带主题配色的输入面板（EditText + 确定按钮），适用于自定义输入场景。
+     * @param context 上下文
+     * @param hint 输入框 hint 文本
+     * @param validate 验证回调，返回 null=合法，返回 String=错误提示
+     * @param onConfirm 确认回调
+     */
+    fun createInputPanel(
+        context: Context,
+        hint: String = "输入数值",
+        validate: (String) -> String? = { null },
+        onConfirm: (String) -> Unit
+    ): LinearLayout {
+        val accent = ThemeColors.accent(context)
+        val cardBg = ThemeColors.cardBg(context)
+        val textPrimary = ThemeColors.textPrimary(context)
+
+        val panel = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            visibility = android.view.View.GONE
+            alpha = 0f
+            tag = "custom_input_panel"
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val density = context.resources.displayMetrics.density
+        val et = EditText(context).apply {
+            tag = "custom_input_field"
+            layoutParams = LinearLayout.LayoutParams(0, (40 * density).toInt(), 1f)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(cardBg)
+                cornerRadius = 8f * density
+                setStroke(1, if (AppCompatDelegate.getDefaultNightMode() == AppCompatDelegate.MODE_NIGHT_YES)
+                    0x30FFFFFF.toInt() else 0x20000000)
+            }
+            gravity = android.view.Gravity.CENTER
+            this.hint = hint
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            maxLines = 1
+            setTextColor(textPrimary)
+            setHintTextColor(ThemeColors.textSecondary(context))
+            textSize = 13f
+            setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
+        }
+        panel.addView(et)
+
+        val btnConfirm = MaterialButton(context).apply {
+            text = "确定"
+            backgroundTintList = android.content.res.ColorStateList.valueOf(ThemeColors.btnBg(context))
+            setTextColor(0xFFFFFFFF.toInt())
+            setCornerRadius((12f * density).toInt())
+            insetTop = 0
+            insetBottom = 0
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, (48 * density).toInt()
+            ).apply { marginStart = (8 * density).toInt() }
+        }
+        AnimationUtil.applyScaleClickAnimation(btnConfirm) {
+            val text = et.text.toString()
+            val error = validate(text)
+            if (error != null) {
+                android.widget.Toast.makeText(context, error, android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                onConfirm(text)
+            }
+        }
+        panel.addView(btnConfirm)
+
+        return panel
+    }
+
+    /**
+     * 面板渐入/渐出动画
+     * @param panel 目标面板
+     * @param show true=显示, false=隐藏
+     * @param onEnd 动画结束回调
+     */
+    fun animatePanelVisibility(panel: View, show: Boolean, onEnd: () -> Unit = {}) {
+        panel.animate().cancel()
+        if (show) {
+            panel.visibility = android.view.View.VISIBLE
+            panel.alpha = 0f
+            panel.translationY = 10f
+            panel.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(200)
+                .setInterpolator(android.view.animation.DecelerateInterpolator())
+                .withEndAction(onEnd)
+                .start()
+        } else {
+            panel.animate()
+                .alpha(0f)
+                .translationY(10f)
+                .setDuration(150)
+                .setInterpolator(android.view.animation.AccelerateInterpolator())
+                .withEndAction {
+                    panel.visibility = android.view.View.GONE
+                    panel.translationY = 0f
+                    onEnd()
+                }
+                .start()
+        }
+    }
+
+    /**
+     * 预设芯片动画与高亮更新
+     */
+    private fun updateChipHighlight(chip: View, active: Boolean, accent: Int, textSecondary: Int) {
+        val tv = chip as? TextView ?: return
+        tv.setTextColor(if (active) 0xFFFFFFFF.toInt() else textSecondary)
+        val chipBg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(if (active) accent else (accent and 0x00FFFFFF) or 0x15000000)
+            cornerRadius = 12f * dp2px(chip.context, 1)
+        }
+        tv.background = chipBg
+    }
+
+    /**
+     * 创建常用值预设快捷按钮行，自动高亮当前值
+     * @param context 上下文
+     * @param values 预设值列表
+     * @param formatLabel 格式化标签 (value) -> String
+     * @param currentValue 当前选中值
+     * @param onSelect 选中回调
+     * @return Pair(行View, 更新函数) — 调用 update(value) 刷新高亮
+     */
+    fun createPresetRow(
+        context: Context,
+        values: List<Int>,
+        formatLabel: (Int) -> String,
+        currentValue: Int,
+        onSelect: (Int) -> Unit
+    ): Pair<LinearLayout, (Int) -> Unit> {
+        val accent = ThemeColors.accent(context)
+        val textSecondary = ThemeColors.textSecondary(context)
+        val chips = mutableListOf<TextView>()
+
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp2px(context, 12) }
+        }
+
+        values.forEach { value ->
+            val chip = TextView(context).apply {
+                text = formatLabel(value)
+                textSize = 12f
+                gravity = android.view.Gravity.CENTER
+                setPadding(dp2px(context, 10), dp2px(context, 4), dp2px(context, 10), dp2px(context, 4))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { onSelect(value) }
+            }
+            chips.add(chip)
+            val params = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp2px(context, 6) }
+            row.addView(chip, params)
+        }
+
+        val update: (Int) -> Unit = { selected ->
+            chips.forEachIndexed { i, chip ->
+                updateChipHighlight(chip, values[i] == selected, accent, textSecondary)
+            }
+        }
+        update(currentValue)
+
+        return row to update
     }
 
     private fun dp2px(context: Context, dp: Int): Int =

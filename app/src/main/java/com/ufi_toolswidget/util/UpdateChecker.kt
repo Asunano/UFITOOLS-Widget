@@ -1,9 +1,20 @@
 package com.ufi_toolswidget.util
 
+import android.Manifest
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.os.Handler
-import android.os.Looper
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import okhttp3.CacheControl
 import okhttp3.Call
 import okhttp3.Callback
@@ -14,6 +25,9 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.security.MessageDigest
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * 通过静态 version.json 文件检查应用更新
@@ -138,47 +152,77 @@ object UpdateChecker {
         return 0
     }
 
+    // ==================== 检查结果类型 ====================
+
+    /** 检查更新的结果，避免回调中未检查 Lifecycle 导致的泄漏 */
+    sealed class UpdateResult {
+        /** 有新版本可用 */
+        data class NewVersion(val info: UpdateInfo) : UpdateResult()
+        /** 当前已是最新版本 */
+        object Latest : UpdateResult()
+        /** 请求或解析失败 */
+        data class Error(val message: String) : UpdateResult()
+    }
+
     /**
-     * 异步检查更新，回调在主线程
+     * 挂起式检查更新 — 通过 [suspendCancellableCoroutine] 绑定协程生命周期。
      *
-     * @param onResult 回调：
-     *   - (UpdateInfo, null) → 有新版本可用
-     *   - (null, null)       → 已是最新版本
-     *   - (null, errorMsg)   → 网络错误或解析失败
+     * 调用方使用 [lifecycleScope.launch] 包裹即可在 Activity/Fragment 销毁时自动取消请求，
+     * 无需手动检查 isFinishing / isDestroyed。
+     *
+     * @return [UpdateResult]：
+     *   - [UpdateResult.NewVersion] → 有新版本
+     *   - [UpdateResult.Latest]     → 已是最新
+     *   - [UpdateResult.Error]      → 网络错误或解析失败
      */
-    fun checkUpdate(context: Context, onResult: (UpdateInfo?, String?) -> Unit) {
+    suspend fun checkUpdate(context: Context): UpdateResult = suspendCancellableCoroutine { continuation ->
         val url = getVersionUrl(context)
         val request = Request.Builder()
             .url(url)
-            .cacheControl(CacheControl.FORCE_NETWORK) // 不走缓存，拿最新的
+            .cacheControl(CacheControl.FORCE_NETWORK)
             .build()
 
-        NetUtil.client.newCall(request).enqueue(object : Callback {
+        val call = NetUtil.client.newCall(request)
+
+        // 协程取消时自动取消 HTTP 请求
+        continuation.invokeOnCancellation {
+            call.cancel()
+        }
+
+        call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                Handler(Looper.getMainLooper()).post {
-                    onResult(null, "网络请求失败: ${e.localizedMessage}")
+                if (continuation.isActive) {
+                    continuation.resume(
+                        UpdateResult.Error("网络请求失败: ${e.localizedMessage}")
+                    )
                 }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 val body = response.body?.string()
-                Handler(Looper.getMainLooper()).post {
-                    if (!response.isSuccessful || body == null) {
-                        onResult(null, "服务器返回错误: ${response.code}")
-                        return@post
+                if (!response.isSuccessful || body == null) {
+                    if (continuation.isActive) {
+                        continuation.resume(
+                            UpdateResult.Error("服务器返回错误: ${response.code}")
+                        )
                     }
+                    return
+                }
 
-                    val info = parseVersionJson(body)
-                    if (info == null) {
-                        onResult(null, "解析版本信息失败")
-                        return@post
+                val info = parseVersionJson(body)
+                if (info == null) {
+                    if (continuation.isActive) {
+                        continuation.resume(UpdateResult.Error("解析版本信息失败"))
                     }
+                    return
+                }
 
-                    val localVersion = getLocalVersionName(context)
+                val localVersion = getLocalVersionName(context)
+                if (continuation.isActive) {
                     if (compareVersions(localVersion, info.versionName) < 0) {
-                        onResult(info, null)   // 有新版本
+                        continuation.resume(UpdateResult.NewVersion(info))
                     } else {
-                        onResult(null, null)   // 已是最新
+                        continuation.resume(UpdateResult.Latest)
                     }
                 }
             }
@@ -250,4 +294,107 @@ object UpdateChecker {
             false
         }
     }
+
+    // ==================== APK 下载与安装 ====================
+
+    /**
+     * 启动 APK 下载（通过 DownloadManager）。
+     *
+     * @return 注册的 BroadcastReceiver（调用方需在 onDestroy 中注销）
+     */
+    fun startDownload(
+        context: Context,
+        url: String,
+        tag: String,
+        sha256: String,
+        downloadIdHolder: (Long) -> Unit
+    ): BroadcastReceiver {
+        val fileName = "UFITOOLS-Widget-$tag.apk"
+        val request = DownloadManager.Request(Uri.parse(url))
+            .setTitle("UFITOOLS-Widget")
+            .setDescription("正在下载 $tag 版本...")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+            .setAllowedOverMetered(true)
+
+        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val downloadId = dm.enqueue(request)
+        downloadIdHolder(downloadId)
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context, intent: Intent) {
+                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
+                if (id == downloadId) {
+                    installApk(context, fileName, sha256)
+                    try { context.unregisterReceiver(this) } catch (_: Exception) { }
+                }
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver,
+                IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+                Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+        }
+        return receiver
+    }
+
+    /**
+     * 安装已下载的 APK 文件（含 SHA256 校验）。
+     */
+    fun installApk(context: Context, fileName: String, sha256: String) {
+        val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName)
+        if (!file.exists()) {
+            Toast.makeText(context, "下载文件不存在", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (sha256.isNotBlank()) {
+            if (!verifySha256(file, sha256)) {
+                file.delete()
+                Toast.makeText(context, "文件校验失败，已删除损坏文件\n请重新下载", Toast.LENGTH_LONG).show()
+                return
+            }
+        }
+        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        } else {
+            Uri.fromFile(file)
+        }
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(intent)
+    }
+
+    /** 获取应用镜像化后的下载链接（含权限检查提示） */
+    fun prepareDownload(
+        activity: AppCompatActivity,
+        url: String,
+        tag: String,
+        sha256: String,
+        downloadIdHolder: (Long) -> Unit
+    ): BroadcastReceiver? {
+        val finalUrl = applyMirrorToUrl(activity, url)
+        if (finalUrl.isBlank()) {
+            Toast.makeText(activity, "没有可下载的 APK", Toast.LENGTH_SHORT).show()
+            return null
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(activity, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    activity, arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), PERMISSION_REQUEST_CODE
+                )
+                return null
+            }
+        }
+        return startDownload(activity, finalUrl, tag, sha256, downloadIdHolder)
+    }
+
+    /** 下载权限请求码，供 Activity 的 onRequestPermissionsResult 判断 */
+    const val PERMISSION_REQUEST_CODE = 1001
 }

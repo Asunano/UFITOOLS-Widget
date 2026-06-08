@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.*
 import android.util.AttributeSet
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 
 /**
@@ -20,6 +21,26 @@ class SimpleCropView @JvmOverloads constructor(
 
     private var lastX = 0f
     private var lastY = 0f
+
+    // 缩放手势识别
+    private val scaleDetector: ScaleGestureDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                val sf = detector.scaleFactor
+                val currentScale = getCurrentScale()
+                val newScale = currentScale * sf
+                val minAllowed = baseScale
+                val maxAllowed = baseScale * maxScaleMultiplier
+                if (newScale < minAllowed || newScale > maxAllowed) return false
+
+                drawMatrix.postScale(sf, sf, detector.focusX, detector.focusY)
+                checkBounds()
+                invalidate()
+                return true
+            }
+        })
+    /** 初始缩放基底（刚好填满裁切框的缩放值） */
+    private var baseScale = 1f
+    private val maxScaleMultiplier = 5f
 
     /** 目标裁切宽高比 = targetW / targetH */
     private var targetAspectRatio = 1f
@@ -58,6 +79,12 @@ class SimpleCropView @JvmOverloads constructor(
         }
     }
 
+    private fun getCurrentScale(): Float {
+        val values = FloatArray(9)
+        drawMatrix.getValues(values)
+        return values[Matrix.MSCALE_X]
+    }
+
     /** 计算裁切框：在视图内居中，保持目标宽高比，尽量填满 */
     private fun calcCropFrame() {
         val vw = width.toFloat()
@@ -87,20 +114,27 @@ class SimpleCropView @JvmOverloads constructor(
         val imgH = bmp.height.toFloat()
 
         // 缩放图片使其至少填满裁切框（不留空白）
-        val scale = Math.max(cropFrame.width() / imgW, cropFrame.height() / imgH)
-        drawMatrix.setScale(scale, scale)
+        baseScale = Math.max(cropFrame.width() / imgW, cropFrame.height() / imgH)
+        drawMatrix.setScale(baseScale, baseScale)
 
         // 居中到裁切框
-        val dx = cropFrame.centerX() - imgW * scale / 2f
-        val dy = cropFrame.centerY() - imgH * scale / 2f
+        val dx = cropFrame.centerX() - imgW * baseScale / 2f
+        val dy = cropFrame.centerY() - imgH * baseScale / 2f
         drawMatrix.postTranslate(dx, dy)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.action) {
+        scaleDetector.onTouchEvent(event)
+
+        if (scaleDetector.isInProgress) {
+            return true
+        }
+
+        when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 lastX = event.x
                 lastY = event.y
+                return true
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.x - lastX
@@ -110,6 +144,14 @@ class SimpleCropView @JvmOverloads constructor(
                 lastX = event.x
                 lastY = event.y
                 invalidate()
+                return true
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                // 双指缩放结束，更新为剩余手指的位置
+                val idx = if (event.actionIndex == 0) 1 else 0
+                lastX = event.getX(idx)
+                lastY = event.getY(idx)
+                return true
             }
         }
         return true

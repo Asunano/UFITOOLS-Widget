@@ -1,17 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <set xmlns:android="http://schemas.android.com/apk/res/android"
-    android:duration="220"
+    android:duration="350"
     android:interpolator="@android:anim/accelerate_interpolator"
     android:shareInterpolator="true">
-    <!-- 缩小消失 -->
-    <scale
-        android:fromXScale="1.0"
-        android:toXScale="0.90"
-        android:fromYScale="1.0"
-        android:toYScale="0.90"
-        android:pivotX="50%"
-        android:pivotY="50%" />
-    <!-- 淡出 -->
+    <!-- 纯淡出（程序动画接管后此 XML 被抑制，仅作为 fallback） -->
     <alpha
         android:fromAlpha="1.0"
         android:toAlpha="0.0" />

@@ -4,9 +4,11 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
@@ -51,56 +53,96 @@ object WifiCrawl {
             
             DebugLogger.logApi(TAG, "Starting data refresh from $baseUrl")
 
-            // 全量并行获取（6 路 async）：baseDeviceInfo 不再阻塞信号/设备/AT 等请求
-            // 总耗时从 max(base)+max(others) 降为 max(all)
-            var baseInfo: org.json.JSONObject? = null
+            // 分批获取：先单独获取 baseDeviceInfo（含 CPU），避免并发请求拉高设备 CPU 导致读数虚高
+            var baseDeviceInfo: org.json.JSONObject? = null
             var signalInfo: org.json.JSONObject? = null
             var goformDeviceInfo: org.json.JSONObject? = null
             var versionInfo: org.json.JSONObject? = null
             var tokenInfo: org.json.JSONObject? = null
             var atNetworkInfo: AtSignalInfo? = null
+            // 在并发请求前预先解析的 CPU 值
+            var preCpuUsage = -1.0
+            var preCpuUsageMap = emptyMap<String, String>()
 
             coroutineScope {
-                val baseDeferred = async {
-                    fetchApi(SPUtil.getDeviceInfoPath(context), t, auth, context)
+                // 冷却期：请求前等待 1-2s，让设备 CPU 从上轮请求中恢复
+                delay(1000L + (Math.random() * 1000).toLong())
+
+                // Step 1: 单独获取 baseDeviceInfo，避免其他请求干扰 CPU 读数
+                val baseResp = fetchApi(SPUtil.getDeviceInfoPath(context), t, auth, context)
+                if (baseResp == null) {
+                    DebugLogger.logApiErr(TAG, "Failed to fetch baseDeviceInfo: $lastError")
+                    return@coroutineScope
                 }
+                baseDeviceInfo = baseResp
+                // 在并发请求前立即解析 CPU 占用
+                preCpuUsage = baseResp.optDouble("cpu_usage", -1.0)
+                val map = mutableMapOf<String, String>()
+                baseResp.optJSONObject("cpuUsageInfo")?.let { usageObj ->
+                    usageObj.keys().forEach { key ->
+                        map[key] = usageObj.optString(key, "--")
+                    }
+                }
+                preCpuUsageMap = map
+
+                // 冷却期：等待 1-2s 再发起后续请求，确保 CPU 读数已被捕获
+                delay(1000L + (Math.random() * 1000).toLong())
+
+                // Step 2: 其余请求并发执行
                 val signalDeferred = async {
                     fetchApi("${SPUtil.getGoformCommandPath(context)}?is_all=true&cmd=lte_rsrp,Z5g_rsrp,network_type,rssi", t, auth, context)
                 }
                 val goformDeviceDeferred = async {
                     fetchApi("${SPUtil.getGoformCommandPath(context)}?is_all=true&cmd=wan_ipaddr,ipv6_wan_ipaddr,pdp_type,imei,imsi,iccid,hardware_version,web_version,mac_address,pin_status", t, auth, context)
                 }
-                val versionDeferred = async { fetchApiNoAuth(SPUtil.getVersionInfoPath(context), t, context) }
-                val tokenDeferred = async { fetchApiNoAuth(SPUtil.getNeedTokenPath(context), t, context) }
+                val versionDeferred = async {
+                    if (SPUtil.isVersionInfoCacheFresh(context)) {
+                        val cached = SPUtil.getCachedVersionInfoJson(context)
+                        if (cached.isNotEmpty()) {
+                            DebugLogger.logApi(TAG, "version_info: using cache")
+                            return@async JSONObject(cached)
+                        }
+                    }
+                    fetchApiNoAuth(SPUtil.getVersionInfoPath(context), t, context)?.also {
+                        SPUtil.setCachedVersionInfoJson(context, it.toString())
+                        SPUtil.setVersionInfoCacheTime(context, System.currentTimeMillis())
+                    }
+                }
+                val tokenDeferred = async {
+                    if (SPUtil.isNeedTokenCacheFresh(context)) {
+                        val cached = SPUtil.getCachedNeedTokenJson(context)
+                        if (cached.isNotEmpty()) {
+                            DebugLogger.logApi(TAG, "need_token: using cache")
+                            return@async JSONObject(cached)
+                        }
+                    }
+                    fetchApiNoAuth(SPUtil.getNeedTokenPath(context), t, context)?.also {
+                        SPUtil.setCachedNeedTokenJson(context, it.toString())
+                        SPUtil.setNeedTokenCacheTime(context, System.currentTimeMillis())
+                    }
+                }
                 val atNetworkDeferred = async { fetchAtNetworkInfo(t, auth, context) }
 
-                baseInfo = baseDeferred.await()
-                if (baseInfo == null) {
-                    DebugLogger.logApiErr(TAG, "Failed to fetch baseDeviceInfo: $lastError")
-                    return@coroutineScope
-                }
                 signalInfo = signalDeferred.await()
                 goformDeviceInfo = goformDeviceDeferred.await()
                 versionInfo = versionDeferred.await()
                 tokenInfo = tokenDeferred.await()
                 atNetworkInfo = atNetworkDeferred.await()
             }
-            // baseInfo 为 null 时 coroutineScope 提前返回，走到这里 baseInfo 必定非 null
-            if (baseInfo == null) {
-                DebugLogger.flushToFile() // 刷新本轮批次日志
+            if (baseDeviceInfo == null) {
+                DebugLogger.flushToFile()
                 return@withContext null
             }
-            val baseDeviceInfo = baseInfo // 本地非 null 引用，方便后续智能转换
 
-            // Goform 诊断日志
             DebugLogger.logApi(TAG, "Goform signal check: success=${signalInfo != null}")
             DebugLogger.logApi(TAG, "Goform device info: success=${goformDeviceInfo != null}")
             DebugLogger.logApi(TAG, "Parallel tasks finished. atNetworkInfo success=${atNetworkInfo != null}")
 
-            // --- 精准解析 ---
+            // --- 精准解析（CPU 已在并发前预解析） ---
             val model = baseDeviceInfo.optString("model", "F50")
             val batteryPercent = baseDeviceInfo.optInt("battery", -1)
-            val cpuUsage = baseDeviceInfo.optDouble("cpu_usage", 0.0)
+            val cpuUsage = preCpuUsage
+            val cpuUsageMap = preCpuUsageMap
             val memUsage = baseDeviceInfo.optDouble("mem_usage", 0.0)
             
             // === Goform 设备身份+网络地址 ===
@@ -182,13 +224,9 @@ object WifiCrawl {
                 }
             }
 
-            // === cpuUsageInfo 各核心使用率 ===
-            val cpuUsageMap = mutableMapOf<String, String>()
-            baseDeviceInfo.optJSONObject("cpuUsageInfo")?.let { usageObj ->
-                usageObj.keys().forEach { key ->
-                    cpuUsageMap[key] = usageObj.optString(key, "--")
-                }
-            }
+            // CPU 总体占用（preCpuUsage 已在并发请求前采集，避免虚高）
+            val finalCpuUsage = if (preCpuUsage in 0.0..100.0) preCpuUsage
+                else preCpuUsageMap["cpu"]?.toDoubleOrNull() ?: 0.0
 
             // === memInfo 详细内存信息 ===
             var memTotalKb = 0L
@@ -231,7 +269,7 @@ object WifiCrawl {
                 temp = formatTemp(tempRaw),
                 battery = if (batteryPercent >= 0) "${batteryPercent}%" else "--",
                 batteryPercent = if (batteryPercent >= 0) batteryPercent else -1,
-                cpu = String.format(Locale.getDefault(), "%.1f%%", cpuUsage),
+                cpu = String.format(Locale.getDefault(), "%.1f%%", finalCpuUsage),
                 mem = String.format(Locale.getDefault(), "%.1f%%", memUsage),
                 netType = netType,
                 appVer = appVer,
@@ -585,16 +623,33 @@ object WifiCrawl {
                 val copsDef = async { try { atQuery(copsCmd) } catch (_: Exception) { "" } }
                 val signalDetailDef = async { try { atQuery(if (isSpreadtrum) c5gregCmd else qengCmd) } catch (_: Exception) { "" } }
                 val cesqDef = async { try { atQuery(cesqCmd) } catch (_: Exception) { "" } }
-                val cgsnDef = async { try { atQuery(cgsnCmd) } catch (_: Exception) { "" } }
                 val cgeqosDef = async { try { atQuery(cgeqosCmd) } catch (_: Exception) { "" } }
-                val cgmmDef = async { try { atQuery(cgmmCmd) } catch (_: Exception) { "" } }
-                val cgmrDef = async { try { atQuery(cgmrCmd) } catch (_: Exception) { "" } }
                 val cregDef = async { try { atQuery(cregCmd) } catch (_: Exception) { "" } }
                 val cgcontrdpDef = async { try { atQuery(cgcontrdpCmd) } catch (_: Exception) { "" } }
                 val cpinDef = async { try { atQuery(cpinCmd) } catch (_: Exception) { "" } }
                 val cfunDef = async { try { atQuery(cfunCmd) } catch (_: Exception) { "" } }
                 val cpasDef = async { try { atQuery(cpasCmd) } catch (_: Exception) { "" } }
                 val cgattDef = async { try { atQuery(cgattCmd) } catch (_: Exception) { "" } }
+
+                // AT 静态字段缓存：CGMM/CGMR/CGSN 几乎不变，缓存命中时跳过 3 路网络请求
+                val atStaticFresh = SPUtil.isAtStaticCacheFresh(context)
+                val cgmmDef: Deferred<String>
+                val cgmrDef: Deferred<String>
+                val cgsnDef: Deferred<String>
+                if (atStaticFresh) {
+                    val cachedCgmm = SPUtil.getCachedModuleModel(context)
+                    val cachedCgmr = SPUtil.getCachedFirmwareDetail(context)
+                    val cachedCgsn = SPUtil.getCachedImeiFromAt(context)
+                    cgmmDef = async { cachedCgmm }
+                    cgmrDef = async { cachedCgmr }
+                    cgsnDef = async { cachedCgsn }
+                    Log.d(TAG, "AT static cache: hit, skipping CGMM/CGMR/CGSN requests")
+                } else {
+                    cgmmDef = async { try { atQuery(cgmmCmd) } catch (_: Exception) { "" } }
+                    cgmrDef = async { try { atQuery(cgmrCmd) } catch (_: Exception) { "" } }
+                    cgsnDef = async { try { atQuery(cgsnCmd) } catch (_: Exception) { "" } }
+                }
+
                 awaitAll(copsDef, signalDetailDef, cesqDef, cgsnDef, cgeqosDef,
                     cgmmDef, cgmrDef, cregDef, cgcontrdpDef, cpinDef,
                     cfunDef, cpasDef, cgattDef)
@@ -613,6 +668,15 @@ object WifiCrawl {
             val cfunStr = results[10]
             val cpasStr = results[11]
             val cgattStr = results[12]
+
+            // ── 更新 AT 静态字段缓存（网络获取到的非空值写入 SP，供下轮缓存命中使用） ──
+            if (!SPUtil.isAtStaticCacheFresh(context)) {
+                var atStaticUpdated = false
+                if (cgmmStr.isNotEmpty()) { SPUtil.setCachedModuleModel(context, cgmmStr); atStaticUpdated = true }
+                if (cgmrStr.isNotEmpty()) { SPUtil.setCachedFirmwareDetail(context, cgmrStr); atStaticUpdated = true }
+                if (cgsnStr.isNotEmpty()) { SPUtil.setCachedImeiFromAt(context, cgsnStr); atStaticUpdated = true }
+                if (atStaticUpdated) SPUtil.setAtStaticCacheTime(context, System.currentTimeMillis())
+            }
 
             val qengStr = if (!isSpreadtrum) signalDetailStr else ""
             val c5gregStr = if (isSpreadtrum) signalDetailStr else ""

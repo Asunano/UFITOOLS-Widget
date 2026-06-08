@@ -16,9 +16,9 @@ object SPUtil {
     }
 
     /**
-     * 保存 WiFi 数据到 SharedPreferences（线程安全，同步写入）。
-     * 使用 @Synchronized + commit()，避免 Worker 与前台并发调用时
-     * apply() 异步写入导致的数据丢失。
+     * 保存 WiFi 数据到 SharedPreferences（线程安全，异步写入）。
+     * 使用 @Synchronized + apply()：内存立即更新（后续读取可见），磁盘写入异步。
+     * @Synchronized 避免 Worker 与前台并发调用时的写入交错。
      */
     @Synchronized
     fun saveData(ctx: Context, data: WifiEntity) {
@@ -50,7 +50,7 @@ object SPUtil {
             .putString("firmware_ver", data.firmwareVer)
             .putBoolean("need_token", data.needToken)
             .putString("update_time", time)
-            .commit()
+            .apply()
     }
 
     // 认证与配置
@@ -87,6 +87,35 @@ object SPUtil {
     fun getShowTime(ctx: Context) = getSp(ctx).getBoolean("show_time", true)
     fun getShowBattery(ctx: Context) = getSp(ctx).getBoolean("show_battery", true)
     fun getShowMem(ctx: Context) = getSp(ctx).getBoolean("show_mem", true)
+
+    // ==================== 各尺寸独立显隐设置 ====================
+    // 2×1 迷你版（默认：信号+电池+网络类型 开启）
+    fun getShowSignal2x1(ctx: Context) = getSp(ctx).getBoolean("show_signal_2x1", true)
+    fun setShowSignal2x1(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_signal_2x1", show).apply()
+    fun getShowBattery2x1(ctx: Context) = getSp(ctx).getBoolean("show_battery_2x1", true)
+    fun setShowBattery2x1(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_battery_2x1", show).apply()
+    fun getShowNetwork2x1(ctx: Context) = getSp(ctx).getBoolean("show_network_2x1", true)
+    fun setShowNetwork2x1(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_network_2x1", show).apply()
+
+    // 4×1 条形版（默认：全部开启）
+    fun getShowModel4x1(ctx: Context) = getSp(ctx).getBoolean("show_model_4x1", true)
+    fun setShowModel4x1(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_model_4x1", show).apply()
+    fun getShowSignal4x1(ctx: Context) = getSp(ctx).getBoolean("show_signal_4x1", true)
+    fun setShowSignal4x1(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_signal_4x1", show).apply()
+    fun getShowBattery4x1(ctx: Context) = getSp(ctx).getBoolean("show_battery_4x1", true)
+    fun setShowBattery4x1(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_battery_4x1", show).apply()
+    fun getShowTemp4x1(ctx: Context) = getSp(ctx).getBoolean("show_temp_4x1", true)
+    fun setShowTemp4x1(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_temp_4x1", show).apply()
+    fun getShowTime4x1(ctx: Context) = getSp(ctx).getBoolean("show_time_4x1", true)
+    fun setShowTime4x1(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_time_4x1", show).apply()
+
+    // ==================== 各尺寸独立字体大小 ====================
+    // 2×1 迷你版字体大小（sp，默认 9）
+    fun getFontSize2x1(ctx: Context) = getSp(ctx).getInt("font_size_2x1", 9)
+    fun setFontSize2x1(ctx: Context, sp: Int) = getSp(ctx).edit().putInt("font_size_2x1", sp).apply()
+    // 4×1 条形版字体大小（sp，默认 9）
+    fun getFontSize4x1(ctx: Context) = getSp(ctx).getInt("font_size_4x1", 9)
+    fun setFontSize4x1(ctx: Context, sp: Int) = getSp(ctx).edit().putInt("font_size_4x1", sp).apply()
 
     fun setShowFlow(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_flow", show).apply()
     fun setShowSignal(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_signal", show).apply()
@@ -202,13 +231,14 @@ object SPUtil {
             ?: DEFAULT_DEVICE_ADDRESS
     }
 
-    /** 保存设备地址（同时重置协议探测结果，下次自动重探） */
+    /** 保存设备地址（同时重置协议探测结果与响应缓存，下次自动重探） */
     fun setDeviceAddress(ctx: Context, address: String) {
         val v = address.trim()
         getSp(ctx).edit()
             .putString("device_address", v.ifEmpty { DEFAULT_DEVICE_ADDRESS })
             .putString("device_protocol", "auto")  // 地址变了，旧探测结果作废
             .apply()
+        invalidateResponseCaches(ctx)  // 设备换了，旧响应缓存全部作废
     }
 
     /** 从地址中提取主机部分（IP 或域名） */
@@ -508,5 +538,89 @@ object SPUtil {
      *  适配原生/国际版桌面。国产桌面通常已自带圆角，无需开启。 */
     fun getWidgetClipToOutline(ctx: Context) = getSp(ctx).getBoolean("widget_clip_to_outline", false)
     fun setWidgetClipToOutline(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("widget_clip_to_outline", enabled).apply()
+
+    // ==================== Android 12+ 动态配色（Material You）====================
+    /** 是否启用小组件动态配色（Material You，仅 Android 12+ 生效）。
+     *  开启后小组件背景/文字颜色自动跟随系统壁纸色调，无需手动选择配色。
+     *  默认 false：用户需在实验功能页手动开启。 */
+    fun getWidgetDynamicColor(ctx: Context) = getSp(ctx).getBoolean("widget_dynamic_color", false)
+    fun setWidgetDynamicColor(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("widget_dynamic_color", enabled).apply()
+
+    /** 动态配色对比度级别：0=柔和, 1=标准(默认), 2=强烈 */
+    fun getWidgetDynamicContrast(ctx: Context) = getSp(ctx).getInt("widget_dynamic_contrast", 1)
+    fun setWidgetDynamicContrast(ctx: Context, level: Int) = getSp(ctx).edit().putInt("widget_dynamic_contrast", level).apply()
+
+    /** 动态配色高级设置开关 */
+    fun getWidgetDynamicAdvanced(ctx: Context) = getSp(ctx).getBoolean("widget_dynamic_advanced", false)
+    fun setWidgetDynamicAdvanced(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("widget_dynamic_advanced", enabled).apply()
+    
+    /** 动态配色色源选择：0=Primary, 1=Secondary, 2=Tertiary, 3=Neutral, 4=NeutralVariant */
+    fun getWidgetDynamicColorSource(ctx: Context) = getSp(ctx).getInt("widget_dynamic_color_source", 0)
+    fun setWidgetDynamicColorSource(ctx: Context, source: Int) = getSp(ctx).edit().putInt("widget_dynamic_color_source", source).apply()
+    /** 高级：浅色背景亮度 (85-99, 默认 97) */
+    fun getDynAdvLightBg(ctx: Context) = getSp(ctx).getInt("dyn_adv_light_bg", 97)
+    fun setDynAdvLightBg(ctx: Context, v: Int) = getSp(ctx).edit().putInt("dyn_adv_light_bg", v).apply()
+    /** 高级：浅色文字亮度 (5-40, 默认 12) */
+    fun getDynAdvLightTxt(ctx: Context) = getSp(ctx).getInt("dyn_adv_light_txt", 12)
+    fun setDynAdvLightTxt(ctx: Context, v: Int) = getSp(ctx).edit().putInt("dyn_adv_light_txt", v).apply()
+    /** 高级：深色背景亮度 (3-20, 默认 8) */
+    fun getDynAdvDarkBg(ctx: Context) = getSp(ctx).getInt("dyn_adv_dark_bg", 8)
+    fun setDynAdvDarkBg(ctx: Context, v: Int) = getSp(ctx).edit().putInt("dyn_adv_dark_bg", v).apply()
+    /** 高级：深色文字亮度 (75-98, 默认 90) */
+    fun getDynAdvDarkTxt(ctx: Context) = getSp(ctx).getInt("dyn_adv_dark_txt", 90)
+    fun setDynAdvDarkTxt(ctx: Context, v: Int) = getSp(ctx).edit().putInt("dyn_adv_dark_txt", v).apply()
+    /** 高级：饱和度增强 (50-150, 默认 100 = 无增强) */
+    fun getDynAdvSatBoost(ctx: Context) = getSp(ctx).getInt("dyn_adv_sat_boost", 100)
+    fun setDynAdvSatBoost(ctx: Context, v: Int) = getSp(ctx).edit().putInt("dyn_adv_sat_boost", v).apply()
+
+    // ==================== 小组件兼容性设置 ====================
+    /** 是否隐藏小组件名称（桌面显示的名称替换为空格，实现视觉隐藏） */
+    fun getWidgetHideLabel(ctx: Context) = getSp(ctx).getBoolean("widget_hide_label", false)
+    fun setWidgetHideLabel(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("widget_hide_label", enabled).apply()
+
+    // ==================== 响应缓存策略 ====================
+    // 低频变化的 API 响应缓存到 SP，减少重复请求
+
+    /** 响应缓存默认 TTL：1 小时（毫秒） */
+    const val CACHE_TTL_HOUR_MS = 3_600_000L
+
+    // ── version_info 缓存 ──
+    fun getCachedVersionInfoJson(ctx: Context) = getSp(ctx).getString("cache_version_info_json", "") ?: ""
+    fun setCachedVersionInfoJson(ctx: Context, json: String) = getSp(ctx).edit().putString("cache_version_info_json", json).apply()
+    fun getVersionInfoCacheTime(ctx: Context) = getSp(ctx).getLong("cache_version_info_time", 0L)
+    fun setVersionInfoCacheTime(ctx: Context, time: Long) = getSp(ctx).edit().putLong("cache_version_info_time", time).apply()
+    fun isVersionInfoCacheFresh(ctx: Context) =
+        System.currentTimeMillis() - getVersionInfoCacheTime(ctx) < CACHE_TTL_HOUR_MS
+
+    // ── need_token 缓存 ──
+    fun getCachedNeedTokenJson(ctx: Context) = getSp(ctx).getString("cache_need_token_json", "") ?: ""
+    fun setCachedNeedTokenJson(ctx: Context, json: String) = getSp(ctx).edit().putString("cache_need_token_json", json).apply()
+    fun getNeedTokenCacheTime(ctx: Context) = getSp(ctx).getLong("cache_need_token_time", 0L)
+    fun setNeedTokenCacheTime(ctx: Context, time: Long) = getSp(ctx).edit().putLong("cache_need_token_time", time).apply()
+    fun isNeedTokenCacheFresh(ctx: Context) =
+        System.currentTimeMillis() - getNeedTokenCacheTime(ctx) < CACHE_TTL_HOUR_MS
+
+    // ── AT 静态字段缓存（CGMM 模块型号 / CGMR 固件版本 / CGSN IMEI）──
+    fun getCachedModuleModel(ctx: Context) = getSp(ctx).getString("cache_at_cgmm", "") ?: ""
+    fun setCachedModuleModel(ctx: Context, value: String) = getSp(ctx).edit().putString("cache_at_cgmm", value).apply()
+    fun getCachedFirmwareDetail(ctx: Context) = getSp(ctx).getString("cache_at_cgmr", "") ?: ""
+    fun setCachedFirmwareDetail(ctx: Context, value: String) = getSp(ctx).edit().putString("cache_at_cgmr", value).apply()
+    fun getCachedImeiFromAt(ctx: Context) = getSp(ctx).getString("cache_at_cgsn", "") ?: ""
+    fun setCachedImeiFromAt(ctx: Context, value: String) = getSp(ctx).edit().putString("cache_at_cgsn", value).apply()
+    fun getAtStaticCacheTime(ctx: Context) = getSp(ctx).getLong("cache_at_static_time", 0L)
+    fun setAtStaticCacheTime(ctx: Context, time: Long) = getSp(ctx).edit().putLong("cache_at_static_time", time).apply()
+    fun isAtStaticCacheFresh(ctx: Context) =
+        System.currentTimeMillis() - getAtStaticCacheTime(ctx) < CACHE_TTL_HOUR_MS
+
+    /** 清除所有响应缓存（设备地址变更、Token 变更时调用，强制下轮全量刷新） */
+    fun invalidateResponseCaches(ctx: Context) {
+        getSp(ctx).edit()
+            .putLong("cache_version_info_time", 0L)
+            .putLong("cache_need_token_time", 0L)
+            .putLong("cache_at_static_time", 0L)
+            .putString("device_platform", "")  // 平台探测也一并清除
+            .apply()
+        DebugLogger.i("SPUtil", "invalidateResponseCaches: all response caches cleared")
+    }
 
 }

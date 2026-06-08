@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#111111">
+    android:background="@drawable/bg_window_scrim_dark">
 
     <!-- 顶部栏 -->
     <FrameLayout
@@ -53,6 +53,7 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_done"
+            style="@style/Widget.Material3.Button"
             android:layout_width="match_parent"
             android:layout_height="52dp"
             android:layout_gravity="center"
@@ -60,7 +61,7 @@
             android:textColor="#FFFFFF"
             android:textSize="15sp"
             android:textStyle="bold"
-            app:backgroundTint="@color/accent"
+            app:backgroundTint="@color/transparent"
             app:cornerRadius="26dp" />
     </FrameLayout>
 

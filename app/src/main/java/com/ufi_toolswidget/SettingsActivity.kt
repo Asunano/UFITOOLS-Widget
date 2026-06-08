@@ -35,6 +35,11 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(Intent(this, WidgetSettingsActivity::class.java))
         }
 
+        // ===== 实验功能 → ExperimentalFeaturesActivity =====
+        findViewById<android.view.View>(R.id.card_experimental).setOnClickListener {
+            startActivity(Intent(this, ExperimentalFeaturesActivity::class.java))
+        }
+
         // ===== 关于 → AboutActivity =====
         findViewById<android.view.View>(R.id.card_about).setOnClickListener {
             startActivity(Intent(this, AboutActivity::class.java))

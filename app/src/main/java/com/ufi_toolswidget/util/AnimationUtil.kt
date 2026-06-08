@@ -26,7 +26,7 @@ import com.ufi_toolswidget.R
 object AnimationUtil {
 
     @Volatile
-    var pendingTransitionBitmap: Bitmap? = null
+    var pendingTransitionBitmap: java.lang.ref.WeakReference<Bitmap>? = null
     
     @Volatile
     var transitionInitiator: String? = null
@@ -117,7 +117,7 @@ object AnimationUtil {
             addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
             setDimAmount(0f)
             ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 350
+                duration = 480
                 addUpdateListener { anim ->
                     val ratio = anim.animatedValue as Float
                     attributes = attributes?.apply {
@@ -133,54 +133,70 @@ object AnimationUtil {
     /**
      * 为 Dialog 执行背景模糊退场步进动画 (Android 12+)，
      * 同时通过动画缩放和淡出 Dialog 内容，最后调用 onComplete。
+     * Android 12 以下使用视图渐退动画，保证全版本平滑退出。
      */
     fun applyDialogBlurOut(dialog: Dialog, onComplete: () -> Unit) {
-        val window = dialog.window
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || window == null) {
-            onComplete()
-            return
-        }
+        val window = dialog.window ?: run { onComplete(); return }
+
+        // 立即抑制 XML 退出动画，避免与程序动画冲突导致闪烁
+        window.setWindowAnimations(0)
 
         val contentView = window.findViewById<View>(android.R.id.content)
-        val attrs = window.attributes
-        val startBlur = attrs.blurBehindRadius
-        val startDim = window.attributes.dimAmount
 
-        // 统一动画：退场动画节奏优化
-        // 缩短时长至 260ms，解决关闭过慢的问题，节奏更加轻快
-        ValueAnimator.ofFloat(1f, 0f).apply {
-            duration = 260
-            interpolator = AccelerateInterpolator(1.8f)
-            addUpdateListener { anim ->
-                val ratio = anim.animatedValue as Float
-                window.attributes = window.attributes?.apply {
-                    blurBehindRadius = (startBlur * ratio).toInt()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val attrs = window.attributes
+            val startBlur = attrs.blurBehindRadius
+            val startDim = window.attributes.dimAmount
+
+            ValueAnimator.ofFloat(1f, 0f).apply {
+                duration = 350
+                interpolator = AccelerateInterpolator(1.8f)
+                addUpdateListener { anim ->
+                    val ratio = anim.animatedValue as Float
+                    window.attributes = window.attributes?.apply {
+                        blurBehindRadius = (startBlur * ratio).toInt()
+                    }
+                    window.setDimAmount(startDim * ratio)
+
+                    contentView?.alpha = ratio
+                    contentView?.scaleX = 0.88f + 0.12f * ratio
+                    contentView?.scaleY = 0.88f + 0.12f * ratio
                 }
-                window.setDimAmount(startDim * ratio)
-
-                contentView?.alpha = ratio
-                contentView?.scaleX = 0.96f + 0.04f * ratio
-                contentView?.scaleY = 0.96f + 0.04f * ratio
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        window.attributes = window.attributes?.apply {
+                            flags = flags and WindowManager.LayoutParams.FLAG_BLUR_BEHIND.inv()
+                            blurBehindRadius = 0
+                            dimAmount = 0f
+                        }
+                        onComplete()
+                    }
+                })
+                start()
             }
-            addListener(object : AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: Animator) {
-                    window.setWindowAnimations(0)
-                    onComplete()
-                }
-            })
-            start()
+        } else {
+            // 低版本：缩放缩小 + 淡出，抑制 XML 后统一走程序动画
+            contentView?.animate()
+                ?.alpha(0f)
+                ?.scaleX(0.88f)
+                ?.scaleY(0.88f)
+                ?.setDuration(280)
+                ?.setInterpolator(AccelerateInterpolator(1.5f))
+                ?.withEndAction(onComplete)
+                ?.start()
+                ?: onComplete()
         }
     }
 
     // ========== 传统 Crossfade (供 MainActivity 等通配使用) ==========
 
     fun applyCrossfadeExitForRecreate(activity: Activity, onExit: () -> Unit) {
-        pendingTransitionBitmap = captureActivity(activity)
+        pendingTransitionBitmap = captureActivity(activity)?.let { java.lang.ref.WeakReference(it) }
         onExit()
     }
 
     fun applyCrossfadeEnterFromRecreate(activity: Activity, duration: Long = 600) {
-        val bitmap = pendingTransitionBitmap ?: return
+        val bitmap = pendingTransitionBitmap?.get() ?: return
         pendingTransitionBitmap = null
         val rootRoot = activity.window.decorView as? ViewGroup
         if (rootRoot == null) {
@@ -210,7 +226,7 @@ object AnimationUtil {
     // ========== 主题切换专用：中心扩散圆形揭露 ==========
 
     fun applyCircleRevealExit(activity: Activity, onExit: () -> Unit) {
-        pendingTransitionBitmap = captureActivity(activity)
+        pendingTransitionBitmap = captureActivity(activity)?.let { java.lang.ref.WeakReference(it) }
         transitionInitiator = activity::class.java.name
         onExit()
     }
@@ -223,7 +239,7 @@ object AnimationUtil {
      */
     fun applyCircleRevealEnter(activity: Activity, duration: Long = 800) {
         if (transitionInitiator != activity::class.java.name) return
-        val oldBitmap = pendingTransitionBitmap ?: return
+        val oldBitmap = pendingTransitionBitmap?.get() ?: return
         pendingTransitionBitmap = null
         transitionInitiator = null
 

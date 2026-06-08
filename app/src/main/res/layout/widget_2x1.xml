@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:elevation="6dp"
+    android:outlineProvider="background"
+    android:background="@drawable/bg_widget_mask_transparent">
+
+    <!-- 背景图层 -->
+    <ImageView
+        android:id="@+id/widget_bg_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/bg_widget_mask" />
+
+    <!-- 描边层 -->
+    <ImageView
+        android:id="@+id/widget_bg_stroke"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/bg_widget_stroke" />
+
+    <!-- 正常数据内容区：单行紧凑布局 -->
+    <LinearLayout
+        android:id="@+id/widget_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp">
+
+        <ImageView
+            android:id="@+id/iv_signal_bars"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:src="@drawable/ic_signal_0"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/iv_network"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_marginStart="2dp"
+            android:src="@drawable/ic_network_5g"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/iv_battery"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_marginStart="2dp"
+            android:src="@drawable/ic_battery_0"
+            android:scaleType="fitCenter" />
+
+        <TextView
+            android:id="@+id/tv_battery"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="2dp"
+            android:text="--"
+            android:textColor="#777777"
+            android:textSize="9sp" />
+
+        <TextView
+            android:id="@+id/tv_charging"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="2dp"
+            android:text=""
+            android:textColor="#F59E0B"
+            android:textSize="9sp" />
+
+    </LinearLayout>
+
+    <!-- 错误覆盖层：仅图标，无文字 -->
+    <LinearLayout
+        android:id="@+id/widget_error_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:clickable="false">
+
+        <ImageView
+            android:id="@+id/widget_error_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_router_off"
+            android:scaleType="fitCenter" />
+
+    </LinearLayout>
+
+</FrameLayout>
