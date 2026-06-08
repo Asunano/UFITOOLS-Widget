@@ -91,15 +91,20 @@ class MainActivity : AppCompatActivity() {
             // 只有没有错误弹窗显示时才刷新数据
             if (viewModel.activeDialogType.value != "error") {
                 DebugLogger.logLife(TAG, "onResume: no error dialog, calling refreshData")
-                // 从 ViewModel 恢复缓存数据到 UI（旋转恢复场景）
-                viewModel.getWifiEntity()?.let { cachedData ->
-                    DebugLogger.logUi(TAG, "onResume: applying cached entity from ViewModel")
-                    hideLoadingView(false)
-                    if (!hasShownFirstLoadAnimation) {
-                        hasShownFirstLoadAnimation = true
-                        setupAnimations()  // 首次加载 / 屏幕旋转后播放入场动画
+                // 冷启动时保持加载动画可见，等待首次数据到达；
+                // 旋转恢复等场景则直接显示缓存数据
+                if (viewModel.hasCompletedFirstRefresh) {
+                    viewModel.getWifiEntity()?.let { cachedData ->
+                        DebugLogger.logUi(TAG, "onResume: applying cached entity from ViewModel")
+                        hideLoadingView(false)
+                        if (!hasShownFirstLoadAnimation) {
+                            hasShownFirstLoadAnimation = true
+                            setupAnimations()  // 首次加载 / 屏幕旋转后播放入场动画
+                        }
+                        applyWifiEntityToUi(cachedData)  // 后填充数据，内容在动画中淡入
                     }
-                    applyWifiEntityToUi(cachedData)  // 后填充数据，内容在动画中淡入
+                } else {
+                    DebugLogger.logUi(TAG, "onResume: cold start, keeping loading visible")
                 }
                 refreshData()
                 startAutoRefreshTimer()
@@ -141,7 +146,9 @@ class MainActivity : AppCompatActivity() {
             ThemeUtil.applyTheme(this, ThemeUtil.PageType.MAIN)
             // 3. 注册主题变更监听（后台也能实时更新背景）
             themeChangeReceiver = ThemeChangeNotifier.register(this) {
-                ThemeUtil.applyTheme(this@MainActivity, ThemeUtil.PageType.MAIN)
+                AnimationUtil.applyCircleRevealPulse(this@MainActivity) {
+                    ThemeUtil.applyThemeSync(this@MainActivity, ThemeUtil.PageType.MAIN)
+                }
             }
             // 3. 入场动画（安全包装）
             try {
@@ -216,7 +223,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             null
         }
-        tvSubtitle.text = "软件版本: v${version ?: "--"}"
+        tvSubtitle.text = "Version: v${version ?: "--"}"
     }
 
     private fun setupAnimations() {
@@ -332,22 +339,101 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_check_update).apply {
             findViewById<TextView>(R.id.common_btn_text).text = "检查更新"
             setOnClickListener {
-                Toast.makeText(this@MainActivity, "正在检查更新...", Toast.LENGTH_SHORT).show()
+                ToastUtil.showDropToast(this@MainActivity, ToastStyle.INFO, "正在检查更新...")
                 lifecycleScope.launch {
                     when (val result = UpdateChecker.checkUpdate(this@MainActivity)) {
                         is UpdateChecker.UpdateResult.NewVersion -> {
                             showUpdateDialog(result.info)
                         }
                         is UpdateChecker.UpdateResult.Latest -> {
-                            Toast.makeText(this@MainActivity, "当前已是最新版本 ✓", Toast.LENGTH_SHORT).show()
+                            ToastUtil.showDropToast(this@MainActivity, ToastStyle.SUCCESS, "当前已是最新版本 ✓")
                         }
                         is UpdateChecker.UpdateResult.Error -> {
-                            Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
+                            ToastUtil.showDropToast(this@MainActivity, ToastStyle.WARNING, result.message)
                         }
                     }
                 }
             }
             setOnTouchListener(ScaleTouchListener())
+        }
+
+        // 启动载入动画（文字点动画 + 容器脉冲）
+        startLoadingDotAnimation()
+        startLoadingPulse()
+    }
+
+    /** "请稍候" 文字点动画（. → .. → ... 循环） */
+    private fun startLoadingDotAnimation() {
+        lifecycleScope.launch {
+            val hintView = findViewById<TextView>(R.id.loading_hint)
+            val baseText = "请稍候"
+            val dots = arrayOf("", ".", "..", "...")
+            var index = 0
+            while (loadingView.visibility == View.VISIBLE) {
+                hintView?.text = baseText + dots[index]
+                index = (index + 1) % dots.size
+                delay(500)
+            }
+        }
+    }
+
+    /** 加载容器呼吸式脉冲缩放 */
+    private fun startLoadingPulse() {
+        if (loadingView.visibility != View.VISIBLE || isFinishing || isDestroyed) return
+        val container = findViewById<View>(R.id.loading_container) ?: return
+        container.post {
+            if (loadingView.visibility != View.VISIBLE) return@post
+            container.pivotX = container.width / 2f
+            container.pivotY = container.height / 2f
+            container.animate()
+                .scaleX(1.03f).scaleY(1.03f)
+                .setDuration(1000)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f))
+                .withEndAction {
+                    container.animate()
+                        .scaleX(1f).scaleY(1f)
+                        .setDuration(1000)
+                        .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f))
+                        .withEndAction {
+                            startLoadingPulse()
+                        }
+                        .start()
+                }
+                .start()
+        }
+    }
+
+    // ==================== 信号图标（同小组件实现） ====================
+
+    /** 根据 RSRP 信号值更新网络图标，同 WifiWidget.parseSignalLevel */
+    private fun updateSignalIcon(signal: String) {
+        val level = parseSignalLevel(signal)
+        val resId = when (level) {
+            0 -> R.drawable.ic_signal_0
+            1 -> R.drawable.ic_signal_1
+            2 -> R.drawable.ic_signal_2
+            3 -> R.drawable.ic_signal_3
+            4 -> R.drawable.ic_signal_4
+            5 -> R.drawable.ic_signal_5
+            else -> R.drawable.ic_signal_0
+        }
+        findViewById<ImageView>(R.id.main_iv_antenna)?.setImageResource(resId)
+    }
+
+    /** 从 RSRP dBm 信号值推算 0-5 格信号强度 */
+    private fun parseSignalLevel(signal: String): Int {
+        return try {
+            val rssi = signal.replace("dBm", "").trim().toIntOrNull() ?: 0
+            if (rssi >= 0) return 0
+            when {
+                rssi > -85  -> 5
+                rssi >= -95 -> 4
+                rssi >= -105 -> 3
+                rssi >= -115 -> 2
+                else         -> 1
+            }
+        } catch (_: Exception) {
+            0
         }
     }
 
@@ -367,12 +453,22 @@ class MainActivity : AppCompatActivity() {
                 refreshActiveDialog(data)
             },
             onError = { reason ->
+                // 冷启动首次刷新失败时，隐藏加载动画并回退到已有缓存数据
+                if (loadingView.visibility == View.VISIBLE) {
+                    hideLoadingView(true)
+                    viewModel.getWifiEntity()?.let { cachedData ->
+                        if (!hasShownFirstLoadAnimation) {
+                            hasShownFirstLoadAnimation = true
+                            setupAnimations()
+                        }
+                        applyWifiEntityToUi(cachedData)
+                    }
+                }
                 showErrorDialog()
             },
-            onToast = { msg, isLong ->
+            onToast = { msg, _ ->
                 if (!isFinishing && !isDestroyed) {
-                    Toast.makeText(this@MainActivity, msg,
-                        if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT).show()
+                    ToastUtil.showDropToast(this@MainActivity, ToastStyle.INFO, msg)
                 }
             }
         )
@@ -390,7 +486,7 @@ class MainActivity : AppCompatActivity() {
         if (tvModel.text != deviceName) tvModel.text = deviceName
         try {
             val appVersion = packageManager.getPackageInfo(packageName, 0).versionName
-            val subText = "软件 v$appVersion"
+            val subText = "Version v$appVersion"
             if (tvSubtitle.text != subText) tvSubtitle.text = subText
         } catch (_: Exception) {
             // getPackageInfo 在极少数情况下失败，非关键 UI 错误
@@ -412,6 +508,8 @@ class MainActivity : AppCompatActivity() {
         }
         DebugLogger.logUi(TAG, "Updating UI: net=$newNetText")
         AnimationUtil.smoothUpdateText(tvNetSignal, newNetText)
+        // 根据信号值更新网络图标（同小组件实现）
+        updateSignalIcon(data.signal)
         AnimationUtil.smoothUpdateText(tvTemp, MainDialogHelper.getHighestTemp(data))
         AnimationUtil.smoothUpdateText(tvCpu, data.cpu.ifEmpty { "--" })
         AnimationUtil.smoothUpdateText(tvMem, data.mem.ifEmpty { "--" })
@@ -452,11 +550,26 @@ class MainActivity : AppCompatActivity() {
         }
         AnimationUtil.smoothUpdateText(tvStorage, data.internalStorage.ifEmpty { "--" })
         AnimationUtil.smoothUpdateText(tvClientIp, data.clientIp.ifEmpty { "--" })
+
+        // ════ 通知提醒检测 ════
+        NotificationHelper.checkAndNotify(
+            context = this,
+            dailyFlowStr = data.dailyFlow,
+            monthlyFlowStr = data.flow,
+            tempStr = MainDialogHelper.getHighestTemp(data),
+            cpuStr = data.cpu,
+            memStr = data.mem,
+            batteryPercent = data.batteryPercent,
+            isDeviceOnline = !WifiWorker.isWorkerStopped(this),
+            activity = this
+        )
     }
 
     /** 隐藏加载界面，根据参数决定是否执行淡出动画 */
     private fun hideLoadingView(animate: Boolean) {
         if (loadingView.visibility != View.VISIBLE) return
+        // 立即停止加载容器脉冲动画
+        findViewById<View>(R.id.loading_container)?.animate()?.cancel()
         if (animate) {
             loadingView.animate()
                 .alpha(0f)
@@ -526,7 +639,7 @@ class MainActivity : AppCompatActivity() {
                         dlg.dismiss()
                         SPUtil.clearCrashInfo(this@MainActivity)
                         CrashHandler.clearCrashLog(this@MainActivity)
-                        Toast.makeText(this@MainActivity, "崩溃记录已清除", Toast.LENGTH_SHORT).show()
+                        ToastUtil.showDropToast(this@MainActivity, ToastStyle.SUCCESS, "崩溃记录已清除")
                     }
                 )
             } catch (e: Exception) {
@@ -1098,7 +1211,7 @@ class MainActivity : AppCompatActivity() {
     private fun downloadAndInstall(url: String, tag: String, sha256: String) {
         val receiver = UpdateChecker.prepareDownload(this, url, tag, sha256) { id ->
             downloadId = id
-            Toast.makeText(this, "开始下载...", Toast.LENGTH_SHORT).show()
+            ToastUtil.showDropToast(this, ToastStyle.INFO, "开始下载...")
         }
         if (receiver != null) {
             downloadReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
@@ -1113,13 +1226,15 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == UpdateChecker.PERMISSION_REQUEST_CODE && grantResults.isNotEmpty()
             && grantResults[0] == PackageManager.PERMISSION_GRANTED
         ) {
-            Toast.makeText(this, "请重新点击下载", Toast.LENGTH_SHORT).show()
+            ToastUtil.showDropToast(this, ToastStyle.WARNING, "请重新点击下载")
         }
     }
 
     override fun onDestroy() {
         ThemeChangeNotifier.unregister(this, themeChangeReceiver)
+        themeChangeReceiver = null
         downloadReceiver?.let { unregisterReceiver(it) }
+        downloadReceiver = null
         super.onDestroy()
     }
 }

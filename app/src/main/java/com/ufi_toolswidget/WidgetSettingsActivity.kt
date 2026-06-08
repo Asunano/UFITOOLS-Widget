@@ -18,10 +18,8 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.view.WindowCompat
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -36,9 +34,12 @@ import com.ufi_toolswidget.util.ThemeChangeNotifier
 import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.ThemeUtil
 import com.ufi_toolswidget.util.ThemedSliderUtil
+import com.ufi_toolswidget.util.ToastStyle
+import com.ufi_toolswidget.util.ToastUtil
 import com.ufi_toolswidget.view.ThemeSlider
 import com.ufi_toolswidget.widget.BaseWifiWidget
 import com.ufi_toolswidget.worker.WifiWorker
+import com.ufi_toolswidget.util.DebugLogger
 import java.util.concurrent.TimeUnit
 
 class WidgetSettingsActivity : AppCompatActivity() {
@@ -71,6 +72,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
 
     // 小组件背景
     private var widgetBgImageUri: String = ""
+    private var widgetBgImageEnabled: Boolean = false
     private var widgetBgOpacity: Int = 100
     /** 图片选择器（为小组件背景选图） */
     private val pickImageLauncher = registerForActivityResult(
@@ -97,7 +99,9 @@ class WidgetSettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeUtil.applyTheme(this, ThemeUtil.PageType.WIDGET_SETTINGS)
         themeChangeReceiver = ThemeChangeNotifier.register(this) {
-            ThemeUtil.applyTheme(this@WidgetSettingsActivity, ThemeUtil.PageType.WIDGET_SETTINGS)
+            AnimationUtil.applyCircleRevealPulse(this@WidgetSettingsActivity) {
+                ThemeUtil.applyThemeSync(this@WidgetSettingsActivity, ThemeUtil.PageType.WIDGET_SETTINGS)
+            }
             updateWidgetThemeSubtitle()
             updateDisplayInfoSubtitle()
             updateDisplayInfo2x1Subtitle()
@@ -193,9 +197,8 @@ class WidgetSettingsActivity : AppCompatActivity() {
             }
             track?.isEnabled = false
             track?.alpha = 0.5f
-            // 动态配色开启时，主题/配色完全由壁纸控制，隐藏用户设置项
-            findViewById<View>(R.id.item_widget_theme).visibility = View.GONE
-            findViewById<View>(R.id.item_widget_color_theme).visibility = View.GONE
+            // 动态配色开启时，主题/配色完全由壁纸控制，隐藏主题设置容器
+            findViewById<View>(R.id.layout_widget_theme_content).visibility = View.GONE
         } else {
             subtitle?.visibility = View.GONE
             track?.isEnabled = true
@@ -207,57 +210,42 @@ class WidgetSettingsActivity : AppCompatActivity() {
     }
 
     private fun updateWidgetThemeItemState(isFollow: Boolean, animate: Boolean = false) {
-        val themeItem = findViewById<View>(R.id.item_widget_theme)
-        val colorItem = findViewById<View>(R.id.item_widget_color_theme)
-        
+        val container = findViewById<View>(R.id.layout_widget_theme_content)
         val targetVisibility = if (isFollow) View.GONE else View.VISIBLE
-        
-        applyVisibility(themeItem, targetVisibility, animate)
-        applyVisibility(colorItem, targetVisibility, animate)
+        applyVisibility(container, targetVisibility, animate)
     }
 
-    /** 设置 View 可见性：animate=true 时带渐入/渐出+位移效果，否则直接生效 */
+    /**
+     * 设置 View 可见性，带统一的淡入/淡出动画。
+     *
+     * 淡入：300ms DecelerateInterpolator，纯 alpha 过渡
+     * 淡出：250ms AccelerateInterpolator，结束后 GONE 并复位 alpha
+     */
     private fun applyVisibility(view: View, targetVisibility: Int, animate: Boolean) {
         if (view.visibility == targetVisibility) return
-
+        view.animate().cancel()
         if (animate) {
-            // 取消已有动画，避免动画冲突
-            view.animate().cancel()
-            val slideDistance = (12f * resources.displayMetrics.density)
-
             if (targetVisibility == View.VISIBLE) {
-                // 渐入：从下方微微上浮 + 透明变不透明
                 view.visibility = View.VISIBLE
                 view.alpha = 0f
-                view.translationY = slideDistance
                 view.animate()
                     .alpha(1f)
-                    .translationY(0f)
-                    .setDuration(350)
-                    .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f))
+                    .setDuration(300)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator())
                     .setListener(null)
-                    .withLayer()
             } else {
-                // 渐出：向下沉 + 不透明变透明
                 view.animate()
                     .alpha(0f)
-                    .translationY(slideDistance)
-                    .setDuration(350)
-                    .setInterpolator(android.view.animation.AccelerateInterpolator(1.5f))
-                    .withLayer()
-                    .setListener(object : android.animation.AnimatorListenerAdapter() {
-                        override fun onAnimationEnd(animation: android.animation.Animator) {
-                            view.visibility = View.GONE
-                            view.translationY = 0f // 复位避免影响下次显示
-                        }
-                    })
+                    .setDuration(250)
+                    .setInterpolator(android.view.animation.AccelerateInterpolator())
+                    .withEndAction {
+                        view.visibility = View.GONE
+                        view.alpha = 1f
+                    }
             }
         } else {
-            // 非动画：直接设置最终状态
-            view.animate().cancel()
             view.visibility = targetVisibility
             view.alpha = if (targetVisibility == View.VISIBLE) 1f else 0f
-            view.translationY = 0f
         }
     }
 
@@ -268,7 +256,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         try {
             findInItem<ImageView>(R.id.item_widget_theme, R.id.common_item_icon)?.setImageResource(getWidgetThemeIcon())
             findInItem<TextView>(R.id.item_widget_theme, R.id.common_item_title)?.text = "小组件主题"
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "initWidgetThemeItem: setting icon/title failed: ${e.message}") }
         updateWidgetThemeSubtitle()
 
         findViewById<View>(R.id.item_widget_theme).setOnClickListener {
@@ -291,7 +279,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         try {
             findInItem<TextView>(R.id.item_widget_theme, R.id.common_item_subtitle)?.text = modeName
             findInItem<ImageView>(R.id.item_widget_theme, R.id.common_item_icon)?.setImageResource(getWidgetThemeIcon())
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "updateWidgetThemeSubtitle: setting subtitle/icon failed: ${e.message}") }
     }
 
     private fun showWidgetThemeDialog() {
@@ -347,7 +335,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         try {
             findInItem<ImageView>(R.id.item_widget_color_theme, R.id.common_item_icon)?.setImageResource(R.drawable.ic_palette)
             findInItem<TextView>(R.id.item_widget_color_theme, R.id.common_item_title)?.text = "小组件配色"
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "initWidgetColorThemeItem: setting icon/title failed: ${e.message}") }
         updateWidgetColorThemeSubtitle()
 
         findViewById<View>(R.id.item_widget_color_theme).setOnClickListener {
@@ -359,7 +347,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         val palette = ThemeColors.getById(this, widgetColorThemeIndex, isWidget = true)
         try {
             findInItem<TextView>(R.id.item_widget_color_theme, R.id.common_item_subtitle)?.text = palette.name
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "updateWidgetColorThemeSubtitle: setting subtitle failed: ${e.message}") }
     }
 
     private fun showWidgetColorThemeDialog() {
@@ -521,7 +509,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, dp2px(40), 1f).apply { marginStart = dp2px(10) }
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE; setColor(cardBg); cornerRadius = 8f * resources.displayMetrics.density
-                setStroke(1, if (AppCompatDelegate.getDefaultNightMode() == AppCompatDelegate.MODE_NIGHT_YES) 0x30FFFFFF.toInt() else 0x20000000)
+                setStroke(1, if (ThemeColors.isDark(this@WidgetSettingsActivity)) 0x30FFFFFF.toInt() else 0x20000000)
             }
             gravity = android.view.Gravity.CENTER
             hint = "#7B61FF"
@@ -550,7 +538,8 @@ class WidgetSettingsActivity : AppCompatActivity() {
                         swatch.background = makeDot(color, 0)
                         tvStatusTip.text = "支持十六进制格式 (如 #7B61FF)"
                         tvStatusTip.setTextColor(ThemeColors.textSecondary(this@WidgetSettingsActivity))
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        DebugLogger.w("WidgetSettingsActivity", "afterTextChanged: parsing color failed: ${e.message}")
                         tvStatusTip.text = "无效的颜色代码"
                         tvStatusTip.setTextColor(0xFFE53935.toInt())
                     }
@@ -573,7 +562,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
             setOnClickListener {
                 val input = etColor.text.toString().trim()
                 val formatted = if (input.startsWith("#")) input else "#$input"
-                val color = try { android.graphics.Color.parseColor(formatted) } catch (_: Exception) { null }
+                val color = try { android.graphics.Color.parseColor(formatted) } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "showWidgetColorThemeDialog: parsing color failed: ${e.message}"); null }
                 if (color != null) {
                     val darkColor = adjustBrightness(color, 0.85f)
                     SPUtil.setWidgetCustomAccentLight(this@WidgetSettingsActivity, color)
@@ -583,9 +572,9 @@ class WidgetSettingsActivity : AppCompatActivity() {
                     updateWidgetColorThemeSubtitle()
                     BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
                     dialog.dismiss()
-                    Toast.makeText(this@WidgetSettingsActivity, "自定义配色已应用", Toast.LENGTH_SHORT).show()
+                    ToastUtil.showDropToast(this@WidgetSettingsActivity, ToastStyle.SUCCESS, "自定义配色已应用")
                 } else {
-                    Toast.makeText(this@WidgetSettingsActivity, "颜色格式无效", Toast.LENGTH_SHORT).show()
+                    ToastUtil.showDropToast(this@WidgetSettingsActivity, ToastStyle.WARNING, "颜色格式无效")
                 }
             }
         }
@@ -638,7 +627,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         val label = if (enabled == 0) "全部关闭" else "已开启 $enabled/$total 项"
         try {
             findInItem<TextView>(R.id.item_display_info, R.id.common_item_subtitle)?.text = label
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "updateDisplayInfoSubtitle: setting subtitle failed: ${e.message}") }
     }
 
     private fun showDisplayInfoDialog() {
@@ -792,7 +781,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         val label = "${enabled}/3 项 · 字体 ${fontSize}sp"
         try {
             findInItem<TextView>(R.id.item_display_info_2x1, R.id.common_item_subtitle)?.text = label
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "updateDisplayInfo2x1Subtitle: setting subtitle failed: ${e.message}") }
     }
 
     private fun showDisplayInfo2x1Dialog() {
@@ -903,7 +892,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         val label = "${enabled}/5 项 · 字体 ${fontSize}sp"
         try {
             findInItem<TextView>(R.id.item_display_info_4x1, R.id.common_item_subtitle)?.text = label
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "updateDisplayInfo4x1Subtitle: setting subtitle failed: ${e.message}") }
     }
 
     private fun showDisplayInfo4x1Dialog() {
@@ -1014,7 +1003,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         try {
             findInItem<ImageView>(R.id.item_widget_interval, R.id.common_item_icon)?.setImageResource(R.drawable.ic_clock_bolt)
             findInItem<TextView>(R.id.item_widget_interval, R.id.common_item_title)?.text = "后台刷新频率"
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "initWidgetIntervalItem: setting icon/title failed: ${e.message}") }
         updateWidgetIntervalSubtitle()
 
         findViewById<View>(R.id.item_widget_interval).setOnClickListener {
@@ -1026,7 +1015,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         val label = if (widgetIntervalMinutes <= 0) "关闭" else "${widgetIntervalMinutes} 分钟"
         try {
             findInItem<TextView>(R.id.item_widget_interval, R.id.common_item_subtitle)?.text = label
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "updateWidgetIntervalSubtitle: setting subtitle failed: ${e.message}") }
     }
 
     private fun showWidgetIntervalDialog() {
@@ -1045,7 +1034,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
             text = "${widgetIntervalMinutes} 分钟"
             textSize = 28f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(ThemeColors.accent(this@WidgetSettingsActivity))
+            setTextColor(ThemeColors.textPrimary(this@WidgetSettingsActivity))
             gravity = android.view.Gravity.CENTER
         }
 
@@ -1108,7 +1097,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 updateWidgetIntervalSubtitle()
                 updateWidgetWorker()
                 dialog.dismiss()
-                Toast.makeText(this@WidgetSettingsActivity, "自定义间隔已设为 ${text}分钟", Toast.LENGTH_SHORT).show()
+                ToastUtil.showDropToast(this@WidgetSettingsActivity, ToastStyle.SUCCESS, "自定义间隔已设为 ${text}分钟")
             }
         )
         customPanel.layoutParams = (customPanel.layoutParams as ViewGroup.MarginLayoutParams).also {
@@ -1142,11 +1131,12 @@ class WidgetSettingsActivity : AppCompatActivity() {
     // ==================== 4. 自定义背景图（弹窗选择） ====================
     private fun initWidgetBgImageItem() {
         widgetBgImageUri = SPUtil.getWidgetBgImageUri(this)
+        widgetBgImageEnabled = SPUtil.getWidgetBgImageEnabled(this)
 
         try {
             findInItem<ImageView>(R.id.item_widget_bg_image, R.id.common_item_icon)?.setImageResource(R.drawable.ic_photo)
             findInItem<TextView>(R.id.item_widget_bg_image, R.id.common_item_title)?.text = "小组件背景"
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "initWidgetBgImageItem: setting icon/title failed: ${e.message}") }
         updateWidgetBgImageSubtitle()
 
         findViewById<View>(R.id.item_widget_bg_image).setOnClickListener {
@@ -1155,10 +1145,14 @@ class WidgetSettingsActivity : AppCompatActivity() {
     }
 
     private fun updateWidgetBgImageSubtitle() {
-        val label = if (widgetBgImageUri.isNotBlank()) "已设置" else "未设置"
+        val label = if (widgetBgImageUri.isNotBlank()) {
+            if (widgetBgImageEnabled) "已开启" else "已关闭"
+        } else {
+            "未设置"
+        }
         try {
             findInItem<TextView>(R.id.item_widget_bg_image, R.id.common_item_subtitle)?.text = label
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "updateWidgetBgImageSubtitle: setting subtitle failed: ${e.message}") }
     }
 
     /**
@@ -1168,7 +1162,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
     private fun handlePickedWidgetBgImage(uri: Uri) {
         // 获取持久化 URI 权限
         val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-        try { contentResolver.takePersistableUriPermission(uri, flags) } catch (_: SecurityException) {}
+        try { contentResolver.takePersistableUriPermission(uri, flags) } catch (e: SecurityException) { DebugLogger.w("WidgetSettingsActivity", "handlePickedWidgetBgImage: taking persistable URI permission failed: ${e.message}") }
 
         // 小组件4x2尺寸比例: width/height ≈ 250/110 ≈ 2.2727
         // 裁剪目标为推荐尺寸的 2.5 倍，确保背景图清晰度（缓存目标 640x320）
@@ -1208,13 +1202,17 @@ class WidgetSettingsActivity : AppCompatActivity() {
         }
     }
 
-    /** 直接应用（或裁切完成后）小组件背景图片 */
+    /** 直接应用（或裁切完成后）小组件背景图片，并记录到历史 */
     private fun applyWidgetBgImage(uri: Uri) {
-        SPUtil.setWidgetBgImageUri(this, uri.toString())
-        widgetBgImageUri = uri.toString()
+        val uriStr = uri.toString()
+        SPUtil.setWidgetBgImageUri(this, uriStr)
+        SPUtil.setWidgetBgImageEnabled(this, true)
+        SPUtil.addWidgetBgHistory(this, uriStr)
+        widgetBgImageUri = uriStr
+        widgetBgImageEnabled = true
         updateWidgetBgImageSubtitle()
         BaseWifiWidget.renderAllWidgets(this, force = true)
-        Toast.makeText(this, "小组件背景图片已更新", Toast.LENGTH_SHORT).show()
+        ToastUtil.showDropToast(this, ToastStyle.SUCCESS, "小组件背景图片已更新")
     }
 
     private fun showWidgetBgImageDialog() {
@@ -1226,6 +1224,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
 
         val textPrimary = ThemeColors.textPrimary(this)
         val accent = ThemeColors.accent(this)
+        val textSecondary = ThemeColors.textSecondary(this)
 
         dialog.findViewById<TextView>(R.id.common_dialog_title).text = "小组件背景"
         dialog.findViewById<ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_photo)
@@ -1234,26 +1233,180 @@ class WidgetSettingsActivity : AppCompatActivity() {
         CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
 
         val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
-        val cornerRadius = 12f * resources.displayMetrics.density
-        val selectedBg = makeSelectedBg(accent, cornerRadius)
-        val unselectedBg = makeUnselectedBg(cornerRadius)
+        val chipRadius = 12f * resources.displayMetrics.density
+        val selectedBg = makeSelectedBg(accent, chipRadius)
+        val unselectedBg = makeUnselectedBg(chipRadius)
 
-        // 选项1：选择图片
+        // ── 预览区域（仅当已设置背景时显示）──
+        if (widgetBgImageUri.isNotBlank()) {
+            val previewContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp2px(12) }
+            }
+
+            val preview = ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp2px(200), dp2px(100)).apply {
+                    bottomMargin = dp2px(8)
+                }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    setColor(ThemeColors.cardBg(this@WidgetSettingsActivity))
+                    setCornerRadius(8f * resources.displayMetrics.density)
+                }
+                try {
+                    val uri = Uri.parse(widgetBgImageUri)
+                    contentResolver.openInputStream(uri)?.use { stream ->
+                        val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                        val bmp = BitmapFactory.decodeStream(stream, null, opts)
+                        if (bmp != null) setImageBitmap(bmp)
+                    }
+                } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "showWidgetBgImageDialog: loading preview bitmap failed: ${e.message}") }
+                clipToOutline = true
+            }
+            previewContainer.addView(preview)
+
+            // ── 启用开关 ──
+            val switchRow = layoutInflater.inflate(R.layout.layout_common_switch, previewContainer, false)
+            switchRow.findViewById<TextView>(R.id.common_switch_label).apply {
+                text = "启用自定义背景"
+                textSize = 14f
+                setTextColor(ThemeColors.textPrimary(this@WidgetSettingsActivity))
+                alpha = 1f
+            }
+            var tempEnabled = widgetBgImageEnabled
+            com.ufi_toolswidget.util.ThemeUtil.setupSwitch(switchRow, tempEnabled) { isChecked ->
+                tempEnabled = isChecked
+                widgetBgImageEnabled = isChecked
+                SPUtil.setWidgetBgImageEnabled(this@WidgetSettingsActivity, isChecked)
+                updateWidgetBgImageSubtitle()
+                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                preview.alpha = if (isChecked) 1f else 0.35f
+            }
+            preview.alpha = if (tempEnabled) 1f else 0.35f
+            previewContainer.addView(switchRow)
+            content.addView(previewContainer)
+        }
+
+        // ── 选项1：选择图片 ──
         content.addView(buildDialogOptionView("从相册选择图片", textPrimary,
             selectedBg, unselectedBg) {
             pickImageLauncher.launch("image/*")
             dialog.dismiss()
         })
 
-        // 选项2：清除背景（仅在有自定义背景时显示）
+        // ── 历史背景（最多3条缩略图）──
+        val history = SPUtil.getWidgetBgHistory(this)
+        if (history.isNotEmpty()) {
+            val historySection = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp2px(4); bottomMargin = dp2px(4) }
+            }
+
+            val historyLabel = TextView(this).apply {
+                text = "最近使用"
+                textSize = 12f
+                setTextColor(textSecondary)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp2px(8) }
+            }
+            historySection.addView(historyLabel)
+
+            val thumbRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER
+            }
+
+            history.forEachIndexed { index, histUri ->
+                if (histUri.isBlank()) return@forEachIndexed
+
+                val thumbContainer = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = android.view.Gravity.CENTER
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        setMargins(dp2px(3), 0, dp2px(3), 0)
+                    }
+                    isClickable = true
+                    isFocusable = true
+                    foreground = android.util.TypedValue().let { tv ->
+                        val typedValue = android.util.TypedValue()
+                        theme.resolveAttribute(android.R.attr.selectableItemBackground, typedValue, true)
+                        resources.getDrawable(typedValue.resourceId, theme)
+                    }
+
+                    setOnClickListener {
+                        widgetBgImageUri = histUri
+                        widgetBgImageEnabled = true
+                        SPUtil.setWidgetBgImageUri(this@WidgetSettingsActivity, histUri)
+                        SPUtil.setWidgetBgImageEnabled(this@WidgetSettingsActivity, true)
+                        SPUtil.addWidgetBgHistory(this@WidgetSettingsActivity, histUri)
+                        updateWidgetBgImageSubtitle()
+                        BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                        ToastUtil.showDropToast(this@WidgetSettingsActivity, ToastStyle.SUCCESS, "已切换背景图片")
+                        dialog.dismiss()
+                    }
+                }
+
+                val thumb = ImageView(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp2px(56), dp2px(36))
+                    scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        setColor(ThemeColors.cardBg(this@WidgetSettingsActivity))
+                        setCornerRadius(6f * resources.displayMetrics.density)
+                    }
+                    try {
+                        val uri = Uri.parse(histUri)
+                        contentResolver.openInputStream(uri)?.use { stream ->
+                            val opts = BitmapFactory.Options().apply { inSampleSize = 6 }
+                            val bmp = BitmapFactory.decodeStream(stream, null, opts)
+                            if (bmp != null) setImageBitmap(bmp)
+                        }
+                    } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "showWidgetBgImageDialog: loading history thumbnail failed: ${e.message}") }
+                    clipToOutline = true
+                }
+                thumbContainer.addView(thumb)
+
+                // 当前使用标记
+                if (histUri == widgetBgImageUri) {
+                    val activeDot = View(this).apply {
+                        layoutParams = LinearLayout.LayoutParams(dp2px(6), dp2px(6)).apply {
+                            topMargin = dp2px(4)
+                        }
+                        background = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setColor(accent)
+                        }
+                    }
+                    thumbContainer.addView(activeDot)
+                }
+
+                thumbRow.addView(thumbContainer)
+            }
+
+            historySection.addView(thumbRow)
+            content.addView(historySection)
+        }
+
+        // ── 清除背景（仅当已设置时显示）──
         if (widgetBgImageUri.isNotBlank()) {
             content.addView(buildDialogOptionView("清除背景", textPrimary,
                 selectedBg, unselectedBg) {
-                SPUtil.clearWidgetBgImageUri(this)
+                SPUtil.clearWidgetBgImage(this)
                 widgetBgImageUri = ""
+                widgetBgImageEnabled = false
                 updateWidgetBgImageSubtitle()
                 BaseWifiWidget.renderAllWidgets(this, force = true)
-                Toast.makeText(this, "小组件背景已清除", Toast.LENGTH_SHORT).show()
+                ToastUtil.showDropToast(this, ToastStyle.INFO, "小组件背景已清除")
                 dialog.dismiss()
             })
         }
@@ -1270,7 +1423,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         try {
             findInItem<ImageView>(R.id.item_widget_bg_opacity, R.id.common_item_icon)?.setImageResource(R.drawable.ic_opacity)
             findInItem<TextView>(R.id.item_widget_bg_opacity, R.id.common_item_title)?.text = "背景透明度"
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "initWidgetBgOpacityItem: setting icon/title failed: ${e.message}") }
         updateWidgetBgOpacitySubtitle()
 
         findViewById<View>(R.id.item_widget_bg_opacity).setOnClickListener {
@@ -1282,7 +1435,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         val label = "${widgetBgOpacity}%"
         try {
             findInItem<TextView>(R.id.item_widget_bg_opacity, R.id.common_item_subtitle)?.text = label
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "updateWidgetBgOpacitySubtitle: setting subtitle failed: ${e.message}") }
     }
 
     private fun showWidgetBgOpacityDialog() {
@@ -1301,7 +1454,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
             text = "$widgetBgOpacity%"
             textSize = 28f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(ThemeColors.accent(this@WidgetSettingsActivity))
+            setTextColor(ThemeColors.textPrimary(this@WidgetSettingsActivity))
             gravity = android.view.Gravity.CENTER
         }
 
@@ -1415,7 +1568,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         val subtitle = if (parts.isEmpty()) "圆角裁剪、隐藏名称等" else parts.joinToString("、")
         try {
             findViewById<TextView>(R.id.item_widget_compatibility)?.findViewById<TextView>(R.id.common_item_subtitle)?.text = subtitle
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "updateCompatibilitySubtitle: setting subtitle failed: ${e.message}") }
     }
 
     private fun showCompatibilityDialog() {
@@ -1529,13 +1682,14 @@ class WidgetSettingsActivity : AppCompatActivity() {
 
     private fun makeUnselectedBg(cornerRadius: Float): GradientDrawable {
         val cardBg = ThemeColors.cardBg(this)
-        val borderColor = if (SPUtil.getNightMode(this) == AppCompatDelegate.MODE_NIGHT_YES)
+        val borderColor = if (ThemeColors.isDark(this))
             0x30FFFFFF.toInt() else 0x20000000
+        val borderWidth = (1.5f * resources.displayMetrics.density).toInt()
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             setColor(cardBg)
             this.cornerRadius = cornerRadius
-            setStroke(1, borderColor)
+            setStroke(borderWidth, borderColor)
         }
     }
 

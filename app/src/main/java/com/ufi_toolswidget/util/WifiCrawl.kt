@@ -44,14 +44,14 @@ object WifiCrawl {
     private val CGATT_RE = Regex("""\+CGATT:\s*(\d+)""")
     private val AT_OK_RE = Regex("(^|\n)OK$")
 
-    suspend fun getWifiData(context: Context): WifiEntity? = withContext(Dispatchers.IO) {
+    suspend fun getWifiData(context: Context, quickStart: Boolean = false): WifiEntity? = withContext(Dispatchers.IO) {
         try {
             lastError = ""
             val t = System.currentTimeMillis()
             val auth = SPUtil.getAuthToken(context)
             val baseUrl = SPUtil.buildBaseUrl(context)
             
-            DebugLogger.logApi(TAG, "Starting data refresh from $baseUrl")
+            DebugLogger.logApi(TAG, "Starting data refresh from $baseUrl" + if (quickStart) " (quick start)" else "")
 
             // 分批获取：先单独获取 baseDeviceInfo（含 CPU），避免并发请求拉高设备 CPU 导致读数虚高
             var baseDeviceInfo: org.json.JSONObject? = null
@@ -65,8 +65,10 @@ object WifiCrawl {
             var preCpuUsageMap = emptyMap<String, String>()
 
             coroutineScope {
-                // 冷却期：请求前等待 1-2s，让设备 CPU 从上轮请求中恢复
-                delay(1000L + (Math.random() * 1000).toLong())
+                // 冷却期：快速启动时跳过，正常刷新时等待 1-2s，让设备 CPU 从上轮请求中恢复
+                if (!quickStart) {
+                    delay(1000L + (Math.random() * 1000).toLong())
+                }
 
                 // Step 1: 单独获取 baseDeviceInfo，避免其他请求干扰 CPU 读数
                 val baseResp = fetchApi(SPUtil.getDeviceInfoPath(context), t, auth, context)
@@ -85,8 +87,10 @@ object WifiCrawl {
                 }
                 preCpuUsageMap = map
 
-                // 冷却期：等待 1-2s 再发起后续请求，确保 CPU 读数已被捕获
-                delay(1000L + (Math.random() * 1000).toLong())
+                // 冷却期：快速启动时跳过，正常刷新时等待 1-2s 再发起后续请求，确保 CPU 读数已被捕获
+                if (!quickStart) {
+                    delay(1000L + (Math.random() * 1000).toLong())
+                }
 
                 // Step 2: 其余请求并发执行
                 val signalDeferred = async {
@@ -497,6 +501,77 @@ object WifiCrawl {
         val usedGb = used / (1024.0 * 1024.0 * 1024.0)
         val totalGb = total / (1024.0 * 1024.0 * 1024.0)
         return String.format(Locale.getDefault(), "%.1f / %.1f GB", usedGb, totalGb)
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 轻量级通知监控数据获取
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * 从设备信息 API 中提取的轻量级通知监控数据。
+     * 仅包含通知阈值检查所需的字段，不包含完整设备状态。
+     */
+    data class NotificationBaseInfo(
+        val dailyFlowStr: String,
+        val monthlyFlowStr: String,
+        val tempStr: String,
+        val cpuStr: String,
+        val memStr: String,
+        val batteryPercent: Int
+    )
+
+    /**
+     * 轻量级数据获取，仅用于通知监控。
+     *
+     * 与 [getWifiData] 不同，此方法：
+     * - 只请求 /api/deviceInfo 一个端点，没有冷却延迟
+     * - 不发起并发请求（无 signal / goform / version / token / AT 请求）
+     * - 仅解析通知阈值检查所需的字段
+     *
+     * 性能开销约为完整 [getWifiData] 的 1/6 ~ 1/10，
+     * 适合高频调用（如 60 秒间隔）。
+     */
+    suspend fun fetchNotificationBaseInfo(context: Context): NotificationBaseInfo? = withContext(Dispatchers.IO) {
+        try {
+            val t = System.currentTimeMillis()
+            val auth = SPUtil.getAuthToken(context)
+            val baseResp = fetchApi(SPUtil.getDeviceInfoPath(context), t, auth, context) ?: return@withContext null
+
+            // 提取通知所需字段
+            val batteryPercent = baseResp.optInt("battery", -1)
+            val cpuUsage = baseResp.optDouble("cpu_usage", -1.0)
+            val memUsage = baseResp.optDouble("mem_usage", 0.0)
+            val tempRaw = baseResp.optDouble("cpu_temp", 0.0)
+
+            val dTx = extractTrafficBytes(baseResp, "daily_tx_bytes")
+            val dRx = extractTrafficBytes(baseResp, "daily_rx_bytes")
+            val dTotal = extractTrafficBytes(baseResp, "daily_data", "day_data")
+            val dailyRaw = if (dTotal > 0) dTotal else (dTx + dRx)
+
+            val mTx = extractTrafficBytes(baseResp, "monthly_tx_bytes")
+            val mRx = extractTrafficBytes(baseResp, "monthly_rx_bytes")
+            val mTotal = extractTrafficBytes(baseResp, "monthly_data", "month_data", "total_data")
+            var monthlyRaw = if (mTotal > 0) mTotal else (mTx + mRx)
+
+            if (monthlyRaw <= 0) {
+                monthlyRaw = SPUtil.getCachedMonthlyData(context)
+            }
+
+            val finalCpuUsage = if (cpuUsage in 0.0..100.0) cpuUsage else 0.0
+
+            NotificationBaseInfo(
+                dailyFlowStr = formatFlow(dailyRaw),
+                monthlyFlowStr = formatFlow(monthlyRaw),
+                tempStr = formatTemp(tempRaw),
+                cpuStr = String.format(Locale.getDefault(), "%.1f%%", finalCpuUsage),
+                memStr = String.format(Locale.getDefault(), "%.1f%%", memUsage),
+                batteryPercent = if (batteryPercent >= 0) batteryPercent else -1
+            )
+        } catch (e: Exception) {
+            lastError = "Notification fetch: ${e.message}"
+            DebugLogger.logApiErr(TAG, "fetchNotificationBaseInfo: ${e.message}")
+            null
+        }
     }
 
     // ===== 协议自动探测 =====

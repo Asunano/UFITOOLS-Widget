@@ -23,6 +23,8 @@ object SPUtil {
     @Synchronized
     fun saveData(ctx: Context, data: WifiEntity) {
         val time = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+        // 计算数据字段哈希，供小组件渲染去重使用（避免每次渲染都读 14 个 SP 字段）
+        val dataHash = computeWidgetDataHash(data, time)
         getSp(ctx).edit()
             .putString("flow", data.flow)
             .putString("daily_flow", data.dailyFlow)
@@ -50,8 +52,36 @@ object SPUtil {
             .putString("firmware_ver", data.firmwareVer)
             .putBoolean("need_token", data.needToken)
             .putString("update_time", time)
+            .putInt("sp_cached_data_hash", dataHash)
             .apply()
     }
+
+    /**
+     * 计算数据字段的哈希指纹（仅影响小组件渲染的数据字段，不含外观设置）。
+     * 与 [computeDataHash] 中数据部分算法一致，保证相同数据产生相同哈希值。
+     * 结果缓存在 SP 的 `sp_cached_data_hash` 中，供小组件渲染去重使用。
+     */
+    private fun computeWidgetDataHash(data: WifiEntity, time: String): Int {
+        var h = 17
+        h = 31 * h + data.deviceModel.hashCode()
+        h = 31 * h + data.model.hashCode()
+        h = 31 * h + data.firmwareVer.hashCode()
+        h = 31 * h + data.flow.hashCode()
+        h = 31 * h + data.dailyFlow.hashCode()
+        h = 31 * h + data.signal.hashCode()
+        h = 31 * h + data.temp.hashCode()
+        h = 31 * h + data.battery.hashCode()
+        h = 31 * h + data.cpu.hashCode()
+        h = 31 * h + data.mem.hashCode()
+        h = 31 * h + data.netType.hashCode()
+        h = 31 * h + data.appVerCode.hashCode()
+        h = 31 * h + data.batteryCurrent.hashCode()
+        h = 31 * h + time.hashCode()
+        return h
+    }
+
+    /** 读取缓存的 widget 数据哈希（由 [saveData] 写入），0 表示尚未缓存 */
+    fun getCachedDataHash(ctx: Context): Int = getSp(ctx).getInt("sp_cached_data_hash", 0)
 
     // 认证与配置
     fun saveRawToken(ctx: Context, token: String) = getSp(ctx).edit().putString("raw_token", token).apply()
@@ -170,7 +200,7 @@ object SPUtil {
     fun incrementNetworkFailureCount(ctx: Context): Int {
         val sp = getSp(ctx)
         val count = sp.getInt("worker_network_failure_count", 0) + 1
-        sp.edit().putInt("worker_network_failure_count", count).commit()
+        sp.edit().putInt("worker_network_failure_count", count).apply()
         return count
     }
 
@@ -179,14 +209,14 @@ object SPUtil {
     fun incrementApiFailureCount(ctx: Context): Int {
         val sp = getSp(ctx)
         val count = sp.getInt("worker_api_failure_count", 0) + 1
-        sp.edit().putInt("worker_api_failure_count", count).commit()
+        sp.edit().putInt("worker_api_failure_count", count).apply()
         return count
     }
 
     /** 仅重置网络失败计数（ping 恢复时） */
     @Synchronized
     fun resetNetworkFailureCount(ctx: Context) {
-        getSp(ctx).edit().putInt("worker_network_failure_count", 0).commit()
+        getSp(ctx).edit().putInt("worker_network_failure_count", 0).apply()
     }
 
     /** 重置所有失败状态（手动刷新、配置变更、Worker 启动时调用） */
@@ -199,7 +229,7 @@ object SPUtil {
             .putInt("worker_network_failure_count", 0)
             .putBoolean("worker_stopped_by_failure", false)
             .putString("worker_stop_reason", "")
-            .commit()
+            .apply()
         DebugLogger.i("SPUtil", "resetWorkerFailureState called (prevStopped=$prevStopped)")
     }
 
@@ -210,7 +240,7 @@ object SPUtil {
             .putBoolean("worker_stopped_by_failure", true)
             .putInt("worker_api_failure_count", 0)
             .putString("worker_stop_reason", "network")
-            .commit()
+            .apply()
     }
 
     /** 标记 API 连续失败导致的 Worker 停止 */
@@ -219,7 +249,7 @@ object SPUtil {
         getSp(ctx).edit()
             .putBoolean("worker_stopped_by_failure", true)
             .putString("worker_stop_reason", "api")
-            .commit()
+            .apply()
     }
 
     // ==================== 设备连接配置 ====================
@@ -487,7 +517,7 @@ object SPUtil {
     // ==================== 更新镜像源与自动检查 ====================
     // 0 = GitHub 官方，1 = 国内镜像 (gh-proxy)
     fun getUpdateMirror(ctx: Context) = getSp(ctx).getInt("update_mirror", 0)
-    fun setUpdateMirror(ctx: Context, mirror: Int) = getSp(ctx).edit().putInt("update_mirror", mirror).commit()
+    fun setUpdateMirror(ctx: Context, mirror: Int) = getSp(ctx).edit().putInt("update_mirror", mirror).apply()
 
     /** 获取是否开启自动检测更新 */
     fun getAutoCheckUpdate(ctx: Context) = getSp(ctx).getBoolean("auto_check_update", true)
@@ -578,6 +608,64 @@ object SPUtil {
     fun getWidgetHideLabel(ctx: Context) = getSp(ctx).getBoolean("widget_hide_label", false)
     fun setWidgetHideLabel(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("widget_hide_label", enabled).apply()
 
+    // ==================== 小组件背景开关 & 历史 ====================
+    /** 小组件自定义背景是否启用（关闭时使用默认纯色背景） */
+    fun getWidgetBgImageEnabled(ctx: Context): Boolean {
+        val sp = getSp(ctx)
+        if (!sp.contains("widget_bg_image_enabled")) {
+            // 迁移：已有背景图的用户默认启用
+            val hasUri = getWidgetBgImageUri(ctx).isNotBlank()
+            if (hasUri) {
+                setWidgetBgImageEnabled(ctx, true)
+                return true
+            }
+            return false
+        }
+        return sp.getBoolean("widget_bg_image_enabled", false)
+    }
+    fun setWidgetBgImageEnabled(ctx: Context, enabled: Boolean) =
+        getSp(ctx).edit().putBoolean("widget_bg_image_enabled", enabled).apply()
+
+    /** 获取实际应用的小组件背景 URI（考虑启用状态，禁用时返回空） */
+    fun getAppliedWidgetBgImageUri(ctx: Context): String {
+        return if (getWidgetBgImageEnabled(ctx)) getWidgetBgImageUri(ctx) else ""
+    }
+
+    /** 获取小组件背景历史列表（最多 3 条 URI） */
+    fun getWidgetBgHistory(ctx: Context): List<String> {
+        try {
+            val json = getSp(ctx).getString("widget_bg_image_history", "[]") ?: "[]"
+            val arr = org.json.JSONArray(json)
+            return (0 until arr.length()).map { arr.optString(it, "") }.filter { it.isNotBlank() }
+        } catch (_: Exception) {
+            return emptyList()
+        }
+    }
+
+    /** 保存小组件背景历史列表 */
+    fun setWidgetBgHistory(ctx: Context, history: List<String>) {
+        val arr = org.json.JSONArray(history.take(MAX_BG_HISTORY))
+        getSp(ctx).edit().putString("widget_bg_image_history", arr.toString()).apply()
+    }
+
+    /** 添加一条 URI 到背景历史（去重后插入首位，超出 3 条截断） */
+    fun addWidgetBgHistory(ctx: Context, uri: String) {
+        val current = getWidgetBgHistory(ctx).toMutableList()
+        current.remove(uri)          // 去重
+        current.add(0, uri)          // 插入首位
+        setWidgetBgHistory(ctx, current.take(MAX_BG_HISTORY))
+    }
+
+    /** 清除小组件背景（同时保留历史不变） */
+    fun clearWidgetBgImage(ctx: Context) {
+        getSp(ctx).edit()
+            .remove("widget_bg_image_uri")
+            .putBoolean("widget_bg_image_enabled", false)
+            .apply()
+    }
+
+    private const val MAX_BG_HISTORY = 3
+
     // ==================== 响应缓存策略 ====================
     // 低频变化的 API 响应缓存到 SP，减少重复请求
 
@@ -622,5 +710,69 @@ object SPUtil {
             .apply()
         DebugLogger.i("SPUtil", "invalidateResponseCaches: all response caches cleared")
     }
+
+    // ==================== 通知提醒设置 ====================
+
+    /** 通知总开关 */
+    fun getNotificationEnabled(ctx: Context) = getSp(ctx).getBoolean("notification_enabled", false)
+    fun setNotificationEnabled(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("notification_enabled", enabled).apply()
+
+    /** 各类型提醒开关 */
+    fun getNotifyDailyFlow(ctx: Context) = getSp(ctx).getBoolean("notify_daily_flow", false)
+    fun setNotifyDailyFlow(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("notify_daily_flow", enabled).apply()
+
+    fun getNotifyMonthlyFlow(ctx: Context) = getSp(ctx).getBoolean("notify_monthly_flow", false)
+    fun setNotifyMonthlyFlow(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("notify_monthly_flow", enabled).apply()
+
+    fun getNotifyTemp(ctx: Context) = getSp(ctx).getBoolean("notify_temp", false)
+    fun setNotifyTemp(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("notify_temp", enabled).apply()
+
+    fun getNotifyCpu(ctx: Context) = getSp(ctx).getBoolean("notify_cpu", false)
+    fun setNotifyCpu(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("notify_cpu", enabled).apply()
+
+    fun getNotifyDeviceOnline(ctx: Context) = getSp(ctx).getBoolean("notify_device_online", false)
+    fun setNotifyDeviceOnline(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("notify_device_online", enabled).apply()
+
+    fun getNotifyBattery(ctx: Context) = getSp(ctx).getBoolean("notify_battery", false)
+    fun setNotifyBattery(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("notify_battery", enabled).apply()
+
+    fun getNotifyMemory(ctx: Context) = getSp(ctx).getBoolean("notify_memory", false)
+    fun setNotifyMemory(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("notify_memory", enabled).apply()
+
+    /** 阈值设置 */
+    // 今日流量阈值（字节，默认 1GB）
+    fun getNotifyDailyFlowThreshold(ctx: Context) = getSp(ctx).getLong("notify_daily_flow_threshold", 1_073_741_824L)
+    fun setNotifyDailyFlowThreshold(ctx: Context, bytes: Long) = getSp(ctx).edit().putLong("notify_daily_flow_threshold", bytes).apply()
+    // 本月流量阈值（字节，默认 10GB）
+    fun getNotifyMonthlyFlowThreshold(ctx: Context) = getSp(ctx).getLong("notify_monthly_flow_threshold", 10_737_418_240L)
+    fun setNotifyMonthlyFlowThreshold(ctx: Context, bytes: Long) = getSp(ctx).edit().putLong("notify_monthly_flow_threshold", bytes).apply()
+    // 温度阈值（℃，默认 70）
+    fun getNotifyTempThreshold(ctx: Context) = getSp(ctx).getInt("notify_temp_threshold", 70)
+    fun setNotifyTempThreshold(ctx: Context, temp: Int) = getSp(ctx).edit().putInt("notify_temp_threshold", temp).apply()
+    // CPU 阈值（%，默认 80）
+    fun getNotifyCpuThreshold(ctx: Context) = getSp(ctx).getInt("notify_cpu_threshold", 80)
+    fun setNotifyCpuThreshold(ctx: Context, cpu: Int) = getSp(ctx).edit().putInt("notify_cpu_threshold", cpu).apply()
+    // 电量阈值（%，默认 20）
+    fun getNotifyBatteryThreshold(ctx: Context) = getSp(ctx).getInt("notify_battery_threshold", 20)
+    fun setNotifyBatteryThreshold(ctx: Context, battery: Int) = getSp(ctx).edit().putInt("notify_battery_threshold", battery).apply()
+    // 内存阈值（%，默认 90）
+    fun getNotifyMemoryThreshold(ctx: Context) = getSp(ctx).getInt("notify_memory_threshold", 90)
+    fun setNotifyMemoryThreshold(ctx: Context, mem: Int) = getSp(ctx).edit().putInt("notify_memory_threshold", mem).apply()
+
+    /** 防抖时间戳 */
+    fun getNotifyLastTime(ctx: Context, key: String) = getSp(ctx).getLong(key, 0L)
+    fun setNotifyLastTime(ctx: Context, key: String, time: Long) = getSp(ctx).edit().putLong(key, time).apply()
+
+    /** 设备在线状态记录（用于上下线检测） */
+    fun getNotifyPrevOnline(ctx: Context) = getSp(ctx).getBoolean("notify_prev_online", true)
+    fun setNotifyPrevOnline(ctx: Context, online: Boolean) = getSp(ctx).edit().putBoolean("notify_prev_online", online).apply()
+
+    // ══════════════════════════════════════════════
+    // 后台通知监控间隔
+    // ══════════════════════════════════════════════
+
+    /** 后台监控检查间隔（秒），默认 60 秒 */
+    fun getMonitorIntervalSec(ctx: Context): Int = getSp(ctx).getInt("monitor_interval_sec", 60)
+    fun setMonitorIntervalSec(ctx: Context, seconds: Int) = getSp(ctx).edit().putInt("monitor_interval_sec", seconds).apply()
 
 }

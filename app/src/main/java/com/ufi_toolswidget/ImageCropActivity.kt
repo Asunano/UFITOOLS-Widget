@@ -7,7 +7,6 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
 import com.ufi_toolswidget.util.BackgroundUtil
@@ -16,6 +15,8 @@ import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.ThemeUtil
 import java.io.File
 import java.io.FileOutputStream
+import com.ufi_toolswidget.util.ToastStyle
+import com.ufi_toolswidget.util.ToastUtil
 
 /**
  * 背景图片裁切页面。
@@ -71,7 +72,7 @@ class ImageCropActivity : AppCompatActivity() {
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(this, "图片加载失败", Toast.LENGTH_SHORT).show()
+            ToastUtil.showDropToast(this, ToastStyle.WARNING, "图片加载失败")
             finish()
         }
     }
@@ -79,7 +80,7 @@ class ImageCropActivity : AppCompatActivity() {
     private fun performCrop() {
         val cropped = cropView.getCroppedBitmap(targetW, targetH)
         if (cropped == null) {
-            Toast.makeText(this, "裁切失败", Toast.LENGTH_SHORT).show()
+            ToastUtil.showDropToast(this, ToastStyle.WARNING, "裁切失败")
             return
         }
 
@@ -100,7 +101,7 @@ class ImageCropActivity : AppCompatActivity() {
             finish()
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(this, "保存失败", Toast.LENGTH_SHORT).show()
+            ToastUtil.showDropToast(this, ToastStyle.WARNING, "保存失败")
         }
     }
 }

@@ -12,7 +12,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatDelegate
 import com.google.android.material.button.MaterialButton
 import com.ufi_toolswidget.R
 
@@ -117,18 +116,20 @@ object CommonSettingsItemHelper {
             )
         }
 
-        // 标题
+        // 标题（取色使用动态 ThemeColors，确保跟随主题切换）
         val tvLabel = TextView(context).apply {
             id = R.id.common_switch_label
             setTextAppearance(R.style.AppText_Title)
+            setTextColor(ThemeColors.textPrimary(context))
             text = label
         }
         textCol.addView(tvLabel)
 
-        // 副标题（可选）
+        // 副标题（可选，取色使用动态 ThemeColors）
         val tvSubtitle = TextView(context).apply {
             id = R.id.common_switch_subtitle
             setTextAppearance(R.style.AppText_Subtitle)
+            setTextColor(ThemeColors.textSecondary(context))
             if (subtitle != null) {
                 text = subtitle
             } else {
@@ -249,8 +250,6 @@ object CommonSettingsItemHelper {
         val cardBg = ThemeColors.cardBg(context)
         val textPrimary = ThemeColors.textPrimary(context)
         val textSecondary = ThemeColors.textSecondary(context)
-        val isNight = AppCompatDelegate.getDefaultNightMode() == AppCompatDelegate.MODE_NIGHT_YES
-
         return EditText(context).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -268,7 +267,7 @@ object CommonSettingsItemHelper {
                 shape = GradientDrawable.RECTANGLE
                 setColor(cardBg)
                 cornerRadius = 10f * density
-                setStroke(1, if (isNight) 0x30FFFFFF.toInt() else 0x20000000)
+                setStroke(1, if (ThemeColors.isDark(context)) 0x30FFFFFF.toInt() else 0x20000000)
             }
         }
     }

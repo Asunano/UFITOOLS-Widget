@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.ufi_toolswidget.util.DebugLogger
+import com.ufi_toolswidget.util.MainDialogHelper
+import com.ufi_toolswidget.util.NotificationHelper
 import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.WifiCrawl
 import com.ufi_toolswidget.widget.BaseWifiWidget
@@ -134,6 +136,18 @@ class WifiWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                 SPUtil.saveData(ctx, data)
                 // 全部成功 → 清除所有失败状态
                 resetFailureState(ctx)
+                // 后台通知检测（仅系统通知栏，不显示应用内 Toast）
+                NotificationHelper.checkAndNotify(
+                    context = ctx,
+                    dailyFlowStr = data.dailyFlow,
+                    monthlyFlowStr = data.flow,
+                    tempStr = MainDialogHelper.getHighestTemp(data),
+                    cpuStr = data.cpu,
+                    memStr = data.mem,
+                    batteryPercent = data.batteryPercent,
+                    isDeviceOnline = !isWorkerStopped(ctx),
+                    activity = null
+                )
                 DebugLogger.i(TAG, "doWork: API success, all failure states cleared")
                 DebugLogger.flushToFile()
                 BaseWifiWidget.renderAllWidgets(ctx)

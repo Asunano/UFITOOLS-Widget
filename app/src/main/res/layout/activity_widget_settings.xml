@@ -37,14 +37,14 @@
                     android:textStyle="bold"
                     android:letterSpacing="0.02" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="自定义小组件外观、内容与刷新行为"
-                android:textColor="@color/text_main"
-                android:alpha="0.45"
-                android:textSize="13sp" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="自定义小组件外观、内容与刷新行为"
+                    android:textColor="@color/text_main"
+                    android:alpha="0.45"
+                    android:textSize="13sp" />
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton
@@ -54,57 +54,119 @@
                 android:layout_height="44dp"
                 android:layout_gravity="start|top"
                 android:layout_marginTop="6dp"
-                app:icon="@drawable/ic_arrow_back" />
+                app:icon="@drawable/ic_arrow_back"
+                app:iconTint="@color/text_main" />
         </FrameLayout>
 
-        <!-- ========== 跟随应用主题（开关） ========== -->
+        <!-- ========== 外观设置 ========== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="6dp"
+            android:text="外观设置"
+            android:textColor="@color/text_main"
+            android:alpha="0.6"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <!-- 跟随应用主题（开关） -->
         <include
             layout="@layout/layout_common_switch_item"
             android:id="@+id/item_widget_follow_theme" />
 
-        <!-- ========== 小组件主题（弹窗选择） ========== -->
-        <include
-            layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_widget_theme" />
+        <!-- 主题设置内容容器（跟随应用主题关闭时显示） -->
+        <LinearLayout
+            android:id="@+id/layout_widget_theme_content"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
 
-        <!-- ========== 小组件颜色主题（弹窗选择） ========== -->
-        <include
-            layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_widget_color_theme" />
+            <!-- 小组件主题（弹窗选择） -->
+            <include
+                layout="@layout/layout_common_setting_item"
+                android:id="@+id/item_widget_theme" />
 
-        <!-- ========== 显示信息（弹窗多选） ========== -->
+            <!-- 小组件颜色主题（弹窗选择） -->
+            <include
+                layout="@layout/layout_common_setting_item"
+                android:id="@+id/item_widget_color_theme" />
+
+        </LinearLayout>
+
+        <!-- 显示信息（弹窗多选） -->
         <include
             layout="@layout/layout_common_setting_item"
             android:id="@+id/item_display_info" />
 
-        <!-- ========== 2×1 迷你版独立设置（暂时隐藏） ========== -->
+        <!-- 2×1 迷你版独立设置（暂时隐藏） -->
         <include
             layout="@layout/layout_common_setting_item"
             android:id="@+id/item_display_info_2x1"
             android:visibility="gone" />
 
-        <!-- ========== 4×1 条形版独立设置（暂时隐藏） ========== -->
+        <!-- 4×1 条形版独立设置（暂时隐藏） -->
         <include
             layout="@layout/layout_common_setting_item"
             android:id="@+id/item_display_info_4x1"
             android:visibility="gone" />
 
-        <!-- ========== 后台刷新频率（弹窗选择） ========== -->
+        <!-- ========== 刷新设置 ========== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="6dp"
+            android:text="刷新设置"
+            android:textColor="@color/text_main"
+            android:alpha="0.6"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <!-- 后台刷新频率（弹窗选择） -->
         <include
             layout="@layout/layout_common_setting_item"
             android:id="@+id/item_widget_interval" />
 
-        <!-- ========== 自定义背景图（弹窗选择） ========== -->
+        <!-- ========== 背景设置 ========== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="6dp"
+            android:text="背景设置"
+            android:textColor="@color/text_main"
+            android:alpha="0.6"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <!-- 自定义背景图（弹窗选择） -->
         <include
             layout="@layout/layout_common_setting_item"
             android:id="@+id/item_widget_bg_image" />
 
-        <!-- ========== 背景透明度（弹窗选择） ========== -->
+        <!-- 背景透明度（弹窗选择） -->
         <include
             layout="@layout/layout_common_setting_item"
             android:id="@+id/item_widget_bg_opacity" />
 
-        <!-- ========== 兼容性设置（点击弹窗） ========== -->
+        <!-- ========== 其他 ========== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="6dp"
+            android:text="其他"
+            android:textColor="@color/text_main"
+            android:alpha="0.6"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <!-- 兼容性设置（点击弹窗） -->
         <include
             layout="@layout/layout_common_setting_item"
             android:id="@+id/item_widget_compatibility" />

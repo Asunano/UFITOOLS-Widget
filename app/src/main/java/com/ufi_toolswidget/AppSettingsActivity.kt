@@ -17,10 +17,8 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import com.ufi_toolswidget.util.AnimationUtil
@@ -31,7 +29,10 @@ import com.ufi_toolswidget.util.ThemeChangeNotifier
 import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.ThemeUtil
 import com.ufi_toolswidget.util.ThemedSliderUtil
+import com.ufi_toolswidget.util.ToastUtil
+import com.ufi_toolswidget.util.ToastStyle
 import com.ufi_toolswidget.view.ThemeSlider
+import com.ufi_toolswidget.util.DebugLogger
 import com.ufi_toolswidget.widget.BaseWifiWidget
 
 class AppSettingsActivity : AppCompatActivity() {
@@ -103,7 +104,7 @@ class AppSettingsActivity : AppCompatActivity() {
         SPUtil.setBgImageUri(this, uri.toString())
         updateBgImageSubtitle()
         BackgroundUtil.applyWindowBackground(this)
-        Toast.makeText(this, "背景图片已更新", Toast.LENGTH_SHORT).show()
+        ToastUtil.showDropToast(this, ToastStyle.SUCCESS, "背景图片已更新")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -141,7 +142,7 @@ class AppSettingsActivity : AppCompatActivity() {
         try {
             findInItem<ImageView>(R.id.item_display_mode, R.id.common_item_icon)?.setImageResource(getDisplayModeIcon())
             findInItem<TextView>(R.id.item_display_mode, R.id.common_item_title)?.text = "显示模式"
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("AppSettingsActivity", "setting display mode item icon/title failed: ${e.message}") }
         updateDisplayModeSubtitle()
 
         findViewById<View>(R.id.item_display_mode).setOnClickListener {
@@ -166,7 +167,7 @@ class AppSettingsActivity : AppCompatActivity() {
         try {
             findInItem<TextView>(R.id.item_display_mode, R.id.common_item_subtitle)?.text = modeName
             findInItem<ImageView>(R.id.item_display_mode, R.id.common_item_icon)?.setImageResource(getDisplayModeIcon())
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("AppSettingsActivity", "updating display mode subtitle/icon failed: ${e.message}") }
     }
 
     /** 显示模式选择弹窗 */
@@ -174,7 +175,9 @@ class AppSettingsActivity : AppCompatActivity() {
         activeThemeDialog?.takeIf { it.isShowing }?.dismiss()
         activeThemeDialog = null
 
-        val dialog = CommonDialogHelper.createDialog(this)
+        val dialog = CommonDialogHelper.createAnimatedDialog(this) {
+            activeThemeDialog = null
+        }
         dialog.setContentView(R.layout.layout_common_dialog)
         // ...
 
@@ -201,11 +204,8 @@ class AppSettingsActivity : AppCompatActivity() {
             val isSelected = key == currentAppTheme
             content.addView(buildDialogOptionView(label, textPrimary, accent,
                 selectedBg, unselectedBg, cornerRadius) {
-                currentAppTheme = key
-                updateDisplayModeSubtitle()
-                dismissDialogWithAnimation(dialog) {
-                    applyThemeModeChange(key)
-                }
+                dialog.dismiss()
+                applyThemeModeChange(key)
             }.apply {
                 // 初始选中态
                 if (isSelected) {
@@ -222,18 +222,6 @@ class AppSettingsActivity : AppCompatActivity() {
 
 
 
-    /** 带动画退场关闭弹窗：先执行模糊退场动画(260ms)，再关闭弹窗并执行回调 */
-    private fun dismissDialogWithAnimation(dialog: Dialog, onComplete: () -> Unit = {}) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            AnimationUtil.applyDialogBlurOut(dialog) {
-                try { dialog.dismiss() } catch (_: Exception) {}
-                onComplete()
-            }
-        } else {
-            dialog.dismiss()
-            onComplete()
-        }
-    }
 
     /** 应用显示模式切换：复用主题配色的原位圆形揭露动画 */
     private fun applyThemeModeChange(theme: String) {
@@ -293,7 +281,7 @@ class AppSettingsActivity : AppCompatActivity() {
         try {
             findInItem<ImageView>(R.id.item_theme_color, R.id.common_item_icon)?.setImageResource(R.drawable.ic_palette)
             findInItem<TextView>(R.id.item_theme_color, R.id.common_item_title)?.text = "主题配色"
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("AppSettingsActivity", "setting theme color item icon/title failed: ${e.message}") }
         updateThemeColorSubtitle()
 
         findViewById<View>(R.id.item_theme_color).setOnClickListener {
@@ -305,14 +293,16 @@ class AppSettingsActivity : AppCompatActivity() {
         val palette = ThemeColors.getById(this, currentThemeIndex)
         try {
             findInItem<TextView>(R.id.item_theme_color, R.id.common_item_subtitle)?.text = palette.name
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("AppSettingsActivity", "updating theme color subtitle failed: ${e.message}") }
     }
 
     private fun showThemeColorDialog() {
         activeColorDialog?.takeIf { it.isShowing }?.dismiss()
         activeColorDialog = null
 
-        val dialog = CommonDialogHelper.createDialog(this)
+        val dialog = CommonDialogHelper.createAnimatedDialog(this) {
+            activeColorDialog = null
+        }
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
@@ -427,9 +417,8 @@ class AppSettingsActivity : AppCompatActivity() {
                     refreshColorDialogOptions(content, dialog, textPrimary, accent, cardBg)
                 }
             } else {
-                dismissDialogWithAnimation(dialog) {
-                    selectColorTheme(index, dialog)
-                }
+                dialog.dismiss()
+                selectColorTheme(index, dialog)
             }
         }
         return row
@@ -560,7 +549,7 @@ class AppSettingsActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, dp2px(40), 1f).apply { marginStart = dp2px(10) }
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE; setColor(cardBg); cornerRadius = 8f * resources.displayMetrics.density
-                setStroke(1, if (androidx.appcompat.app.AppCompatDelegate.getDefaultNightMode() == androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES) 0x30FFFFFF.toInt() else 0x20000000)
+                setStroke((1.5f * resources.displayMetrics.density).toInt(), if (ThemeColors.isDark(this@AppSettingsActivity)) 0x30FFFFFF.toInt() else 0x20000000)
             }
             gravity = android.view.Gravity.CENTER
             hint = "#7B61FF"
@@ -622,14 +611,13 @@ class AppSettingsActivity : AppCompatActivity() {
                     SPUtil.setColorThemeIndex(this@AppSettingsActivity, -1)
                     updateThemeColorSubtitle()
                     
-                    // 先关闭弹窗，模糊退场动画结束后应用颜色以避免截图污染
-                    dismissDialogWithAnimation(dialog) {
-                        applyColorThemeChange(-1)
-                    }
+                    // 先关闭弹窗，再应用颜色
+                    dialog.dismiss()
+                    applyColorThemeChange(-1)
 
-                    android.widget.Toast.makeText(this@AppSettingsActivity, "自定义颜色已应用", android.widget.Toast.LENGTH_SHORT).show()
+                    ToastUtil.showDropToast(this@AppSettingsActivity, ToastStyle.SUCCESS, "自定义颜色已应用")
                 } else {
-                    android.widget.Toast.makeText(this@AppSettingsActivity, "颜色格式无效", Toast.LENGTH_SHORT).show()
+                    ToastUtil.showDropToast(this@AppSettingsActivity, ToastStyle.WARNING, "颜色格式无效")
                 }
             }
         }
@@ -649,7 +637,7 @@ class AppSettingsActivity : AppCompatActivity() {
         try {
             findInItem<ImageView>(R.id.item_refresh_interval, R.id.common_item_icon)?.setImageResource(R.drawable.ic_clock_bolt)
             findInItem<TextView>(R.id.item_refresh_interval, R.id.common_item_title)?.text = "主界面刷新频率"
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("AppSettingsActivity", "setting refresh interval item icon/title failed: ${e.message}") }
         updateRefreshIntervalSubtitle()
 
         findViewById<View>(R.id.item_refresh_interval).setOnClickListener {
@@ -661,14 +649,16 @@ class AppSettingsActivity : AppCompatActivity() {
         val label = if (mainIntervalSeconds == 0) "关闭" else "${mainIntervalSeconds} 秒"
         try {
             findInItem<TextView>(R.id.item_refresh_interval, R.id.common_item_subtitle)?.text = label
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("AppSettingsActivity", "updating refresh interval subtitle failed: ${e.message}") }
     }
 
     private fun showRefreshIntervalDialog() {
         activeIntervalDialog?.takeIf { it.isShowing }?.dismiss()
         activeIntervalDialog = null
 
-        val dialog = CommonDialogHelper.createDialog(this)
+        val dialog = CommonDialogHelper.createAnimatedDialog(this) {
+            activeIntervalDialog = null
+        }
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
@@ -684,7 +674,7 @@ class AppSettingsActivity : AppCompatActivity() {
             text = "${mainIntervalSeconds} 秒"
             textSize = 28f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(ThemeColors.accent(this@AppSettingsActivity))
+            setTextColor(ThemeColors.textPrimary(this@AppSettingsActivity))
             gravity = android.view.Gravity.CENTER
         }
 
@@ -741,7 +731,7 @@ class AppSettingsActivity : AppCompatActivity() {
         // --- 按钮区域：使用公共弹窗按钮，由 applyThemeToDialogRoot 自动着色 ---
         val btnPrimary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary)
         btnPrimary.text = "确定"
-        btnPrimary.setOnClickListener { dismissDialogWithAnimation(dialog) }
+        btnPrimary.setOnClickListener { dialog.dismiss() }
 
         val btnSecondary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_secondary)
         btnSecondary.visibility = android.view.View.VISIBLE
@@ -783,7 +773,7 @@ class AppSettingsActivity : AppCompatActivity() {
                 mainIntervalSeconds = secs
                 SPUtil.setMainRefreshSeconds(this@AppSettingsActivity, secs)
                 updateRefreshIntervalSubtitle()
-                dismissDialogWithAnimation(dialog)
+                dialog.dismiss()
             }
         )
     }
@@ -803,7 +793,9 @@ class AppSettingsActivity : AppCompatActivity() {
         activeBgDialog?.takeIf { it.isShowing }?.dismiss()
         activeBgDialog = null
 
-        val dialog = CommonDialogHelper.createDialog(this)
+        val dialog = CommonDialogHelper.createAnimatedDialog(this) {
+            activeBgDialog = null
+        }
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
@@ -825,7 +817,7 @@ class AppSettingsActivity : AppCompatActivity() {
         content.addView(buildDialogOptionView("从相册选择图片", textPrimary, accent,
             selectedBg, unselectedBg, cornerRadius) {
             pickImageLauncher.launch("image/*")
-            dismissDialogWithAnimation(dialog)
+            dialog.dismiss()
         })
 
         // 选项2：清除背景（仅在有自定义背景时显示）
@@ -837,8 +829,8 @@ class AppSettingsActivity : AppCompatActivity() {
                 BackgroundUtil.clearCache()
                 updateBgImageSubtitle()
                 BackgroundUtil.applyWindowBackground(this)
-                Toast.makeText(this, "背景已清除", Toast.LENGTH_SHORT).show()
-                dismissDialogWithAnimation(dialog)
+                ToastUtil.showDropToast(this, ToastStyle.INFO, "背景已清除")
+                dialog.dismiss()
             })
         }
 
@@ -905,13 +897,14 @@ class AppSettingsActivity : AppCompatActivity() {
     /** 构建未选中态背景：cardBg + 细描边 + 圆角（匹配 bg_widget_card 风格） */
     private fun makeUnselectedBg(cornerRadius: Float): GradientDrawable {
         val cardBg = ThemeColors.cardBg(this@AppSettingsActivity)
-        val borderColor = if (SPUtil.getNightMode(this@AppSettingsActivity) == AppCompatDelegate.MODE_NIGHT_YES)
+        val borderColor = if (ThemeColors.isDark(this@AppSettingsActivity))
             0x30FFFFFF.toInt() else 0x20000000
+        val borderWidth = (1.5f * resources.displayMetrics.density).toInt()
         return GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             setColor(cardBg)
             this.cornerRadius = cornerRadius
-            setStroke(1, borderColor)
+            setStroke(borderWidth, borderColor)
         }
     }
 

@@ -10,7 +10,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -28,6 +27,7 @@ import java.security.MessageDigest
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
+import com.ufi_toolswidget.util.ToastUtil
 
 /**
  * 通过静态 version.json 文件检查应用更新
@@ -346,13 +346,13 @@ object UpdateChecker {
     fun installApk(context: Context, fileName: String, sha256: String) {
         val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName)
         if (!file.exists()) {
-            Toast.makeText(context, "下载文件不存在", Toast.LENGTH_SHORT).show()
+            ToastUtil.showDropToast(context, ToastStyle.WARNING, "下载文件不存在")
             return
         }
         if (sha256.isNotBlank()) {
             if (!verifySha256(file, sha256)) {
                 file.delete()
-                Toast.makeText(context, "文件校验失败，已删除损坏文件\n请重新下载", Toast.LENGTH_LONG).show()
+                ToastUtil.showDropToast(context, ToastStyle.WARNING, "文件校验失败", "已删除损坏文件，请重新下载")
                 return
             }
         }
@@ -379,7 +379,7 @@ object UpdateChecker {
     ): BroadcastReceiver? {
         val finalUrl = applyMirrorToUrl(activity, url)
         if (finalUrl.isBlank()) {
-            Toast.makeText(activity, "没有可下载的 APK", Toast.LENGTH_SHORT).show()
+            ToastUtil.showDropToast(activity, ToastStyle.WARNING, "没有可下载的 APK")
             return null
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {

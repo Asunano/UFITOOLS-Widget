@@ -21,9 +21,9 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatDelegate
 import com.google.android.material.button.MaterialButton
 import com.ufi_toolswidget.R
+import com.ufi_toolswidget.util.ToastUtil
 
 /**
  * 统一弹窗工具类 — 从 MainActivity 抽离。
@@ -120,14 +120,14 @@ object CommonDialogHelper {
             ?.let { if (it.childCount > 0) it.getChildAt(0) as? ViewGroup else it } ?: return
         val cardBg = ThemeColors.cardBg(context)
         val textPrimary = ThemeColors.textPrimary(context)
-        val borderColor = if (SPUtil.getNightMode(context) == AppCompatDelegate.MODE_NIGHT_YES)
-            0x4DFFFFFF.toInt() else 0x35000000
 
         root.background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             setColor(cardBg)
             cornerRadius = dp2px(context, 16).toFloat()
-            setStroke(2, borderColor)
+            val borderColor = if (ThemeColors.isDark(context))
+                (ThemeColors.textSecondary(context) and 0x00FFFFFF) or 0x60000000 else 0x35000000
+            setStroke(dp2px(context, 2), borderColor)
         }
         root.elevation = 24f
 
@@ -222,6 +222,7 @@ object CommonDialogHelper {
             dialog.window?.setBackgroundDrawable(BitmapDrawable(context.resources, blurred))
         } catch (e: Exception) {
             Log.w(TAG, "Legacy blur failed: ${e.message}")
+            DebugLogger.w(TAG, "Legacy blur failed: ${e.message}")
         }
     }
 
@@ -325,7 +326,7 @@ object CommonDialogHelper {
     // ── 通用弹窗一步到位 ──
 
     /**
-     * 一步到位：创建弹窗 → 主题着色 → 填充内容 → 配置按钮 → 显示。
+     * 一步到位：创建弹窗（带动画退场）→ 主题着色 → 填充内容 → 配置按钮 → 显示。
      *
      * 适用于不需要持有 Dialog 引用的场景。如需自己管理生命周期，用 createDialog + configureAndShow。
      *
@@ -342,12 +343,83 @@ object CommonDialogHelper {
         onSecondaryClick: ((Dialog) -> Unit)? = null,
         widthRatio: Float = 0.88f
     ): Dialog {
-        val dialog = createDialog(context)
+        val dialog = createAnimatedDialog(context)
         dialog.setContentView(R.layout.layout_common_dialog)
         applyThemeToDialogRoot(context, dialog)
         configureAndShow(context, dialog, title, iconRes, onFill,
             primaryBtnText, onPrimaryClick, secondaryBtnText, onSecondaryClick, widthRatio)
         return dialog
+    }
+
+    // ── 选择列表弹窗（无按钮，点击选项即触发） ──
+
+    /**
+     * 显示选择列表弹窗（无按钮，点击选项即触发回调并关闭）。
+     *
+     * 适用于"从列表中选择一项"的场景，如对比度选择、色源选择。
+     * 自动创建 AnimatedDialog、设置通用布局、应用主题、配置窗口并显示。
+     *
+     * @param context  上下文
+     * @param title    弹窗标题
+     * @param iconRes  图标资源
+     * @param onFill   填充内容到 content LinearLayout，接收 (content, dialog) 便于添加点击关闭事件
+     * @param widthRatio 弹窗宽度比，默认 0.88
+     * @return 已显示的 [Dialog] 实例
+     */
+    fun showSelectionDialog(
+        context: Context,
+        title: String,
+        iconRes: Int,
+        onFill: (LinearLayout, Dialog) -> Unit,
+        widthRatio: Float = 0.88f
+    ): Dialog {
+        val dialog = createAnimatedDialog(context)
+        dialog.setContentView(R.layout.layout_common_dialog)
+
+        dialog.findViewById<TextView>(R.id.common_dialog_title)?.text = title
+        dialog.findViewById<ImageView>(R.id.common_dialog_icon)?.setImageResource(iconRes)
+        dialog.findViewById<View>(R.id.common_dialog_button_container)?.visibility = View.GONE
+
+        applyThemeToDialogRoot(context, dialog)
+
+        val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
+        onFill(content, dialog)
+
+        setupDialogWindow(context, dialog, widthRatio)
+        dialog.show()
+        return dialog
+    }
+
+    // ── 背景 Drawable 工厂（选项列表项用） ──
+
+    /**
+     * 创建选中态选项背景（实色填充 + 圆角）。
+     * @param accentColor 强调色（选中态背景色）
+     * @param cornerRadius 圆角半径（px）
+     */
+    fun createSelectedBg(accentColor: Int, cornerRadius: Float): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(accentColor)
+            this.cornerRadius = cornerRadius
+        }
+    }
+
+    /**
+     * 创建未选中态选项背景（cardBg 底色 + 描边 + 圆角）。
+     * @param context 上下文
+     * @param cornerRadius 圆角半径（px）
+     */
+    fun createUnselectedBg(context: Context, cornerRadius: Float): GradientDrawable {
+        val cardBg = ThemeColors.cardBg(context)
+        val isDark = ThemeColors.isDark(context)
+        val borderColor = if (isDark) 0x30FFFFFF.toInt() else 0x20000000
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(cardBg)
+            this.cornerRadius = cornerRadius
+            setStroke(dp2px(context, 1), borderColor)
+        }
     }
 
     // ── 红色警告弹窗 ──
@@ -526,7 +598,7 @@ object CommonDialogHelper {
                 shape = GradientDrawable.RECTANGLE
                 setColor(cardBg)
                 cornerRadius = 8f * density
-                setStroke(1, if (AppCompatDelegate.getDefaultNightMode() == AppCompatDelegate.MODE_NIGHT_YES)
+                setStroke(1, if (ThemeColors.isDark(context))
                     0x30FFFFFF.toInt() else 0x20000000)
             }
             gravity = android.view.Gravity.CENTER
@@ -555,7 +627,7 @@ object CommonDialogHelper {
             val text = et.text.toString()
             val error = validate(text)
             if (error != null) {
-                android.widget.Toast.makeText(context, error, android.widget.Toast.LENGTH_SHORT).show()
+                ToastUtil.showDropToast(context, ToastStyle.WARNING, error)
             } else {
                 onConfirm(text)
             }
@@ -607,7 +679,12 @@ object CommonDialogHelper {
         tv.setTextColor(if (active) 0xFFFFFFFF.toInt() else textSecondary)
         val chipBg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            setColor(if (active) accent else (accent and 0x00FFFFFF) or 0x15000000)
+            if (active) {
+                setColor(accent)
+            } else {
+                setColor(android.graphics.Color.TRANSPARENT)
+                setStroke(dp2px(chip.context, 1), (textSecondary and 0x00FFFFFF) or 0x60000000)
+            }
             cornerRadius = 12f * dp2px(chip.context, 1)
         }
         tv.background = chipBg

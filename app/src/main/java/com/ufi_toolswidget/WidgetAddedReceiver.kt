@@ -3,7 +3,8 @@ package com.ufi_toolswidget
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.widget.Toast
+import com.ufi_toolswidget.util.ToastUtil
+import com.ufi_toolswidget.util.ToastStyle
 
 /**
  * 接收小组件添加成功的广播回调。
@@ -17,6 +18,6 @@ class WidgetAddedReceiver : BroadcastReceiver() {
             else -> ""
         }
         val msg = if (sizeLabel.isNotEmpty()) "小组件 $sizeLabel 添加成功！" else "小组件添加成功！"
-        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        ToastUtil.showDropToast(context, ToastStyle.SUCCESS, msg)
     }
 }

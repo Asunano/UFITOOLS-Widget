@@ -600,7 +600,7 @@ object ThemeColors {
             cardBgLight         = buildHsvColor(h, baseSat * surfSM * 1.2f, cardL),
             textPrimaryLight    = buildHsvColor(h, baseSat * txtSM, txtPriL),
             textSecondaryLight  = buildHsvColor(h, baseSat * txtSM * 0.9f, txtSecL),
-            dividerLight        = buildHsvColor(h, baseSat * surfSM, divL),
+            dividerLight        = buildHsvColor(h, 0f, divL),  // 中性灰，避免壁纸色相残留
             accentLight         = buildHsvColor(h, baseSat * accSM, accentL),
             accentSecondaryLight = buildHsvColor(h, baseSat * accSecSM, accentSecL),
             btnBgLight          = buildHsvColor(h, baseSat * accSM, accentL),
@@ -610,7 +610,7 @@ object ThemeColors {
             cardBgDark          = buildHsvColor(h, baseSat * darkSurfSM * 1.2f, cardDarkL),
             textPrimaryDark     = buildHsvColor(h, baseSat * darkTxtSM, txtPriDarkL),
             textSecondaryDark   = buildHsvColor(h, baseSat * darkTxtSM * 1.1f, txtSecDarkL),
-            dividerDark         = buildHsvColor(h, baseSat * darkSurfSM * 0.8f, divDarkL),
+            dividerDark         = buildHsvColor(h, 0f, divDarkL),  // 中性灰
             accentDark          = buildHsvColor(h, baseSat * darkAccSM, accentDarkL),
             accentSecondaryDark = buildHsvColor(h, baseSat * accSecSM, accentSecDarkL),
             btnBgDark           = buildHsvColor(h, baseSat * darkAccSM, accentDarkL),

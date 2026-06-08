@@ -16,17 +16,15 @@ class ThemeSlider @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    var minValue: Float = 5f
-    var maxValue: Float = 120f
     var stepSize: Float = 1f
 
-var currentValue: Float = 5f
+    var currentValue: Float = 5f
         set(value) {
             val clamped = value.coerceIn(minValue, maxValue)
             val stepped = if (stepSize > 0) Math.round(clamped / stepSize) * stepSize else clamped
             val snapped = stepped.coerceIn(minValue, maxValue)
             field = snapped
-            updateColors()
+            // updateColors() 已从此处移除 — 颜色只需在 init 和 onThemeChange 时设置
             // 实时回调（不受抑制，用于 valueLabel 实时更新）
             onValueChanging?.invoke(snapped)
             // 拖动时抑制 onValueChange，释放时才通知（避免快捷按钮闪烁）
@@ -38,8 +36,33 @@ var currentValue: Float = 5f
 
     /** 刻度步长，<= 0 时不显示刻度 */
     var tickStepSize: Float = 0f
+        set(value) {
+            if (field != value) {
+                field = value
+                invalidateTickCache()
+            }
+        }
     /** 刻度标签格式化器，null 时不显示标签文字 */
     var tickLabelFormatter: ((Float) -> String)? = null
+        set(value) {
+            field = value
+            invalidateTickCache()
+        }
+
+    var minValue: Float = 5f
+        set(value) {
+            if (field != value) {
+                field = value
+                invalidateTickCache()
+            }
+        }
+    var maxValue: Float = 120f
+        set(value) {
+            if (field != value) {
+                field = value
+                invalidateTickCache()
+            }
+        }
 
     var onValueChange: ((Float) -> Unit)? = null
     /** 实时值变化回调（拖动过程中无条件触发，不受 suppressValueChange 抑制） */
@@ -48,6 +71,13 @@ var currentValue: Float = 5f
     private var accentColor = 0
     private var trackBgColor = 0
     private var textColor = 0
+    // 缓存刻度值，避免每帧重复计算
+    private var cachedTickValues: List<Float>? = null
+    private var cachedTickMinVal = 0f
+    private var cachedTickMaxVal = 0f
+    private var cachedTickStepSize = 0f
+    // 缓存轨道padding，避免每帧重复测量文字
+    private var cachedPadding: Float? = null
 
     private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val activeTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -65,9 +95,11 @@ var currentValue: Float = 5f
     private var labelsAlpha: Float = 0f
     /** 刻度高亮凸起动画进度 0..1 */
     private var highlightProgress: Float = 0f
+    /** 复用 BlurMaskFilter 对象，避免每帧创建 */
+    private var blurMaskFilter: BlurMaskFilter? = null
+    private var lastBlurRadius = 0f
 
     private val density = context.resources.displayMetrics.density
-    private var valueLabel = ""
 
     private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 
@@ -106,31 +138,98 @@ var currentValue: Float = 5f
 
         activeTrackPaint.color = accentColor
         trackPaint.color = trackBgColor
-        thumbPaint.color = accentColor
+        thumbPaint.color = if (com.ufi_toolswidget.util.ThemeColors.isDark(context))
+            com.ufi_toolswidget.util.ThemeColors.textSecondary(context) else accentColor
         thumbStrokePaint.color = 0xFFFFFFFF.toInt()
-        tickPaint.color = (accentColor and 0x00FFFFFF) or 0x50000000
+        tickPaint.color = (textColor and 0x00FFFFFF) or 0x50000000
         tickLabelPaint.color = textColor
     }
 
     /**
-     * 计算统一 padding：同时容纳 thumb 和刻度标签，确保刻度点与标签位置一致
+     * 计算统一 padding：同时容纳 thumb 和刻度标签，确保刻度点与标签位置一致。
+     * 结果缓存：仅当刻度参数（tickStepSize/tickLabelFormatter/tick值）变化时重新计算。
      */
     private fun computeTrackPadding(): Float {
+        if (cachedPadding != null) return cachedPadding!!
+
         val basePadding = thumbRadius
-        if (tickStepSize > 0f && tickLabelFormatter != null) {
+        val padding = if (tickStepSize > 0f && tickLabelFormatter != null) {
             var maxW = 0f
-            var v = minValue
-            while (true) {
+            for (v in getTickValues()) {
                 val displayVal = Math.round(v * 100f) / 100f
                 val lw = tickLabelPaint.measureText(tickLabelFormatter!!(displayVal))
                 if (lw > maxW) maxW = lw
-                if (v >= maxValue - 0.001f) break
-                val next = v + tickStepSize
-                v = if (next >= maxValue - 0.001f) maxValue else next
             }
-            return maxOf(basePadding, maxW / 2f)
+            maxOf(basePadding, maxW / 2f)
+        } else {
+            basePadding
         }
-        return basePadding
+        cachedPadding = padding
+        return padding
+    }
+
+    /**
+     * 返回对齐到步长整数倍的刻度值列表。
+     * 第一个刻度始终为 minValue，最后一个始终为 maxValue，
+     * 中间刻度对齐到 tickStepSize 的整数倍。
+     *
+     * 步长根据范围动态计算（保持为 tickStepSize 的整数倍），
+     * 使刻度总数控制在 6 个左右，避免大范围场景下刻度过密。
+     *
+     * 结果缓存：当 minValue/maxValue/tickStepSize 未变化时返回缓存列表，
+     * 避免 onDraw 中每帧重复计算。
+     */
+    private fun getTickValues(): List<Float> {
+        if (tickStepSize <= 0f || maxValue <= minValue) return emptyList()
+
+        // 缓存命中：三个依赖参数均未变化
+        if (cachedTickValues != null
+            && cachedTickMinVal == minValue
+            && cachedTickMaxVal == maxValue
+            && cachedTickStepSize == tickStepSize) {
+            return cachedTickValues!!
+        }
+
+        val range = maxValue - minValue
+
+        // 动态计算步长倍数，使刻度数接近 6 个
+        val maxTicks = 6
+        val intervals = maxTicks - 1  // 5
+        val idealStep = range / intervals
+        val multiplier = Math.ceil(idealStep.toDouble() / tickStepSize.toDouble()).toInt().coerceAtLeast(1)
+        val step = multiplier * tickStepSize
+
+        val result = mutableListOf(minValue)
+
+        val firstAligned = Math.ceil(minValue.toDouble() / step.toDouble()).toFloat() * step
+        var v = firstAligned
+
+        // 首个对齐值刚好等于 minValue（已添加），从下一个步长开始
+        if (v <= minValue + 0.001f) {
+            v += step
+        }
+
+        while (v < maxValue - 0.001f) {
+            result.add(v)
+            v += step
+        }
+
+        if (result.last() < maxValue - 0.001f) {
+            result.add(maxValue)
+        }
+
+        // 更新缓存
+        cachedTickValues = result
+        cachedTickMinVal = minValue
+        cachedTickMaxVal = maxValue
+        cachedTickStepSize = tickStepSize
+        return result
+    }
+
+    /** 刻度参数变化时清除相关缓存 */
+    private fun invalidateTickCache() {
+        cachedTickValues = null
+        cachedPadding = null
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -171,14 +270,10 @@ var currentValue: Float = 5f
         if (tickStepSize > 0 && maxValue > minValue) {
             val tickRadius = 2.5f * density
             val tickY = trackBottom + tickRadius + 5f * density
-            var tickValue = minValue
-            while (true) {
+            for (tickValue in getTickValues()) {
                 val tickRatio = ((tickValue - minValue) / (maxValue - minValue)).coerceIn(0f, 1f)
                 val tickCenterX = trackLeft + trackWidth * tickRatio
                 canvas.drawCircle(tickCenterX, tickY, tickRadius, tickPaint)
-                if (tickValue >= maxValue - 0.001f) break
-                val nextAligned = tickValue + tickStepSize
-                tickValue = if (nextAligned >= maxValue - 0.001f) maxValue else nextAligned
             }
 
             // 刻度标签（滑动时淡入显示，与刻度点同坐标系）
@@ -213,27 +308,28 @@ var currentValue: Float = 5f
 
         // 收集所有刻度标签
         val tickData = mutableListOf<Pair<Float, String>>()
-        var tickValue = minValue
-        while (true) {
+        for (tickValue in getTickValues()) {
             val displayVal = Math.round(tickValue * 100f) / 100f
             tickData.add(tickValue to formatter(displayVal))
-            if (tickValue >= maxValue - 0.001f) break
-            val nextAligned = tickValue + tickStepSize
-            tickValue = if (nextAligned >= maxValue - 0.001f) maxValue else nextAligned
         }
 
         // 模糊动画：alpha 越低越模糊（二次曲线，强化模糊感）
         val blurFactor = 1f - alpha
         val blurRadius = blurFactor * blurFactor * 12f * density
-        tickLabelPaint.maskFilter = if (blurRadius > 0.5f) {
-            BlurMaskFilter(blurRadius, BlurMaskFilter.Blur.NORMAL)
+        if (blurRadius > 0.5f) {
+            // 复用 BlurMaskFilter，避免每帧创建
+            if (blurMaskFilter == null || lastBlurRadius != blurRadius) {
+                blurMaskFilter = BlurMaskFilter(blurRadius, BlurMaskFilter.Blur.NORMAL)
+                lastBlurRadius = blurRadius
+            }
+            tickLabelPaint.maskFilter = blurMaskFilter
         } else {
-            null
+            tickLabelPaint.maskFilter = null
         }
 
         // 透明度 + 样式
-        val alphaInt = (alpha * 128).toInt().coerceIn(0, 128)
-        tickLabelPaint.color = (accentColor and 0x00FFFFFF) or (alphaInt shl 24)
+        val alphaInt = (alpha * 255).toInt().coerceIn(0, 255)
+        tickLabelPaint.color = (textColor and 0x00FFFFFF) or (alphaInt shl 24)
         tickLabelPaint.isFakeBoldText = false
         tickLabelPaint.textSize = 10f * density
 

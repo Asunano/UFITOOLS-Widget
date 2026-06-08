@@ -18,6 +18,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.ufi_toolswidget.R
+import com.ufi_toolswidget.util.DebugLogger
+import com.ufi_toolswidget.util.NotificationHelper
 import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.WidgetBitmapCache
@@ -69,8 +71,8 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
                 val newLog = "[$timestamp] $msg\n$old"
                 sp.edit().putString("error_log", newLog.lines().take(50).joinToString("\n")).apply()
                 Log.d(TAG, msg)
-            } catch (_: Exception) {
-                // SharedPreferences 写入失败（磁盘满/权限），调试日志丢失可接受
+            } catch (e: Exception) {
+                DebugLogger.w(TAG, "appendLog failed: ${e.message}")
             }
         }
 
@@ -81,6 +83,18 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             }
 
             val currentHash = computeDataHash(context)
+            // ════ 通知提醒检测（在小组件刷新周期中触发，确保后台被杀时仍能检测） ════
+            val sp = context.getSharedPreferences("wifi_data", Context.MODE_PRIVATE)
+            NotificationHelper.checkAndNotify(
+                context = context,
+                dailyFlowStr = sp.getString("daily_flow", "") ?: "",
+                monthlyFlowStr = sp.getString("flow", "") ?: "",
+                tempStr = sp.getString("temp", "") ?: "",
+                cpuStr = sp.getString("cpu", "") ?: "",
+                memStr = sp.getString("mem", "") ?: "",
+                batteryPercent = sp.getInt("battery_percent", 0),
+                isDeviceOnline = !WifiWorker.isWorkerStopped(context)
+            )
             if (!force && currentHash != 0 && currentHash == lastDataHash) {
                 return // SP 数据未变，跳过整次渲染（performRender + applyWidgetTheme）
             }
@@ -132,27 +146,15 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
         }
 
         /**
-         * 计算 SP 数据指纹：覆盖影响小组件渲染的所有字段（数据 + 外观设置）。
-         * 数据未变时 hash 相同，可跳过 performRender + applyWidgetTheme。
+         * 计算 SP 数据指纹：缓存的数据字段哈希 + 实时读取的外观设置字段。
+         * 数据字段（14 个）的哈希在 [SPUtil.saveData] 时预计算并缓存，
+         * 避免每次渲染都从 SP 读取 40+ 个字段。
+         * 外观设置变化频率低，直接实时读取即可。
          */
         private fun computeDataHash(context: Context): Int {
             val sp = context.getSharedPreferences("wifi_data", Context.MODE_PRIVATE)
-            var h = 17
-            // 数据字段
-            h = 31 * h + (sp.getString("device_model", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("model", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("firmware_ver", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("flow", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("daily_flow", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("signal", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("temp", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("battery", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("cpu", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("mem", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("net_type", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("app_ver_code", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("battery_current", "") ?: "").hashCode()
-            h = 31 * h + (sp.getString("update_time", "") ?: "").hashCode()
+            var h = SPUtil.getCachedDataHash(context)
+            if (h == 0) return 0 // 数据尚未缓存，触发全量渲染
             // 显隐设置
             h = 31 * h + sp.getBoolean("show_flow", true).hashCode()
             h = 31 * h + sp.getBoolean("show_signal", true).hashCode()
@@ -300,16 +302,27 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             val memClean = mem.replace("%", "").trim()
             safeSetText(rv, R.id.tv_mem, "RAM ${memClean}%")
 
-            // ===== 第一行：网络类型 + 信号 dBm 已合并到第三行 =====
-            val networkRes = when {
-                netType.contains("5G", true) -> R.drawable.ic_network_5g
-                netType.contains("4G+", true) || netType.contains("LTE+", true) -> R.drawable.ic_network_4g_plus
-                netType.contains("4G", true) || netType.contains("LTE", true) -> R.drawable.ic_network_4g
-                netType.contains("3G", true) || netType.contains("WCDMA", true) -> R.drawable.ic_network_3g
-                netType.contains("2G", true) || netType.contains("GSM", true) -> R.drawable.ic_network_2g
-                else -> R.drawable.ic_network_4g
+            // ===== 判断是否有有效的网络数据 =====
+            val hasNetworkData = netType.isNotEmpty() && signal != "--"
+
+            // ===== 第一行：网络制式图标 + 信号 dBm =====
+            if (hasNetworkData) {
+                val networkRes = when {
+                    netType.contains("5G", true) -> R.drawable.ic_network_5g
+                    netType.contains("4G+", true) || netType.contains("LTE+", true) -> R.drawable.ic_network_4g_plus
+                    netType.contains("4G", true) || netType.contains("LTE", true) -> R.drawable.ic_network_4g
+                    netType.contains("3G", true) || netType.contains("WCDMA", true) -> R.drawable.ic_network_3g
+                    netType.contains("2G", true) || netType.contains("GSM", true) -> R.drawable.ic_network_2g
+                    else -> R.drawable.ic_network_4g
+                }
+                safeSetImageResource(rv, R.id.iv_network, networkRes)
+                safeSetVisibility(rv, R.id.iv_network, true)
+                safeSetVisibility(rv, R.id.tv_no_network, false)
+            } else {
+                // 无网络数据：隐藏网络制式图标，显示"无网络"文字
+                safeSetVisibility(rv, R.id.iv_network, false)
+                safeSetVisibility(rv, R.id.tv_no_network, true)
             }
-            safeSetImageResource(rv, R.id.iv_network, networkRes)
             safeSetText(rv, R.id.tv_signal_dbm, signal)
 
             // ===== 路由器图标：离线时切换为 ic_router_off =====
@@ -343,7 +356,16 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
 
             // 信号
             safeSetVisibility(rv, R.id.iv_signal_bars, showSignal)
-            safeSetVisibility(rv, R.id.iv_network, showSignal)
+            if (showSignal && hasNetworkData) {
+                safeSetVisibility(rv, R.id.iv_network, true)
+                safeSetVisibility(rv, R.id.tv_no_network, false)
+            } else if (showSignal) {
+                safeSetVisibility(rv, R.id.iv_network, false)
+                safeSetVisibility(rv, R.id.tv_no_network, true)
+            } else {
+                safeSetVisibility(rv, R.id.iv_network, false)
+                safeSetVisibility(rv, R.id.tv_no_network, false)
+            }
             safeSetVisibility(rv, R.id.tv_signal_dbm, showSignal)
             safeSetVisibility(rv, R.id.iv_antenna, showSignal)
 
@@ -383,6 +405,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             val temp = sp.getString("temp", "--") ?: "--"
             val battery = sp.getString("battery", "--") ?: "--"
             val netType = sp.getString("net_type", "") ?: ""
+            val hasNetworkData = netType.isNotEmpty() && signal != "--"
             val batteryCurrent = sp.getString("battery_current", "") ?: ""
             val updateTime = sp.getString("update_time", "--") ?: "--"
 
@@ -404,15 +427,22 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             safeSetImageResource(rv, R.id.iv_signal_bars, signalRes)
 
             // 网络类型
-            val networkRes = when {
-                netType.contains("5G", true) -> R.drawable.ic_network_5g
-                netType.contains("4G+", true) || netType.contains("LTE+", true) -> R.drawable.ic_network_4g_plus
-                netType.contains("4G", true) || netType.contains("LTE", true) -> R.drawable.ic_network_4g
-                netType.contains("3G", true) || netType.contains("WCDMA", true) -> R.drawable.ic_network_3g
-                netType.contains("2G", true) || netType.contains("GSM", true) -> R.drawable.ic_network_2g
-                else -> R.drawable.ic_network_4g
+            if (hasNetworkData) {
+                val networkRes = when {
+                    netType.contains("5G", true) -> R.drawable.ic_network_5g
+                    netType.contains("4G+", true) || netType.contains("LTE+", true) -> R.drawable.ic_network_4g_plus
+                    netType.contains("4G", true) || netType.contains("LTE", true) -> R.drawable.ic_network_4g
+                    netType.contains("3G", true) || netType.contains("WCDMA", true) -> R.drawable.ic_network_3g
+                    netType.contains("2G", true) || netType.contains("GSM", true) -> R.drawable.ic_network_2g
+                    else -> R.drawable.ic_network_4g
+                }
+                safeSetImageResource(rv, R.id.iv_network, networkRes)
+                safeSetVisibility(rv, R.id.iv_network, true)
+                safeSetVisibility(rv, R.id.tv_no_network, false)
+            } else {
+                safeSetVisibility(rv, R.id.iv_network, false)
+                safeSetVisibility(rv, R.id.tv_no_network, true)
             }
-            safeSetImageResource(rv, R.id.iv_network, networkRes)
 
             // 电量图标
             val batteryLevel = parseBatteryLevel(battery)
@@ -454,7 +484,16 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             safeSetVisibility(rv, R.id.tv_model, showModel)
             safeSetVisibility(rv, R.id.iv_router, showModel)
             safeSetVisibility(rv, R.id.iv_signal_bars, showSignal)
-            safeSetVisibility(rv, R.id.iv_network, showSignal)
+            if (showSignal && hasNetworkData) {
+                safeSetVisibility(rv, R.id.iv_network, true)
+                safeSetVisibility(rv, R.id.tv_no_network, false)
+            } else if (showSignal) {
+                safeSetVisibility(rv, R.id.iv_network, false)
+                safeSetVisibility(rv, R.id.tv_no_network, true)
+            } else {
+                safeSetVisibility(rv, R.id.iv_network, false)
+                safeSetVisibility(rv, R.id.tv_no_network, false)
+            }
             safeSetVisibility(rv, R.id.iv_temp, showTemp)
             safeSetVisibility(rv, R.id.tv_temp, showTemp)
             safeSetVisibility(rv, R.id.iv_battery, showBattery)
@@ -495,7 +534,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
                 }
             }
 
-            val bgImageUri = SPUtil.getWidgetBgImageUri(context)
+            val bgImageUri = SPUtil.getAppliedWidgetBgImageUri(context)
             val opacity = SPUtil.getWidgetBgOpacity(context)
             val alpha = (opacity / 100f * 255).toInt()
 
@@ -518,7 +557,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             for (id in listOf(
                 R.id.tv_model,
                 R.id.tv_battery, R.id.tv_charging,
-                R.id.tv_temp, R.id.tv_update_time
+                R.id.tv_temp, R.id.tv_no_network, R.id.tv_update_time
             )) {
                 safeSetTextColor(rv, id, textColor)
             }
@@ -655,7 +694,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
                 }
             }
 
-            val bgImageUri = SPUtil.getWidgetBgImageUri(context)
+            val bgImageUri = SPUtil.getAppliedWidgetBgImageUri(context)
             val opacity = SPUtil.getWidgetBgOpacity(context)
             val alpha = (opacity / 100f * 255).toInt()
 
@@ -685,7 +724,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
                 R.id.tv_daily, R.id.tv_daily_label, R.id.tv_daily_unit,
                 R.id.tv_flow, R.id.tv_flow_label, R.id.tv_flow_unit,
                 R.id.tv_temp, R.id.tv_cpu, R.id.tv_mem,
-                R.id.tv_signal_dbm, R.id.tv_update_time
+                R.id.tv_signal_dbm, R.id.tv_no_network, R.id.tv_update_time
             )) {
                 safeSetTextColor(rv, id, textColor)
             }
@@ -754,7 +793,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             }
 
             // ── 背景图 ──
-            val bgImageUri = SPUtil.getWidgetBgImageUri(context)
+            val bgImageUri = SPUtil.getAppliedWidgetBgImageUri(context)
             val opacity = SPUtil.getWidgetBgOpacity(context)
             val alpha = (opacity / 100f * 255).toInt()
             val bgBitmap = getOrCreateBgBitmap(context, bgImageUri, pageBg, cornerRadiusDp)
@@ -776,7 +815,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             // 标签类文字
             for (id in listOf(
                 R.id.tv_model, R.id.tv_version, R.id.tv_app_ver_code,
-                R.id.tv_charging,
+                R.id.tv_charging, R.id.tv_no_network,
                 R.id.tv_daily_label, R.id.tv_daily_unit,
                 R.id.tv_flow_label, R.id.tv_flow_unit,
                 R.id.tv_update_time
@@ -843,6 +882,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             val signal = sp.getString("signal", "--") ?: "--"
             val battery = sp.getString("battery", "--") ?: "--"
             val netType = sp.getString("net_type", "") ?: ""
+            val hasNetworkData = netType.isNotEmpty() && signal != "--"
             val batteryCurrent = sp.getString("battery_current", "") ?: ""
 
             // 信号格数矢量图标
@@ -883,15 +923,22 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             safeSetText(rv, R.id.tv_charging, if (isCharging) "⚡" else "")
 
             // 网络类型图标
-            val networkRes = when {
-                netType.contains("5G", true) -> R.drawable.ic_network_5g
-                netType.contains("4G+", true) || netType.contains("LTE+", true) -> R.drawable.ic_network_4g_plus
-                netType.contains("4G", true) || netType.contains("LTE", true) -> R.drawable.ic_network_4g
-                netType.contains("3G", true) || netType.contains("WCDMA", true) -> R.drawable.ic_network_3g
-                netType.contains("2G", true) || netType.contains("GSM", true) -> R.drawable.ic_network_2g
-                else -> R.drawable.ic_network_4g
+            if (hasNetworkData) {
+                val networkRes = when {
+                    netType.contains("5G", true) -> R.drawable.ic_network_5g
+                    netType.contains("4G+", true) || netType.contains("LTE+", true) -> R.drawable.ic_network_4g_plus
+                    netType.contains("4G", true) || netType.contains("LTE", true) -> R.drawable.ic_network_4g
+                    netType.contains("3G", true) || netType.contains("WCDMA", true) -> R.drawable.ic_network_3g
+                    netType.contains("2G", true) || netType.contains("GSM", true) -> R.drawable.ic_network_2g
+                    else -> R.drawable.ic_network_4g
+                }
+                safeSetImageResource(rv, R.id.iv_network, networkRes)
+                safeSetVisibility(rv, R.id.iv_network, true)
+                safeSetVisibility(rv, R.id.tv_no_network, false)
+            } else {
+                safeSetVisibility(rv, R.id.iv_network, false)
+                safeSetVisibility(rv, R.id.tv_no_network, true)
             }
-            safeSetImageResource(rv, R.id.iv_network, networkRes)
 
             // 2×1 独立显隐设置
             val showSignal2x1 = sp.getBoolean("show_signal_2x1", true)
@@ -899,7 +946,16 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             val showNetwork2x1 = sp.getBoolean("show_network_2x1", true)
 
             safeSetVisibility(rv, R.id.iv_signal_bars, showSignal2x1)
-            safeSetVisibility(rv, R.id.iv_network, showNetwork2x1)
+            if (showNetwork2x1 && hasNetworkData) {
+                safeSetVisibility(rv, R.id.iv_network, true)
+                safeSetVisibility(rv, R.id.tv_no_network, false)
+            } else if (showNetwork2x1) {
+                safeSetVisibility(rv, R.id.iv_network, false)
+                safeSetVisibility(rv, R.id.tv_no_network, true)
+            } else {
+                safeSetVisibility(rv, R.id.iv_network, false)
+                safeSetVisibility(rv, R.id.tv_no_network, false)
+            }
             safeSetVisibility(rv, R.id.iv_battery, showBattery2x1)
             safeSetVisibility(rv, R.id.tv_battery, showBattery2x1)
             safeSetVisibility(rv, R.id.tv_charging, showBattery2x1)
@@ -942,7 +998,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
                 }
             }
 
-            val bgImageUri = SPUtil.getWidgetBgImageUri(context)
+            val bgImageUri = SPUtil.getAppliedWidgetBgImageUri(context)
             val opacity = SPUtil.getWidgetBgOpacity(context)
             val alpha = (opacity / 100f * 255).toInt()
 
@@ -965,7 +1021,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             rv.setInt(R.id.widget_bg_stroke, "setImageAlpha", alpha)
 
             // 文字色
-            for (id in listOf(R.id.tv_battery, R.id.tv_charging)) {
+            for (id in listOf(R.id.tv_battery, R.id.tv_charging, R.id.tv_no_network)) {
                 safeSetTextColor(rv, id, textColor)
             }
 
@@ -1012,6 +1068,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             val cpu = sp.getString("cpu", "--") ?: "--"
             val mem = sp.getString("mem", "--") ?: "--"
             val netType = sp.getString("net_type", "") ?: ""
+            val hasNetworkData = netType.isNotEmpty() && signal != "--"
             val batteryCurrent = sp.getString("battery_current", "") ?: ""
             val updateTime = sp.getString("update_time", "--") ?: "--"
 
@@ -1036,15 +1093,22 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             safeSetImageResource(rv, R.id.iv_signal_bars, signalRes)
 
             // 网络类型图标
-            val networkRes = when {
-                netType.contains("5G", true) -> R.drawable.ic_network_5g
-                netType.contains("4G+", true) || netType.contains("LTE+", true) -> R.drawable.ic_network_4g_plus
-                netType.contains("4G", true) || netType.contains("LTE", true) -> R.drawable.ic_network_4g
-                netType.contains("3G", true) || netType.contains("WCDMA", true) -> R.drawable.ic_network_3g
-                netType.contains("2G", true) || netType.contains("GSM", true) -> R.drawable.ic_network_2g
-                else -> R.drawable.ic_network_4g
+            if (hasNetworkData) {
+                val networkRes = when {
+                    netType.contains("5G", true) -> R.drawable.ic_network_5g
+                    netType.contains("4G+", true) || netType.contains("LTE+", true) -> R.drawable.ic_network_4g_plus
+                    netType.contains("4G", true) || netType.contains("LTE", true) -> R.drawable.ic_network_4g
+                    netType.contains("3G", true) || netType.contains("WCDMA", true) -> R.drawable.ic_network_3g
+                    netType.contains("2G", true) || netType.contains("GSM", true) -> R.drawable.ic_network_2g
+                    else -> R.drawable.ic_network_4g
+                }
+                safeSetImageResource(rv, R.id.iv_network, networkRes)
+                safeSetVisibility(rv, R.id.iv_network, true)
+                safeSetVisibility(rv, R.id.tv_no_network, false)
+            } else {
+                safeSetVisibility(rv, R.id.iv_network, false)
+                safeSetVisibility(rv, R.id.tv_no_network, true)
             }
-            safeSetImageResource(rv, R.id.iv_network, networkRes)
 
             // 电量矢量图标 (0-4 格)
             val batteryLevel = parseBatteryLevel(battery)
@@ -1118,7 +1182,16 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
 
             // 信号
             safeSetVisibility(rv, R.id.iv_signal_bars, showSignal)
-            safeSetVisibility(rv, R.id.iv_network, showSignal)
+            if (showSignal && hasNetworkData) {
+                safeSetVisibility(rv, R.id.iv_network, true)
+                safeSetVisibility(rv, R.id.tv_no_network, false)
+            } else if (showSignal) {
+                safeSetVisibility(rv, R.id.iv_network, false)
+                safeSetVisibility(rv, R.id.tv_no_network, true)
+            } else {
+                safeSetVisibility(rv, R.id.iv_network, false)
+                safeSetVisibility(rv, R.id.tv_no_network, false)
+            }
             safeSetVisibility(rv, R.id.tv_signal_dbm, showSignal)
             safeSetVisibility(rv, R.id.iv_antenna, showSignal)
 
@@ -1176,7 +1249,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
                 }
             }
 
-            val bgImageUri = SPUtil.getWidgetBgImageUri(context)
+            val bgImageUri = SPUtil.getAppliedWidgetBgImageUri(context)
             val opacity = SPUtil.getWidgetBgOpacity(context)
             val alpha = (opacity / 100f * 255).toInt()
 
@@ -1205,7 +1278,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
                 R.id.tv_daily, R.id.tv_daily_label, R.id.tv_daily_unit,
                 R.id.tv_flow, R.id.tv_flow_label, R.id.tv_flow_unit,
                 R.id.tv_temp, R.id.tv_cpu, R.id.tv_mem,
-                R.id.tv_signal_dbm, R.id.tv_update_time
+                R.id.tv_signal_dbm, R.id.tv_no_network, R.id.tv_update_time
             )) {
                 safeSetTextColor(rv, id, textColor)
             }

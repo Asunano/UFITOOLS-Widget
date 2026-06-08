@@ -10,9 +10,10 @@ import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.ufi_toolswidget.widget.WifiWidget4x2
+import com.ufi_toolswidget.util.ToastStyle
+import com.ufi_toolswidget.util.ToastUtil
 
 class AddWidgetActivity : AppCompatActivity() {
 
@@ -47,7 +48,7 @@ class AddWidgetActivity : AppCompatActivity() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             appWidgetManager.requestPinAppWidget(ComponentName(this, widgetClass), null, callback)
-            Toast.makeText(this, "正在请求添加 $widgetSize 小组件", Toast.LENGTH_SHORT).show()
+            ToastUtil.showDropToast(this, ToastStyle.INFO, "正在请求添加 $widgetSize 小组件")
             true
         } catch (e: Exception) {
             Log.e("AddWidget", "Pin widget failed", e)
@@ -71,7 +72,7 @@ class AddWidgetActivity : AppCompatActivity() {
                 .build()
 
             shortcutManager.requestPinShortcut(shortcutInfo, null)
-            Toast.makeText(this, "正在请求添加桌面快捷方式", Toast.LENGTH_SHORT).show()
+            ToastUtil.showDropToast(this, ToastStyle.INFO, "正在请求添加桌面快捷方式")
             true
         } catch (e: Exception) {
             Log.e("AddWidget", "Pin shortcut failed", e)

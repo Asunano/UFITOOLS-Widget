@@ -55,7 +55,7 @@ class CrashHandler private constructor(val context: Context) : Thread.UncaughtEx
             try {
                 val file = File(context.cacheDir, CRASH_LOG_FILE)
                 if (file.exists()) file.delete()
-            } catch (_: Exception) {}
+            } catch (e: Exception) { DebugLogger.w("CrashHandler", "clearCrashLog failed: ${e.message}") }
         }
     }
 

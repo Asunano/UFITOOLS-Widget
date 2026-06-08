@@ -10,7 +10,6 @@ import android.os.Bundle
 import android.view.View
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
@@ -24,6 +23,8 @@ import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.ThemeChangeNotifier
 import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.ThemeUtil
+import com.ufi_toolswidget.util.ToastStyle
+import com.ufi_toolswidget.util.ToastUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -103,7 +104,7 @@ class DebugLogActivity : AppCompatActivity() {
             DebugLogger.enabled = isChecked
             refreshCurrentView()
             updateStatus()
-            Toast.makeText(this, if (isChecked) "调试模式已开启" else "调试模式已关闭", Toast.LENGTH_SHORT).show()
+            ToastUtil.showDropToast(this, ToastStyle.INFO, if (isChecked) "调试模式已开启" else "调试模式已关闭")
         }
 
         // 刷新按钮
@@ -272,7 +273,7 @@ class DebugLogActivity : AppCompatActivity() {
         selectCategory(Category.UI)
         tvLogContent.text = snapshot
         scrollToTop()
-        Toast.makeText(this, "UI 视图快照已生成", Toast.LENGTH_SHORT).show()
+        ToastUtil.showDropToast(this, ToastStyle.SUCCESS, "UI 视图快照已生成")
     }
 
     // ==================== 操作 ====================
@@ -280,12 +281,12 @@ class DebugLogActivity : AppCompatActivity() {
     private fun copyCurrent() {
         val text = tvLogContent.text?.toString() ?: ""
         if (text.isBlank()) {
-            Toast.makeText(this, "没有可复制的内容", Toast.LENGTH_SHORT).show()
+            ToastUtil.showDropToast(this, ToastStyle.WARNING, "没有可复制的内容")
             return
         }
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("diagnostic", text))
-        Toast.makeText(this, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+        ToastUtil.showDropToast(this, ToastStyle.SUCCESS, "已复制到剪贴板")
     }
 
     private fun shareFullReport() {
@@ -332,7 +333,7 @@ class DebugLogActivity : AppCompatActivity() {
                 SPUtil.clearCrashInfo(this@DebugLogActivity)
                 crashBanner.visibility = View.GONE
             } catch (e: Exception) {
-                Toast.makeText(this@DebugLogActivity, "分享失败: ${e.message}", Toast.LENGTH_LONG).show()
+                ToastUtil.showDropToast(this@DebugLogActivity, ToastStyle.WARNING, "分享失败", "${e.message}")
             }
         }
     }
@@ -342,7 +343,7 @@ class DebugLogActivity : AppCompatActivity() {
         CrashHandler.clearCrashLog(this)
         SPUtil.clearCrashInfo(this)
         refreshCurrentView()
-        Toast.makeText(this, "全部日志已清空", Toast.LENGTH_SHORT).show()
+        ToastUtil.showDropToast(this, ToastStyle.SUCCESS, "全部日志已清空")
     }
 
     // ==================== 崩溃横幅 ====================
@@ -363,7 +364,7 @@ class DebugLogActivity : AppCompatActivity() {
             SPUtil.clearCrashInfo(this)
             CrashHandler.clearCrashLog(this)
             crashBanner.visibility = View.GONE
-            Toast.makeText(this, "崩溃记录已清除", Toast.LENGTH_SHORT).show()
+            ToastUtil.showDropToast(this, ToastStyle.SUCCESS, "崩溃记录已清除")
         }
 
         findViewById<View>(R.id.btn_crash_save).setOnClickListener {

@@ -7,7 +7,6 @@ import android.util.Log
 import android.view.View
 import android.widget.EditText
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
@@ -24,6 +23,8 @@ import com.ufi_toolswidget.widget.BaseWifiWidget
 import com.ufi_toolswidget.worker.WifiWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.ufi_toolswidget.util.ToastStyle
+import com.ufi_toolswidget.util.ToastUtil
 
 class SetupActivity : AppCompatActivity() {
 
@@ -83,7 +84,7 @@ class SetupActivity : AppCompatActivity() {
                     triggerProtocolProbe()
 
                     BaseWifiWidget.renderAllWidgets(this@SetupActivity)
-                    Toast.makeText(this@SetupActivity, "配置已保存", Toast.LENGTH_SHORT).show()
+                    ToastUtil.showDropToast(this@SetupActivity, ToastStyle.SUCCESS, "配置已保存")
                     startActivity(Intent(this@SetupActivity, MainActivity::class.java))
                     finish()
                 }
@@ -93,7 +94,7 @@ class SetupActivity : AppCompatActivity() {
             findViewById<View>(R.id.tv_skip).setOnClickListener {
                 SPUtil.setFirstRun(this, false)
                 BaseWifiWidget.renderAllWidgets(this)
-                Toast.makeText(this, "已使用默认配置", Toast.LENGTH_SHORT).show()
+                ToastUtil.showDropToast(this, ToastStyle.INFO, "已使用默认配置")
                 startActivity(Intent(this, MainActivity::class.java))
                 finish()
             }
@@ -102,7 +103,7 @@ class SetupActivity : AppCompatActivity() {
             Log.e(TAG, "SetupActivity onCreate crashed: ${e.message}", e)
             // 兜底：跳过配置直接用默认值
             SPUtil.setFirstRun(this, false)
-            Toast.makeText(this, "配置界面异常，已使用默认配置", Toast.LENGTH_LONG).show()
+            ToastUtil.showDropToast(this, ToastStyle.WARNING, "配置界面异常", "已使用默认配置")
             startActivity(Intent(this, MainActivity::class.java))
             finish()
         }

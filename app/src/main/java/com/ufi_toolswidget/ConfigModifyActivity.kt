@@ -11,7 +11,6 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
@@ -28,6 +27,8 @@ import com.ufi_toolswidget.widget.BaseWifiWidget
 import com.ufi_toolswidget.worker.WifiWorker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.ufi_toolswidget.util.ToastStyle
+import com.ufi_toolswidget.util.ToastUtil
 
 class ConfigModifyActivity : AppCompatActivity() {
 
@@ -256,8 +257,7 @@ class ConfigModifyActivity : AppCompatActivity() {
         activeDialog?.takeIf { it.isShowing }?.dismiss()
         activeDialog = null
 
-        val dialog = Dialog(this)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val dialog = CommonDialogHelper.createAnimatedDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val textPrimary = ThemeColors.textPrimary(this)
@@ -318,7 +318,7 @@ class ConfigModifyActivity : AppCompatActivity() {
                 val values = editTexts.map { it.text.toString() }
                 onSave(values)
                 refreshAllSubtitles()
-                Toast.makeText(this@ConfigModifyActivity, "$title 已保存", Toast.LENGTH_SHORT).show()
+                ToastUtil.showDropToast(this@ConfigModifyActivity, ToastStyle.SUCCESS, "$title 已保存")
                 dialog.dismiss()
             }
         }
@@ -336,7 +336,7 @@ class ConfigModifyActivity : AppCompatActivity() {
             ) {
                 onRestoreDefaults()
                 refreshAllSubtitles()
-                Toast.makeText(this@ConfigModifyActivity, "已恢复为默认配置", Toast.LENGTH_SHORT).show()
+                ToastUtil.showDropToast(this@ConfigModifyActivity, ToastStyle.SUCCESS, "已恢复为默认配置")
                 dialog.dismiss()
             }
             btnContainer.addView(btnRestore)

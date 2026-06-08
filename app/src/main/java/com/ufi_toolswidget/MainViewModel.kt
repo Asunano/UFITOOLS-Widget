@@ -53,6 +53,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var refreshJob: Job? = null
 
+    /** 前台独立失败计数器（不与 Worker 共享 SP 计数器，避免手动刷新误停后台 Worker） */
+    private var foregroundNetworkFailures = 0
+    private var foregroundApiFailures = 0
+
+    /** 首次/冷启动是否已完成首次刷新（供 Activity 判断旋转恢复 vs 冷启动） */
+    var hasCompletedFirstRefresh = false
+        private set
+
     init {
         loadCachedData()
     }
@@ -96,8 +104,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch(Dispatchers.IO) {
             _isLoading.value = true
+            val isQuickStart = !hasCompletedFirstRefresh
             val data = try {
-                WifiCrawl.getWifiData(appCtx)
+                WifiCrawl.getWifiData(appCtx, quickStart = isQuickStart)
             } catch (e: Exception) {
                 DebugLogger.logExc(TAG, "refreshData: unexpected exception: ${e.message}")
                 null
@@ -105,7 +114,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             launch(Dispatchers.Main) {
                 if (data != null) {
-                    DebugLogger.logApi(TAG, "refreshData: success, model=${data.model}")
+                    DebugLogger.logApi(TAG, "refreshData: success, model=${data.model}" + if (isQuickStart) " (quick start)" else "")
+                    // 前台成功 → 清除前台自身 + Worker 的失败计数
+                    foregroundNetworkFailures = 0
+                    foregroundApiFailures = 0
+                    hasCompletedFirstRefresh = true
                     _wifiEntity.value = data
                     _lastError.value = null
                     _isLoading.value = false
@@ -121,33 +134,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val error = WifiCrawl.lastError
                     _lastError.value = error
 
+                    // 前台使用独立的内存计数器，不递增 Worker 的 SP 计数器
+                    // 避免用户手动刷新几次失败后误停后台 Worker
                     val isNetworkError = error.contains("Network error", ignoreCase = true) ||
                         error.contains("timeout", ignoreCase = true) ||
                         error.contains("connect", ignoreCase = true) ||
                         error.contains("refused", ignoreCase = true)
 
                     if (isNetworkError) {
-                        val netFails = WifiWorker.incrementNetworkFailureCount(appCtx)
-                        DebugLogger.logApiErr(TAG, "refreshData: network error, netFails=$netFails/${WifiWorker.NETWORK_MAX_FAILURES}")
-                        if (netFails >= WifiWorker.NETWORK_MAX_FAILURES) {
-                            WifiWorker.markWorkerStoppedNetwork(appCtx)
-                            DebugLogger.logExc(TAG, "refreshData: network threshold reached")
+                        foregroundNetworkFailures++
+                        DebugLogger.logApiErr(TAG, "refreshData: network error (foreground $foregroundNetworkFailures/${WifiWorker.NETWORK_MAX_FAILURES})")
+                        if (foregroundNetworkFailures >= WifiWorker.NETWORK_MAX_FAILURES) {
+                            foregroundNetworkFailures = 0
+                            DebugLogger.logExc(TAG, "refreshData: foreground network threshold reached")
                             BaseWifiWidget.renderAllWidgets(appCtx)
                             onError(WifiWorker.REASON_NETWORK)
                             return@launch
                         }
                     } else {
-                        val apiFails = WifiWorker.incrementApiFailureCount(appCtx)
-                        DebugLogger.logApiErr(TAG, "refreshData: API error, apiFails=$apiFails/${WifiWorker.API_MAX_FAILURES}, error=$error")
-                        if (apiFails >= WifiWorker.API_MAX_FAILURES) {
-                            WifiWorker.markWorkerStoppedApi(appCtx)
-                            DebugLogger.logExc(TAG, "refreshData: API threshold reached")
+                        foregroundApiFailures++
+                        DebugLogger.logApiErr(TAG, "refreshData: API error (foreground $foregroundApiFailures/${WifiWorker.API_MAX_FAILURES}), error=$error")
+                        if (foregroundApiFailures >= WifiWorker.API_MAX_FAILURES) {
+                            foregroundApiFailures = 0
+                            DebugLogger.logExc(TAG, "refreshData: foreground API threshold reached")
                             BaseWifiWidget.renderAllWidgets(appCtx)
                             onError(WifiWorker.REASON_API)
                             return@launch
                         }
                     }
 
+                    // 未达阈值：Toast 提示
                     if (error.contains("401") || error.contains("Unauthorized")) {
                         onToast("访问受限，请在设置中检查管理口令", true)
                     } else {

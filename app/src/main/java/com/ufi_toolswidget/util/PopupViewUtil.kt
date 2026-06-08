@@ -12,17 +12,17 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
-import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatDelegate
 import com.google.android.material.button.MaterialButton
 import com.ufi_toolswidget.R
 
 /**
  * 统一弹窗与菜单工具类。
+ * 
+ * 弹窗创建统一委托给 [CommonDialogHelper]，确保样式一致。
  */
 object PopupViewUtil {
 
@@ -54,8 +54,8 @@ object PopupViewUtil {
         val textPrimary = ThemeColors.textPrimary(context)
         val accent = ThemeColors.accent(context)
         val cardBg = ThemeColors.cardBg(context)
-        val borderColor = if (SPUtil.getNightMode(context) == AppCompatDelegate.MODE_NIGHT_YES)
-            0x4DFFFFFF.toInt() else 0x20000000
+        val borderColor = if (ThemeColors.isDark(context))
+            0x60FFFFFF.toInt() else 0x35000000
 
         // 2. 预创建弹窗对象
         val popup = android.widget.PopupWindow(scroll, 
@@ -154,9 +154,11 @@ object PopupViewUtil {
         isWarning: Boolean = false,
         onConfirm: () -> Unit
     ) {
-        val dialog = createCustomDialog(context)
+        val dialog = CommonDialogHelper.createAnimatedDialog(context)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.setContentView(R.layout.layout_common_dialog)
+
+        CommonDialogHelper.applyThemeToDialogRoot(context, dialog)
 
         val textPrimary = ThemeColors.textPrimary(context)
         val warnColor = 0xFFE53935.toInt()
@@ -200,12 +202,7 @@ object PopupViewUtil {
         dialog.show()
     }
 
-    private fun createCustomDialog(context: Context): Dialog {
-        return Dialog(context, R.style.Theme_UFITOOLSWidget_Transparent)
-    }
-
     fun setupDialogWindow(context: Context, dialog: Dialog) {
-        applyThemeToDialogRoot(context, dialog)
         dialog.setCanceledOnTouchOutside(true)
         dialog.window?.apply {
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
@@ -275,7 +272,7 @@ object PopupViewUtil {
                         androidx.core.graphics.drawable.DrawableCompat.setTint(wrapped, thumbColor)
                         scrollV.verticalScrollbarThumbDrawable = wrapped
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) { DebugLogger.w("PopupViewUtil", "scrollbar tint failed: ${e.message}") }
             }
 
             // 强制唤醒滚动条
@@ -300,76 +297,6 @@ object PopupViewUtil {
             lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
             lp.weight = 0f
             scroll.layoutParams = lp
-        }
-    }
-
-    fun applyThemeToDialogRoot(context: Context, dialog: Dialog) {
-        val root = dialog.findViewById<ViewGroup>(android.R.id.content)
-            ?.let { if (it.childCount > 0) it.getChildAt(0) as? ViewGroup else it } ?: return
-        val cardBg = ThemeColors.cardBg(context)
-        val textPrimary = ThemeColors.textPrimary(context)
-        val borderColor = if (SPUtil.getNightMode(context) == AppCompatDelegate.MODE_NIGHT_YES)
-            0x4DFFFFFF.toInt() else 0x35000000
-        
-        root.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(cardBg)
-            cornerRadius = dp2px(context, 16).toFloat()
-            setStroke(2, borderColor)
-        }
-
-        // 递归处理标题颜色
-        dialog.findViewById<TextView>(R.id.common_dialog_title)?.setTextColor(textPrimary)
-        dialog.findViewById<ImageView>(R.id.common_dialog_icon)?.setColorFilter(ThemeColors.iconTint(context))
-
-        // 递归着色弹窗视图树：文字、图标、按钮
-        applyThemeToViewTree(root, context)
-    }
-
-    /**
-     * 递归遍历弹窗视图树，统一着色（主题适配）。
-     * 跳过 content 动态容器（由调用方按需填充）。
-     */
-    private fun applyThemeToViewTree(view: View?, context: Context) {
-        if (view == null) return
-        val textPrimary = ThemeColors.textPrimary(context)
-        val textSecondary = ThemeColors.textSecondary(context)
-        val accent = ThemeColors.accent(context)
-        val iconTint = ThemeColors.iconTint(context)
-        val btnBg = ThemeColors.btnBg(context)
-
-        if (view is ViewGroup && view.id != R.id.common_dialog_content) {
-            for (i in 0 until view.childCount) {
-                applyThemeToViewTree(view.getChildAt(i), context)
-            }
-        }
-        when (view) {
-            is MaterialButton -> {
-                if ((view.strokeWidth ?: 0) > 0) {
-                    // 描边按钮（次要操作）
-                    view.setTextColor(textPrimary)
-                    view.strokeColor = ColorStateList.valueOf(textSecondary)
-                    view.iconTint = ColorStateList.valueOf(iconTint)
-                } else {
-                    // 实色按钮（主要操作）
-                    view.backgroundTintList = ColorStateList.valueOf(btnBg)
-                    view.setTextColor(0xFFFFFFFF.toInt())
-                    view.iconTint = ColorStateList.valueOf(0xFFFFFFFF.toInt())
-                }
-                view.textSize = 14f
-            }
-            is Button -> {
-                view.backgroundTintList = ColorStateList.valueOf(btnBg)
-                view.setTextColor(0xFFFFFFFF.toInt())
-            }
-            is TextView -> {
-                if (view.id == R.id.common_dialog_btn_primary) return  // 按钮文字已独立处理
-                if (view.textSize <= 13f) view.setTextColor(textSecondary)
-                else view.setTextColor(textPrimary)
-            }
-            is ImageView -> {
-                view.setColorFilter(iconTint)
-            }
         }
     }
 

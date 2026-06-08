@@ -344,7 +344,8 @@ object AnimationUtil {
                     }
                 })
                 anim.start()
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                DebugLogger.w("AnimationUtil", "Reveal animation failed: ${e.message}")
                 decorView.removeView(overlay)
                 decorView.removeView(backdrop)
                 if (!oldBitmap.isRecycled) oldBitmap.recycle()
@@ -374,7 +375,7 @@ object AnimationUtil {
                 canvas.restore()
             }
             bmp
-        } catch (_: Exception) { return null }
+        } catch (e: Exception) { DebugLogger.w("AnimationUtil", "buildRevealOverlay failed: ${e.message}"); return null }
 
         return ImageView(activity).apply {
             setImageBitmap(bitmap)

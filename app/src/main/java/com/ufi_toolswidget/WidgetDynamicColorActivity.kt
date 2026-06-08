@@ -7,11 +7,13 @@ import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import com.ufi_toolswidget.util.AnimationUtil
+import com.ufi_toolswidget.util.CommonDialogHelper
 import com.ufi_toolswidget.util.CommonSettingsItemHelper
 import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.ThemeChangeNotifier
 import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.ThemeUtil
+import com.ufi_toolswidget.util.DebugLogger
 import com.ufi_toolswidget.widget.BaseWifiWidget
 
 class WidgetDynamicColorActivity : AppCompatActivity() {
@@ -25,7 +27,9 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
         setContentView(R.layout.activity_widget_dynamic_color)
 
         themeChangeReceiver = ThemeChangeNotifier.register(this) {
-            ThemeUtil.applyTheme(this@WidgetDynamicColorActivity, ThemeUtil.PageType.SETTINGS_LIST)
+            AnimationUtil.applyCircleRevealPulse(this@WidgetDynamicColorActivity) {
+                ThemeUtil.applyThemeSync(this@WidgetDynamicColorActivity, ThemeUtil.PageType.SETTINGS_LIST)
+            }
         }
 
         AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_back)) { finish() }
@@ -94,7 +98,7 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
             itemView = dynamicColorItem,
             iconRes = R.drawable.ic_dynamic_colors,
             label = "动态配色 (Material You)",
-            subtitle = if (hasBg) "" else "请先返回「小组件设置」中设置背景图片后再启用",
+            subtitle = if (hasBg) "根据壁纸主色自动适配文字和图标颜色" else "请先返回「小组件设置」中设置背景图片后再启用",
             initialChecked = hasBg && SPUtil.getWidgetDynamicColor(this),
             onToggle = { checked ->
                 if (!hasBg) return@setupSwitchItem
@@ -142,45 +146,42 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
         try {
             findViewById<View>(R.id.item_widget_dynamic_contrast)
                 .findViewById<android.widget.TextView>(R.id.common_item_subtitle)?.text = levelName
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetDynamicColorActivity", "set contrast subtitle failed: ${e.message}") }
     }
 
     private fun showDynamicContrastDialog() {
-        val dialog = com.ufi_toolswidget.util.CommonDialogHelper.createAnimatedDialog(this)
-        dialog.setContentView(R.layout.layout_common_dialog)
-        dialog.findViewById<android.widget.TextView>(R.id.common_dialog_title).text = "动态配色对比度"
-        dialog.findViewById<android.widget.ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_eye)
-        dialog.findViewById<View>(R.id.common_dialog_button_container).visibility = View.GONE
-        com.ufi_toolswidget.util.CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
-
-        val content = dialog.findViewById<android.widget.LinearLayout>(R.id.common_dialog_content)
-        val textPrimary = ThemeColors.textPrimary(this)
-        val accent = ThemeColors.accent(this)
-        val cornerRadius = 12f * resources.displayMetrics.density
-        val selectedBg = makeSelectedBg(accent, cornerRadius)
-        val unselectedBg = makeUnselectedBg(cornerRadius)
-
         val currentLevel = SPUtil.getWidgetDynamicContrast(this)
-        val options = listOf(
-            Triple(0, "柔和", "低对比度，色彩更柔和，适合浅色壁纸"),
-            Triple(1, "标准", "中等对比度，平衡可读性与美观"),
-            Triple(2, "强烈", "高对比度，文字更清晰，色彩更鲜明")
-        )
+        val density = resources.displayMetrics.density
+        val cornerRadius = 12f * density
 
-        options.forEach { (level, label, desc) ->
-            val isSelected = level == currentLevel
-            val itemLayout = createOptionItem(label, desc, textPrimary, if (isSelected) selectedBg else unselectedBg, isSelected)
-            itemLayout.setOnClickListener {
-                SPUtil.setWidgetDynamicContrast(this@WidgetDynamicColorActivity, level)
-                updateDynamicContrastSubtitle()
-                BaseWifiWidget.renderAllWidgets(this@WidgetDynamicColorActivity, force = true)
-                dialog.dismiss()
+        CommonDialogHelper.showSelectionDialog(
+            this,
+            title = "动态配色对比度",
+            iconRes = R.drawable.ic_eye,
+            onFill = { content, dialog ->
+                val textPrimary = ThemeColors.textPrimary(this@WidgetDynamicColorActivity)
+                val accent = ThemeColors.accent(this@WidgetDynamicColorActivity)
+                val selectedBg = CommonDialogHelper.createSelectedBg(accent, cornerRadius)
+                val unselectedBg = CommonDialogHelper.createUnselectedBg(this@WidgetDynamicColorActivity, cornerRadius)
+
+                val options = listOf(
+                    Triple(0, "柔和", "低对比度，色彩更柔和，适合浅色壁纸"),
+                    Triple(1, "标准", "中等对比度，平衡可读性与美观"),
+                    Triple(2, "强烈", "高对比度，文字更清晰，色彩更鲜明")
+                )
+                options.forEach { (level, label, desc) ->
+                    val isSelected = level == currentLevel
+                    val itemLayout = createOptionItem(label, desc, textPrimary, if (isSelected) selectedBg else unselectedBg, isSelected)
+                    itemLayout.setOnClickListener {
+                        SPUtil.setWidgetDynamicContrast(this@WidgetDynamicColorActivity, level)
+                        updateDynamicContrastSubtitle()
+                        BaseWifiWidget.renderAllWidgets(this@WidgetDynamicColorActivity, force = true)
+                        dialog.dismiss()
+                    }
+                    content.addView(itemLayout)
+                }
             }
-            content.addView(itemLayout)
-        }
-
-        com.ufi_toolswidget.util.CommonDialogHelper.setupDialogWindow(this, dialog)
-        dialog.show()
+        )
     }
 
     // ==================== 3. 动态配色高级设置 ====================
@@ -211,15 +212,15 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
         try {
             findViewById<View>(R.id.item_widget_dynamic_advanced)
                 .findViewById<android.widget.TextView>(R.id.common_item_subtitle)?.text = label
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetDynamicColorActivity", "set advanced subtitle failed: ${e.message}") }
     }
 
     private fun showDynamicAdvancedDialog() {
-        val dialog = com.ufi_toolswidget.util.CommonDialogHelper.createAnimatedDialog(this)
+        val dialog = CommonDialogHelper.createAnimatedDialog(this)
         dialog.setContentView(R.layout.layout_common_dialog)
         dialog.findViewById<android.widget.TextView>(R.id.common_dialog_title).text = "高级参数调节"
         dialog.findViewById<android.widget.ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_settings)
-        com.ufi_toolswidget.util.CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
+        CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
 
         val content = dialog.findViewById<android.widget.LinearLayout>(R.id.common_dialog_content)
         val scrollContainer = android.widget.ScrollView(this).apply {
@@ -244,26 +245,6 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
             isEnabled = advancedEnabled
         }
 
-        val switchWrapper = layoutInflater.inflate(R.layout.layout_common_switch, innerContent, false)
-        switchWrapper.findViewById<android.widget.TextView>(R.id.common_switch_label).text = "启用高级调节"
-        val switchTrack = switchWrapper.findViewById<View>(R.id.common_switch_track)
-        com.ufi_toolswidget.util.ThemeUtil.setupSwitch(switchWrapper, advancedEnabled) { isChecked ->
-            advancedEnabled = isChecked
-            slidersContainer.alpha = if (isChecked) 1f else 0.4f
-            slidersContainer.isEnabled = isChecked
-        }
-        innerContent.addView(switchWrapper)
-
-        innerContent.addView(android.view.View(this).apply {
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1
-            ).apply { topMargin = dp2px(12); bottomMargin = dp2px(12) }
-            setBackgroundColor(ThemeColors.divider(this@WidgetDynamicColorActivity))
-            alpha = 0.3f
-        })
-
-        innerContent.addView(slidersContainer)
-
         var lightBg = SPUtil.getDynAdvLightBg(this).toFloat()
         var lightTxt = SPUtil.getDynAdvLightTxt(this).toFloat()
         var darkBg = SPUtil.getDynAdvDarkBg(this).toFloat()
@@ -271,6 +252,7 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
         var satBoost = SPUtil.getDynAdvSatBoost(this).toFloat()
 
         fun addSlider(title: String, desc: String, min: Float, max: Float, default: Float, suffix: String = "",
+                      tickStep: Float = 0f,
                       onUpdate: (Float) -> Unit): Pair<android.widget.TextView, com.ufi_toolswidget.view.ThemeSlider> {
             val container = android.widget.LinearLayout(this).apply {
                 orientation = android.widget.LinearLayout.VERTICAL
@@ -294,6 +276,11 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
             val slider = com.ufi_toolswidget.view.ThemeSlider(this).apply {
                 minValue = min; maxValue = max; stepSize = 1f
                 currentValue = default
+                isEnabled = advancedEnabled
+                if (tickStep > 0f) {
+                    tickStepSize = tickStep
+                    tickLabelFormatter = { v -> "${v.toInt()}$suffix" }
+                }
                 layoutParams = android.widget.LinearLayout.LayoutParams(
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT, dp2px(44)
                 )
@@ -307,53 +294,79 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
             return Pair(label, slider)
         }
 
+        // 先创建所有滑块（存入列表以便开关回调引用）
         val sliders = listOf(
-            addSlider("浅色背景亮度", "值越高背景越亮", 85f, 99f, lightBg) { v -> lightBg = v },
-            addSlider("浅色文字亮度", "值越低文字越深，对比度越高", 5f, 40f, lightTxt) { v -> lightTxt = v },
-            addSlider("深色背景亮度", "值越低背景越暗", 3f, 20f, darkBg) { v -> darkBg = v },
-            addSlider("深色文字亮度", "值越高文字越亮，对比度越高", 75f, 98f, darkTxt) { v -> darkTxt = v },
-            addSlider("饱和度增强", "100%为原始，>100%增强色彩鲜艳度", 50f, 150f, satBoost, "%") { v -> satBoost = v }
+            addSlider("浅色背景亮度", "值越高背景越亮", 85f, 99f, lightBg, tickStep = 2f) { v -> lightBg = v },
+            addSlider("浅色文字亮度", "值越低文字越深，对比度越高", 0f, 40f, lightTxt, tickStep = 5f) { v -> lightTxt = v },
+            addSlider("深色背景亮度", "值越低背景越暗", 4f, 20f, darkBg, tickStep = 4f) { v -> darkBg = v },
+            addSlider("深色文字亮度", "值越高文字越亮，对比度越高", 75f, 98f, darkTxt, tickStep = 5f) { v -> darkTxt = v },
+            addSlider("饱和度增强", "100%为原始，>100%增强色彩鲜艳度", 50f, 150f, satBoost, "%", tickStep = 40f) { v -> satBoost = v }
         )
 
         val defaultSliderValues = listOf(97f, 12f, 8f, 90f, 100f)
 
-        com.ufi_toolswidget.util.CommonDialogHelper.applyThemeToViewTree(innerContent, this)
+        // 再创建开关（回调中引用 sliders 列表，此时已定义）
+        val switchWrapper = layoutInflater.inflate(R.layout.layout_common_switch, innerContent, false)
+        switchWrapper.findViewById<android.widget.TextView>(R.id.common_switch_label).text = "启用高级调节"
+        val switchTrack = switchWrapper.findViewById<View>(R.id.common_switch_track)
+        com.ufi_toolswidget.util.ThemeUtil.setupSwitch(switchWrapper, advancedEnabled) { isChecked ->
+            advancedEnabled = isChecked
+            slidersContainer.alpha = if (isChecked) 1f else 0.4f
+            slidersContainer.isEnabled = isChecked
+            // 同步每个滑块自身的 enabled 状态（容器 disabled 不阻断自定义 View 触摸）
+            sliders.forEach { (_, slider) -> slider.isEnabled = isChecked }
+        }
+        innerContent.addView(switchWrapper)
+
+        innerContent.addView(android.view.View(this).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT, 1
+            ).apply { topMargin = dp2px(12); bottomMargin = dp2px(12) }
+            setBackgroundColor(ThemeColors.divider(this@WidgetDynamicColorActivity))
+            alpha = 0.3f
+        })
+
+        innerContent.addView(slidersContainer)
+
+        CommonDialogHelper.applyThemeToViewTree(innerContent, this)
 
         val btnContainer = dialog.findViewById<android.widget.LinearLayout>(R.id.common_dialog_button_container)
         btnContainer.visibility = View.VISIBLE
-        dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary).apply {
-            text = "确定"
-            setOnClickListener {
-                SPUtil.setWidgetDynamicAdvanced(this@WidgetDynamicColorActivity, advancedEnabled)
-                if (advancedEnabled) {
-                    SPUtil.setDynAdvLightBg(this@WidgetDynamicColorActivity, lightBg.toInt())
-                    SPUtil.setDynAdvLightTxt(this@WidgetDynamicColorActivity, lightTxt.toInt())
-                    SPUtil.setDynAdvDarkBg(this@WidgetDynamicColorActivity, darkBg.toInt())
-                    SPUtil.setDynAdvDarkTxt(this@WidgetDynamicColorActivity, darkTxt.toInt())
-                    SPUtil.setDynAdvSatBoost(this@WidgetDynamicColorActivity, satBoost.toInt())
-                }
-                updateDynamicAdvancedSubtitle()
-                BaseWifiWidget.renderAllWidgets(this@WidgetDynamicColorActivity, force = true)
-                dialog.dismiss()
+        AnimationUtil.applyScaleClickAnimation(
+            dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary).apply {
+                text = "确定"
             }
+        ) {
+            SPUtil.setWidgetDynamicAdvanced(this@WidgetDynamicColorActivity, advancedEnabled)
+            if (advancedEnabled) {
+                SPUtil.setDynAdvLightBg(this@WidgetDynamicColorActivity, lightBg.toInt())
+                SPUtil.setDynAdvLightTxt(this@WidgetDynamicColorActivity, lightTxt.toInt())
+                SPUtil.setDynAdvDarkBg(this@WidgetDynamicColorActivity, darkBg.toInt())
+                SPUtil.setDynAdvDarkTxt(this@WidgetDynamicColorActivity, darkTxt.toInt())
+                SPUtil.setDynAdvSatBoost(this@WidgetDynamicColorActivity, satBoost.toInt())
+            }
+            updateDynamicAdvancedSubtitle()
+            BaseWifiWidget.renderAllWidgets(this@WidgetDynamicColorActivity, force = true)
+            dialog.dismiss()
         }
-        dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_secondary).apply {
-            visibility = View.VISIBLE; text = "恢复默认"
-            setOnClickListener {
-                // 重置开关为关闭状态
-                if (advancedEnabled) {
-                    switchTrack.performClick()
-                }
-                // 重置滑块数值为出厂默认值
-                sliders.forEachIndexed { i, (_, slider) ->
-                    slider.currentValue = defaultSliderValues[i]
-                }
-                lightBg = 97f; lightTxt = 12f; darkBg = 8f; darkTxt = 90f; satBoost = 100f
-                // 不保存 SPUtil、不刷新小组件、不关闭弹窗
+        AnimationUtil.applyScaleClickAnimation(
+            dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_secondary).apply {
+                visibility = View.VISIBLE; text = "恢复默认"
             }
+        ) {
+            // 重置开关为关闭状态
+            if (advancedEnabled) {
+                switchTrack.performClick()
+            }
+            // 重置滑块数值为出厂默认值
+            sliders.forEachIndexed { i, (_, slider) ->
+                slider.currentValue = defaultSliderValues[i]
+            }
+            lightBg = 97f; lightTxt = 12f; darkBg = 8f; darkTxt = 90f; satBoost = 100f
+            // 不保存 SPUtil、不刷新小组件、不关闭弹窗
         }
 
-        com.ufi_toolswidget.util.CommonDialogHelper.setupDialogWindow(this, dialog)
+        CommonDialogHelper.setupDialogWindow(this, dialog)
         dialog.show()
     }
 
@@ -379,41 +392,38 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
         try {
             findViewById<View>(R.id.item_widget_dynamic_color_source)
                 .findViewById<android.widget.TextView>(R.id.common_item_subtitle)?.text = name
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("WidgetDynamicColorActivity", "set color source subtitle failed: ${e.message}") }
     }
 
     private fun showDynamicColorSourceDialog() {
-        val dialog = com.ufi_toolswidget.util.CommonDialogHelper.createAnimatedDialog(this)
-        dialog.setContentView(R.layout.layout_common_dialog)
-        dialog.findViewById<android.widget.TextView>(R.id.common_dialog_title).text = "动态配色色源"
-        dialog.findViewById<android.widget.ImageView>(R.id.common_dialog_icon).setImageResource(R.drawable.ic_palette)
-        dialog.findViewById<View>(R.id.common_dialog_button_container).visibility = View.GONE
-        com.ufi_toolswidget.util.CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
-
-        val content = dialog.findViewById<android.widget.LinearLayout>(R.id.common_dialog_content)
-        val textPrimary = ThemeColors.textPrimary(this)
-        val accent = ThemeColors.accent(this)
-        val cornerRadius = 12f * resources.displayMetrics.density
-        val selectedBg = makeSelectedBg(accent, cornerRadius)
-        val unselectedBg = makeUnselectedBg(cornerRadius)
-
         val currentSource = SPUtil.getWidgetDynamicColorSource(this)
-        val availableColors = ThemeColors.getAvailableWallpaperColors(this)
+        val density = resources.displayMetrics.density
+        val cornerRadius = 12f * density
 
-        availableColors.forEachIndexed { index, (name, color) ->
-            val isSelected = index == currentSource
-            val itemLayout = createColorSourceOptionItem(name, color, textPrimary, if (isSelected) selectedBg else unselectedBg, isSelected)
-            itemLayout.setOnClickListener {
-                SPUtil.setWidgetDynamicColorSource(this@WidgetDynamicColorActivity, index)
-                updateDynamicColorSourceSubtitle()
-                BaseWifiWidget.renderAllWidgets(this@WidgetDynamicColorActivity, force = true)
-                dialog.dismiss()
+        CommonDialogHelper.showSelectionDialog(
+            this,
+            title = "动态配色色源",
+            iconRes = R.drawable.ic_palette,
+            onFill = { content, dialog ->
+                val textPrimary = ThemeColors.textPrimary(this@WidgetDynamicColorActivity)
+                val accent = ThemeColors.accent(this@WidgetDynamicColorActivity)
+                val selectedBg = CommonDialogHelper.createSelectedBg(accent, cornerRadius)
+                val unselectedBg = CommonDialogHelper.createUnselectedBg(this@WidgetDynamicColorActivity, cornerRadius)
+                val availableColors = ThemeColors.getAvailableWallpaperColors(this@WidgetDynamicColorActivity)
+
+                availableColors.forEachIndexed { index, (name, color) ->
+                    val isSelected = index == currentSource
+                    val itemLayout = createColorSourceOptionItem(name, color, textPrimary, if (isSelected) selectedBg else unselectedBg, isSelected)
+                    itemLayout.setOnClickListener {
+                        SPUtil.setWidgetDynamicColorSource(this@WidgetDynamicColorActivity, index)
+                        updateDynamicColorSourceSubtitle()
+                        BaseWifiWidget.renderAllWidgets(this@WidgetDynamicColorActivity, force = true)
+                        dialog.dismiss()
+                    }
+                    content.addView(itemLayout)
+                }
             }
-            content.addView(itemLayout)
-        }
-
-        com.ufi_toolswidget.util.CommonDialogHelper.setupDialogWindow(this, dialog)
-        dialog.show()
+        )
     }
 
     private fun createColorSourceOptionItem(
@@ -478,23 +488,6 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply { topMargin = dp2px(4) }
             })
-        }
-    }
-
-    private fun makeSelectedBg(accent: Int, cornerRadius: Float): android.graphics.drawable.GradientDrawable {
-        return android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-            setColor(accent); this.cornerRadius = cornerRadius
-        }
-    }
-
-    private fun makeUnselectedBg(cornerRadius: Float): android.graphics.drawable.GradientDrawable {
-        val cardBg = ThemeColors.cardBg(this)
-        return android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-            setColor(cardBg); this.cornerRadius = cornerRadius
-            setStroke(1, if (com.ufi_toolswidget.util.SPUtil.getNightMode(this@WidgetDynamicColorActivity)
-                == androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES) 0x30FFFFFF.toInt() else 0x20000000)
         }
     }
 

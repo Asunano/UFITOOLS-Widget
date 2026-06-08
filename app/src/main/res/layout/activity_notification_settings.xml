@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipToPadding="false"
+    android:fitsSystemWindows="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingBottom="32dp">
+
+        <!-- Header -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingTop="24dp"
+                android:paddingBottom="24dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="通知管理"
+                    android:textColor="@color/text_main"
+                    android:textSize="28sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.02" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="流量、温度、CPU、电量等提醒设置"
+                    android:textColor="@color/text_main"
+                    android:alpha="0.45"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_back"
+                style="@style/Widget.Material3.Button.IconButton"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_gravity="start|top"
+                android:layout_marginTop="6dp"
+                app:icon="@drawable/ic_arrow_back"
+                app:iconTint="@color/text_main" />
+        </FrameLayout>
+
+        <!-- ========== 总开关 ========== -->
+        <include
+            layout="@layout/layout_common_switch_item"
+            android:id="@+id/item_notification_master" />
+
+        <!-- ========== 所有设置项容器（总开关关闭时隐藏） ========== -->
+        <LinearLayout
+            android:id="@+id/layout_notification_content"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- ========== 监控设置 ========== -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="20dp"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="6dp"
+                android:text="监控设置"
+                android:textColor="@color/text_main"
+                android:alpha="0.6"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <include
+                layout="@layout/layout_common_setting_item"
+                android:id="@+id/item_monitor_interval" />
+
+            <!-- ========== 流量提醒 ========== -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="20dp"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="6dp"
+                android:text="流量提醒"
+                android:textColor="@color/text_main"
+                android:alpha="0.6"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <include
+                layout="@layout/layout_common_setting_item"
+                android:id="@+id/item_flow_daily" />
+
+            <include
+                layout="@layout/layout_common_setting_item"
+                android:id="@+id/item_flow_monthly" />
+
+            <!-- ========== 设备状态提醒 ========== -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="20dp"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="6dp"
+                android:text="设备状态提醒"
+                android:textColor="@color/text_main"
+                android:alpha="0.6"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <!-- 设备上下线 -->
+            <include
+                layout="@layout/layout_common_switch_item"
+                android:id="@+id/item_device_online" />
+
+            <include
+                layout="@layout/layout_common_setting_item"
+                android:id="@+id/item_device_temp" />
+
+            <include
+                layout="@layout/layout_common_setting_item"
+                android:id="@+id/item_device_cpu" />
+
+            <include
+                layout="@layout/layout_common_setting_item"
+                android:id="@+id/item_device_battery" />
+
+            <include
+                layout="@layout/layout_common_setting_item"
+                android:id="@+id/item_device_memory" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

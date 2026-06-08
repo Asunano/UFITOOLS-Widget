@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".UfiToolsApplication"
@@ -50,6 +51,12 @@
         <activity
             android:name=".AppSettingsActivity"
             android:label="软件设置"
+            android:parentActivityName=".SettingsActivity"
+            android:theme="@style/Theme.UFITOOLSWidget" />
+
+        <activity
+            android:name=".NotificationSettingsActivity"
+            android:label="通知管理"
             android:parentActivityName=".SettingsActivity"
             android:theme="@style/Theme.UFITOOLSWidget" />
 

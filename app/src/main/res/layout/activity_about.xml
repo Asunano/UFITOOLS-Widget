@@ -14,7 +14,7 @@
         android:orientation="vertical"
         android:paddingBottom="32dp">
 
-        <!-- ==================== Header ==================== -->
+        <!-- Header -->
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -48,18 +48,16 @@
                 app:iconTint="@color/text_main" />
         </FrameLayout>
 
-        <!-- ==================== App 信息 + 简介卡片 ==================== -->
+        <!-- ==================== App 信息卡片 ==================== -->
         <LinearLayout
+            style="@style/AppCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="14dp"
-            android:background="@drawable/bg_widget_card"
             android:gravity="center"
             android:orientation="vertical"
-            android:paddingHorizontal="28dp"
             android:paddingTop="28dp"
-            android:paddingBottom="22dp">
+            android:paddingBottom="22dp"
+            android:paddingHorizontal="28dp">
 
             <ImageView
                 android:id="@+id/iv_app_icon"
@@ -82,12 +80,11 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="版本 1.0.0"
+                android:text="Version 1.0.0"
                 android:textColor="@color/text_main"
                 android:alpha="0.45"
                 android:textSize="14sp" />
 
-            <!-- 分隔线 -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
@@ -95,7 +92,6 @@
                 android:alpha="0.06"
                 android:background="@color/text_sub" />
 
-            <!-- 简介（版本号下方） -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -107,17 +103,13 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <!-- ==================== 更新设置卡片（重构） ==================== -->
+        <!-- ==================== 更新设置卡片 ==================== -->
         <LinearLayout
+            style="@style/AppCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="14dp"
-            android:background="@drawable/bg_widget_card"
-            android:orientation="vertical"
-            android:padding="20dp">
+            android:orientation="vertical">
 
-            <!-- 卡片标题行 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -194,7 +186,6 @@
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_check_update"
-                    style="@style/Widget.Material3.Button.TonalButton"
                     android:layout_width="wrap_content"
                     android:layout_height="36dp"
                     android:insetTop="0dp"
@@ -203,7 +194,8 @@
                     android:paddingHorizontal="14dp"
                     android:text="检查更新"
                     android:textSize="12sp"
-                    app:cornerRadius="18dp" />
+                    app:cornerRadius="18dp"
+                    app:strokeWidth="0dp" />
             </LinearLayout>
 
             <!-- 更新状态区域 -->
@@ -234,164 +226,32 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- ==================== 开源地址卡片（GitHub 图标） ==================== -->
-        <LinearLayout
+        <!-- ==================== 开源地址 ==================== -->
+        <include
+            layout="@layout/layout_common_setting_item"
             android:id="@+id/card_github"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="14dp"
-            android:background="@drawable/bg_widget_card"
-            android:clickable="true"
-            android:focusable="true"
-            android:foreground="?attr/selectableItemBackground"
-            android:orientation="horizontal"
-            android:padding="20dp">
+            android:layout_marginBottom="10dp" />
 
-            <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_gravity="start"
-                android:layout_marginEnd="12dp"
-                android:layout_marginTop="1dp"
-                android:alpha="0.45"
-                android:contentDescription="GitHub"
-                android:src="@drawable/ic_github" />
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="开源地址"
-                    android:textColor="@color/text_main"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/tv_github_link"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="3dp"
-                    android:autoLink="web"
-                    android:linksClickable="true"
-                    android:text="https://github.com/Asunano/UFITOOLS-Widget"
-                    android:textColor="@color/text_main"
-                    android:alpha="0.5"
-                    android:textSize="12sp" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- ==================== 作者博客卡片（Blog 图标） ==================== -->
-        <LinearLayout
+        <!-- ==================== 作者博客 ==================== -->
+        <include
+            layout="@layout/layout_common_setting_item"
             android:id="@+id/card_blog"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="14dp"
-            android:background="@drawable/bg_widget_card"
-            android:clickable="true"
-            android:focusable="true"
-            android:foreground="?attr/selectableItemBackground"
-            android:orientation="horizontal"
-            android:padding="20dp">
+            android:layout_marginBottom="10dp" />
 
-            <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_gravity="start"
-                android:layout_marginEnd="12dp"
-                android:layout_marginTop="1dp"
-                android:alpha="0.45"
-                android:contentDescription="博客"
-                android:src="@drawable/ic_blog" />
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="作者博客"
-                    android:textColor="@color/text_main"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/tv_blog_link"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="3dp"
-                    android:autoLink="web"
-                    android:linksClickable="true"
-                    android:text="https://blog.drxian.cn/archives/1322"
-                    android:textColor="@color/text_main"
-                    android:alpha="0.5"
-                    android:textSize="12sp" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- ==================== 致谢卡片（Heart 图标） ==================== -->
-        <LinearLayout
+        <!-- ==================== 致谢 ==================== -->
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/card_thanks"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="14dp"
-            android:background="@drawable/bg_widget_card"
-            android:orientation="horizontal"
-            android:padding="20dp">
-
-            <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_gravity="start"
-                android:layout_marginEnd="12dp"
-                android:layout_marginTop="1dp"
-                android:alpha="0.45"
-                android:contentDescription="致谢"
-                android:src="@drawable/ic_thanks" />
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="致谢"
-                    android:textColor="@color/text_main"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:lineSpacingExtra="3dp"
-                    android:text="本软件基于 UFI-TOOLS 项目开发，感谢原作者 kanoqwq 的开源贡献。"
-                    android:textColor="@color/text_main"
-                    android:alpha="0.6"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/tv_thanks_link"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="3dp"
-                    android:autoLink="web"
-                    android:linksClickable="true"
-                    android:text="https://github.com/kanoqwq/UFI-TOOLS"
-                    android:textColor="@color/text_main"
-                    android:alpha="0.5"
-                    android:textSize="12sp" />
-            </LinearLayout>
-        </LinearLayout>
+            android:layout_marginBottom="10dp" />
 
         <!-- ==================== Footer ==================== -->
         <TextView

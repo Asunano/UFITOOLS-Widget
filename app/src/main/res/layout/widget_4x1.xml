@@ -85,6 +85,16 @@
                 android:layout_marginStart="2dp"
                 android:src="@drawable/ic_network_4g"
                 android:scaleType="fitCenter" />
+
+            <TextView
+                android:id="@+id/tv_no_network"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="2dp"
+                android:text="无网络"
+                android:textColor="#777777"
+                android:textSize="7sp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- 3) 电量图标 + 电量文本 + 充电标志 -->

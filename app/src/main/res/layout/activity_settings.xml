@@ -58,7 +58,60 @@
                 app:iconTint="@color/text_main" />
         </FrameLayout>
 
-        <!-- ===== 1. 软件设置 ===== -->
+        <!-- ===== 1. 通知管理 ===== -->
+        <LinearLayout
+            android:id="@+id/card_notification"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="10dp"
+            android:background="@drawable/bg_widget_card"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="18dp">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:src="@drawable/ic_notification" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="通知管理"
+                    android:textColor="@color/text_main"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:text="流量、温度、CPU 等异常提醒"
+                    android:textColor="@color/text_main"
+                    android:alpha="0.4"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_arrow_back"
+                android:rotation="180"
+                android:alpha="0.3" />
+        </LinearLayout>
+
+        <!-- ===== 2. 软件设置 ===== -->
         <LinearLayout
             android:id="@+id/card_app_settings"
             android:layout_width="match_parent"
@@ -111,7 +164,7 @@
                 android:alpha="0.3" />
         </LinearLayout>
 
-        <!-- ===== 2. 配置修改 ===== -->
+        <!-- ===== 3. 配置修改 ===== -->
         <LinearLayout
             android:id="@+id/card_config_modify"
             android:layout_width="match_parent"
@@ -164,7 +217,7 @@
                 android:alpha="0.3" />
         </LinearLayout>
 
-        <!-- ===== 3. 小组件设置 ===== -->
+        <!-- ===== 4. 小组件设置 ===== -->
         <LinearLayout
             android:id="@+id/card_widget_settings"
             android:layout_width="match_parent"
@@ -217,7 +270,7 @@
                 android:alpha="0.3" />
         </LinearLayout>
 
-        <!-- ===== 4. 实验功能 ===== -->
+        <!-- ===== 5. 实验功能 ===== -->
         <LinearLayout
             android:id="@+id/card_experimental"
             android:layout_width="match_parent"
@@ -235,7 +288,7 @@
             <ImageView
                 android:layout_width="20dp"
                 android:layout_height="20dp"
-                android:src="@drawable/ic_rocket" />
+                android:src="@drawable/ic_flask" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -270,7 +323,7 @@
                 android:alpha="0.3" />
         </LinearLayout>
 
-        <!-- ===== 5. 关于 ===== -->
+        <!-- ===== 6. 关于 ===== -->
         <LinearLayout
             android:id="@+id/card_about"
             android:layout_width="match_parent"

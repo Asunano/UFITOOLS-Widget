@@ -68,6 +68,6 @@ object ThemeChangeNotifier {
     fun unregister(activity: Activity, receiver: BroadcastReceiver?) {
         try {
             receiver?.let { activity.unregisterReceiver(it) }
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("ThemeChangeNotifier", "notifyThemeChanged failed: ${e.message}") }
     }
 }

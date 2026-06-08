@@ -26,12 +26,13 @@ object ThemedSliderUtil {
         val accent = ThemeColors.accent(context)
         val textPrimary = ThemeColors.textPrimary(context)
         val textSecondary = ThemeColors.textSecondary(context)
+        val isDark = ThemeColors.isDark(context)
 
         val label = TextView(context).apply {
             text = "${config.defaultValue.toInt()}${config.valueSuffix}"
             textSize = 28f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(accent)
+            setTextColor(textPrimary)
             gravity = android.view.Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -49,7 +50,7 @@ object ThemedSliderUtil {
 
             val trackActiveColor = accent
             val trackInactiveColor = (accent and 0x00FFFFFF) or 0x26000000
-            val thumbColor = accent
+            val thumbColor = if (isDark) textSecondary else accent
 
             trackActiveTintList = ColorStateList.valueOf(trackActiveColor)
             trackInactiveTintList = ColorStateList.valueOf(trackInactiveColor)

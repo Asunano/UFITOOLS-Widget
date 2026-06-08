@@ -3,6 +3,8 @@ package com.ufi_toolswidget
 import android.app.Application
 import android.os.Build
 import com.google.android.material.color.DynamicColors
+import com.ufi_toolswidget.util.NotificationHelper
+import com.ufi_toolswidget.util.NotificationMonitor
 
 /**
  * 全局 Application 入口。
@@ -24,5 +26,12 @@ class UfiToolsApplication : Application() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             DynamicColors.applyToActivitiesIfAvailable(this)
         }
+
+        // 初始化通知渠道（Android 8.0+ 需要在应用启动时创建）
+        NotificationHelper.init(this)
+
+        // 启动后台通知监控器：独立协程定时轻量检查阈值，
+        // 不依赖任何 Activity，应用存活期间持续运行
+        NotificationMonitor.start(this)
     }
 }

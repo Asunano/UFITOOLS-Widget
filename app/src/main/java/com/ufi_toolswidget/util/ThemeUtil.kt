@@ -31,16 +31,30 @@ object ThemeUtil {
     }
 
     /**
+     * 同步主题应用（无 post、无动画）。
+     * 用于 [AnimationUtil.applyCircleRevealPulse] 的 mutation 内部，
+     * 确保主题在截图与揭露之间同步完成，避免时序异常。
+     */
+    fun applyThemeSync(activity: Activity, type: PageType) {
+        BackgroundUtil.initActivity(activity)
+        when (type) {
+            PageType.MAIN -> applyToMainActivity(activity)
+            PageType.SETTINGS_LIST -> applyToSettingsActivity(activity)
+            PageType.APP_SETTINGS -> applyToAppSettingsActivity(activity)
+            PageType.WIDGET_SETTINGS -> applyToWidgetSettingsPage(activity)
+            PageType.FORM -> applyToFormPage(activity)
+            PageType.SECONDARY -> applyToSecondaryPage(activity)
+        }
+    }
+
+    /**
      * 统一的主题应用入口。
      * 自动处理：窗口初始化 + 页面特定样式应用。
      * 注意：必须在 setContentView 之后调用，以便寻找视图。
      */
     fun applyTheme(activity: Activity, type: PageType) {
         try {
-            // 1. 基础 UI 初始化 (背景 + 沉浸式)
             BackgroundUtil.initActivity(activity)
-
-            // 2. 根据页面类型调用具体的样式应用逻辑
             activity.window.decorView.post {
                 try {
                     if (activity.isFinishing || activity.isDestroyed) return@post
@@ -89,6 +103,8 @@ object ThemeUtil {
         activity.findViewById<TextView>(R.id.loading_title)?.setTextColor(textPrimary)
         activity.findViewById<TextView>(R.id.loading_subtitle)?.setTextColor(textSecondary)
         activity.findViewById<TextView>(R.id.loading_hint)?.setTextColor(textSecondary)
+        // 载入动画指示器取色（跟随主题 accent 色）
+        (activity.findViewById<View>(R.id.loading_progress) as? com.ufi_toolswidget.view.LoadingAnimationView)?.applyThemeColors()
 
         // ── 数据网格标签（信号/温度/CPU/内存） → 注释灰字 ──
         val cardNetwork = activity.findViewById<ViewGroup>(R.id.card_network)
@@ -211,22 +227,16 @@ object ThemeUtil {
         val cardBg = ThemeColors.cardBg(ctx)
 
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
-        applySecondaryTextColors(root, textPrimary, textSecondary, accent, iconTint, cardBg)
+        applySecondaryTextColors(root, textPrimary, textSecondary, accent, iconTint, cardBg, btnBg)
 
-        // 统一处理检查更新按钮（如果存在）
-        activity.findViewById<View>(R.id.btn_check_update)?.let { v ->
-            v.findViewById<View>(R.id.common_btn_text)?.let { text ->
-                text.background = makeCardBg(btnBg, 12f)
-                if (text is TextView) {
-                    text.setTextColor(0xFFFFFFFF.toInt())
-                }
-            }
+        // 统一处理检查更新按钮（公共组件库风格：btnBg + 白色文字）
+        activity.findViewById<MaterialButton>(R.id.btn_check_update)?.let { btn ->
+            btn.backgroundTintList = ColorStateList.valueOf(btnBg)
+            btn.setTextColor(0xFFFFFFFF.toInt())
+            btn.strokeWidth = 0
+            btn.strokeColor = ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
         }
 
-        // 处理可能的链接文字
-        listOf(R.id.tv_github_link, R.id.tv_thanks_link)
-            .mapNotNull { activity.findViewById<TextView>(it) }
-            .forEach { it.setTextColor(accent) }
             
     }
 
@@ -243,7 +253,7 @@ object ThemeUtil {
         val isDark = ThemeColors.isDark(ctx)
 
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
-        applySecondaryTextColors(root, textPrimary, textSecondary, accent, iconTint, cardBg)
+        applySecondaryTextColors(root, textPrimary, textSecondary, accent, iconTint, cardBg, btnBg)
 
         // 统一处理主要提交按钮（初始化设置）
         activity.findViewById<View>(R.id.btn_setup_confirm)?.let { v ->
@@ -313,10 +323,11 @@ object ThemeUtil {
         val textSecondary = ThemeColors.textSecondary(ctx)
         val accent = ThemeColors.accent(ctx)
         val iconTint = ThemeColors.iconTint(ctx)
+        val btnBg = ThemeColors.btnBg(ctx)
         val cardBg = ThemeColors.cardBg(ctx)
 
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
-        applySecondaryTextColors(root, textPrimary, textSecondary, accent, iconTint, cardBg)
+        applySecondaryTextColors(root, textPrimary, textSecondary, accent, iconTint, cardBg, btnBg)
     }
 
     // ==================== 控件级辅助 ====================
@@ -452,7 +463,7 @@ object ThemeUtil {
                 // 跳过开关轨道（由 setupSwitch 管理背景色）
                 val bg = child.background
                 if (bg != null && child.id != R.id.common_switch_track) {
-                    try { child.background = makeCardBg(cardBg) } catch (_: Exception) {}
+                    try { child.background = makeCardBg(cardBg) } catch (e: Exception) { DebugLogger.w("ThemeUtil", "applyTextColors cardBg failed: ${e.message}") }
                 }
                 applyTextColorsToContainer(child, textPrimary, textSecondary, accent, iconTint, cardBg)
             }
@@ -508,7 +519,7 @@ object ThemeUtil {
                     // 尝试应用卡片背景
                     try {
                         if (child.background != null) child.background = makeCardBg(cardBg)
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) { DebugLogger.w("ThemeUtil", "applyCardListTheme cardBg failed: ${e.message}") }
                 }
                 applyCardListTheme(child, textPrimary, textSecondary, accent, cardBg)
             }
@@ -544,7 +555,8 @@ object ThemeUtil {
         textSecondary: Int,
         accent: Int,
         iconTint: Int,
-        cardBg: Int
+        cardBg: Int,
+        btnBg: Int = textPrimary
     ) {
         if (root == null) return
         val density = root.resources.displayMetrics.density
@@ -557,8 +569,8 @@ object ThemeUtil {
                         && child.id != R.id.common_switch_track) {
                         child.background = makeCardBg(cardBg)
                     }
-                } catch (_: Exception) {}
-                applySecondaryTextColors(child, textPrimary, textSecondary, accent, iconTint, cardBg)
+                } catch (e: Exception) { DebugLogger.w("ThemeUtil", "applySecondaryTextColors cardBg failed: ${e.message}") }
+                applySecondaryTextColors(child, textPrimary, textSecondary, accent, iconTint, cardBg, btnBg)
             }
             if (child is TextView && child !is android.widget.Button && child.id != android.R.id.text1 && child.id != R.id.common_btn_text) {
                 // 跳过系统下拉列表项和通用动作按钮文字（这些由具体页面或 applyTheme 逻辑单独处理）
@@ -594,6 +606,12 @@ object ThemeUtil {
                         child.setTextColor(textPrimary)
                         mb?.strokeColor = ColorStateList.valueOf(textSecondary)
                         mb?.iconTint = ColorStateList.valueOf(iconTint)
+                    }
+                    mb != null -> {
+                        // 填充/色调按钮 (FilledButton/TonalButton)：背景色 + 白色文字
+                        mb.backgroundTintList = ColorStateList.valueOf(btnBg)
+                        mb.setTextColor(0xFFFFFFFF.toInt())
+                        mb.iconTint = ColorStateList.valueOf(0xFFFFFFFF.toInt())
                     }
                 }
             }

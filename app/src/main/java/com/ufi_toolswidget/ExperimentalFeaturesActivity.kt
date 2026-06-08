@@ -9,6 +9,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import com.ufi_toolswidget.util.AnimationUtil
 import com.ufi_toolswidget.util.CommonSettingsItemHelper
+import com.ufi_toolswidget.util.DebugLogger
 import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.ThemeChangeNotifier
 import com.ufi_toolswidget.util.ThemeUtil
@@ -54,7 +55,7 @@ class ExperimentalFeaturesActivity : AppCompatActivity() {
             iconRes = R.drawable.ic_dynamic_colors,
             title = "小组件动态取色",
             showSubtitle = true,
-            subtitle = "",
+            subtitle = "从小组件背景图提取色调，自动适配文字颜色",
             onClick = {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     startActivity(Intent(this, WidgetDynamicColorActivity::class.java))
@@ -71,6 +72,6 @@ class ExperimentalFeaturesActivity : AppCompatActivity() {
         try {
             findViewById<TextView>(R.id.item_dynamic_color)
                 .findViewById<TextView>(R.id.common_item_subtitle)?.text = label
-        } catch (_: Exception) {}
+        } catch (e: Exception) { DebugLogger.w("ExperimentalFeaturesActivity", "updateSubtitle failed: ${e.message}") }
     }
 }

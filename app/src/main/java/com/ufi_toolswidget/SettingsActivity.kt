@@ -20,6 +20,11 @@ class SettingsActivity : AppCompatActivity() {
         // 返回
         AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_back)) { finish() }
 
+        // ===== 通知管理 → NotificationSettingsActivity（第一位） =====
+        findViewById<android.view.View>(R.id.card_notification).setOnClickListener {
+            startActivity(Intent(this, NotificationSettingsActivity::class.java))
+        }
+
         // ===== 软件设置 → AppSettingsActivity =====
         findViewById<android.view.View>(R.id.card_app_settings).setOnClickListener {
             startActivity(Intent(this, AppSettingsActivity::class.java))

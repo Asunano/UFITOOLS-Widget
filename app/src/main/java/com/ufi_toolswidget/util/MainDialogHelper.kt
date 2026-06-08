@@ -289,7 +289,7 @@ object MainDialogHelper {
         try {
             val appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName
             addView(keyValueView(context, "应用版本", "v$appVersion"))
-        } catch (_: Exception) { }
+        } catch (e: Exception) { DebugLogger.w("MainDialogHelper", "fillFirmwareDetail failed: ${e.message}") }
         if (data.appVer.isNotEmpty()) addView(keyValueView(context, "接口版本", data.appVer))
         if (data.appVerCode.isNotEmpty()) addView(keyValueView(context, "构建代码", data.appVerCode))
 
@@ -445,7 +445,7 @@ object MainDialogHelper {
                             addView(keyValueView(context, "功率", "%.2f W".format(powerW)))
                             hasData = true
                         }
-                    } catch (_: Exception) { }
+                    } catch (e: Exception) { DebugLogger.w("MainDialogHelper", "power calc failed: ${e.message}") }
                 }
 
                 // 充电状态
