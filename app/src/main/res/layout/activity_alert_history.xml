@@ -69,26 +69,28 @@
             android:layout_marginBottom="6dp"
             android:visibility="gone" />
 
-        <!-- Type filter chips -->
-        <com.google.android.material.chip.ChipGroup
-            android:id="@+id/filter_type_group"
+        <!-- Type filter buttons -->
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="4dp"
-            app:singleSelection="true"
-            app:selectionRequired="true"
-            app:chipSpacingHorizontal="6dp"
-            app:chipSpacingVertical="0dp" />
+            android:scrollbars="none"
+            android:layout_marginBottom="4dp">
 
-        <!-- Read status filter chips -->
-        <com.google.android.material.chip.ChipGroup
+            <LinearLayout
+                android:id="@+id/filter_type_group"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center" />
+        </HorizontalScrollView>
+
+        <!-- Read status filter buttons -->
+        <LinearLayout
             android:id="@+id/filter_read_group"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:singleSelection="true"
-            app:selectionRequired="true"
-            app:chipSpacingHorizontal="6dp"
-            app:chipSpacingVertical="0dp" />
+            android:orientation="horizontal"
+            android:gravity="center" />
     </LinearLayout>
 
     <!-- RecyclerView -->
