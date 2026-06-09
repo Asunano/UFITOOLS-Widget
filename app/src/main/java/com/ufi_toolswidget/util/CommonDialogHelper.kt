@@ -630,6 +630,112 @@ object CommonDialogHelper {
     }
 
     /**
+     * 创建字符串标签预设快捷按钮行，自动高亮当前值。
+     * 适用于筛选类型、状态等文本选项。
+     *
+     * @param context 上下文
+     * @param options 选项列表（id, label）
+     * @param currentValue 当前选中 id
+     * @param onSelect 选中回调
+     * @return Pair(行View, 更新函数)
+     */
+    fun createStringPresetRow(
+        context: Context,
+        options: List<Pair<String, String>>,
+        currentValue: String,
+        onSelect: (String) -> Unit
+    ): Pair<LinearLayout, (String) -> Unit> {
+        val accent = ThemeColors.accent(context)
+        val textSecondary = ThemeColors.textSecondary(context)
+        val chips = mutableListOf<TextView>()
+
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        options.forEach { (id, label) ->
+            val chip = TextView(context).apply {
+                text = label
+                textSize = 12f
+                gravity = android.view.Gravity.CENTER
+                setPadding(dp2px(context, 10), dp2px(context, 4), dp2px(context, 10), dp2px(context, 4))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { onSelect(id) }
+            }
+            chips.add(chip)
+            val params = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp2px(context, 6) }
+            row.addView(chip, params)
+        }
+
+        val update: (String) -> Unit = { selected ->
+            chips.forEachIndexed { i, chip ->
+                updateChipHighlight(chip, options[i].first == selected, accent, textSecondary)
+            }
+        }
+        update(currentValue)
+
+        return row to update
+    }
+
+    /**
+     * 创建双栏网格字符串选项行（适用于较多选项，如筛选类型）。
+     */
+    fun createStringPresetGrid(
+        context: Context,
+        options: List<Pair<String, String>>,
+        currentValue: String,
+        columns: Int = 2,
+        onSelect: (String) -> Unit
+    ): Pair<android.widget.GridLayout, (String) -> Unit> {
+        val accent = ThemeColors.accent(context)
+        val textSecondary = ThemeColors.textSecondary(context)
+        val chips = mutableListOf<TextView>()
+
+        val grid = android.widget.GridLayout(context).apply {
+            columnCount = columns
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        options.forEach { (id, label) ->
+            val chip = TextView(context).apply {
+                text = label
+                textSize = 12f
+                gravity = android.view.Gravity.CENTER
+                setPadding(dp2px(context, 10), dp2px(context, 6), dp2px(context, 10), dp2px(context, 6))
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { onSelect(id) }
+            }
+            chips.add(chip)
+            val params = android.widget.GridLayout.LayoutParams().apply {
+                width = 0
+                height = ViewGroup.LayoutParams.WRAP_CONTENT
+                columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+                setMargins(dp2px(context, 3), dp2px(context, 3), dp2px(context, 3), dp2px(context, 3))
+            }
+            grid.addView(chip, params)
+        }
+
+        val update: (String) -> Unit = { selected ->
+            chips.forEachIndexed { i, chip ->
+                updateChipHighlight(chip, options[i].first == selected, accent, textSecondary)
+            }
+        }
+        update(currentValue)
+
+        return grid to update
+    }
+
+    /**
      * 创建常用值预设快捷按钮行，自动高亮当前值
      * @param context 上下文
      * @param values 预设值列表

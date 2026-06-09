@@ -18,7 +18,6 @@ import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewGroup
-import android.widget.GridLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -46,6 +45,7 @@ class AlertHistoryActivity : AppCompatActivity() {
 
     private lateinit var alertList: RecyclerView
     private lateinit var emptyState: View
+    private lateinit var tvEmptyText: TextView
     private lateinit var actionBar: LinearLayout
     private lateinit var btnFilterToggle: MaterialButton
     private lateinit var tvSubtitle: TextView
@@ -55,18 +55,18 @@ class AlertHistoryActivity : AppCompatActivity() {
 
     private val fullTimeFormat = SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault())
 
-    private val typeFilters = listOf(
-        FilterOption("all", "全部"), FilterOption("daily_flow", "日用量"),
-        FilterOption("monthly_flow", "月用量"), FilterOption("temp", "温度"),
-        FilterOption("cpu", "CPU"), FilterOption("memory", "内存"),
-        FilterOption("battery", "电池"), FilterOption("device_online", "设备")
+    private val typeOptions = listOf(
+        "all" to "全部", "daily_flow" to "日用量", "monthly_flow" to "月用量",
+        "temp" to "温度", "cpu" to "CPU", "memory" to "内存",
+        "battery" to "电池", "device_online" to "设备"
     )
-    private val readFilters = listOf(
-        FilterOption("all", "全部"), FilterOption("unread", "未读"), FilterOption("read", "已读")
+    private val readOptions = listOf(
+        "all" to "全部", "unread" to "未读", "read" to "已读"
     )
 
     private var velocityTracker: VelocityTracker? = null
     private var lastSwipeVelocityDpPerSec = 0f
+    private var totalRecordCount = 0
 
     private val refreshReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -91,6 +91,7 @@ class AlertHistoryActivity : AppCompatActivity() {
 
         alertList = findViewById(R.id.alert_list)
         emptyState = findViewById(R.id.empty_state)
+        tvEmptyText = findViewById(R.id.tv_empty_text)
         actionBar = findViewById(R.id.action_bar)
         btnFilterToggle = findViewById(R.id.btn_filter_toggle)
         tvSubtitle = findViewById(R.id.tv_alert_subtitle)
@@ -120,12 +121,13 @@ class AlertHistoryActivity : AppCompatActivity() {
     }
 
     // ═══════════════════════════════════════════
-    // 操作按钮 — 白色文字
+    // 操作按钮 — 白色文字（ThemeUtil 已跳过这些 ID）
     // ═══════════════════════════════════════════
 
     private fun setupActionBar() {
         val accent = ThemeColors.accent(this)
         val dangerColor = Color.parseColor("#F44336")
+        val secondaryColor = ThemeColors.textSecondary(this)
 
         val btnMarkAllRead = findViewById<MaterialButton>(R.id.btn_mark_all_read)
         btnMarkAllRead.backgroundTintList = ColorStateList.valueOf(accent)
@@ -138,21 +140,21 @@ class AlertHistoryActivity : AppCompatActivity() {
         btnClearAll.strokeWidth = 0; btnClearAll.strokeColor = ColorStateList.valueOf(dangerColor)
         AnimationUtil.applyScaleClickAnimation(btnClearAll) { showClearConfirmDialog() }
         btnClearAll.setTextColor(Color.WHITE); btnClearAll.iconTint = ColorStateList.valueOf(Color.WHITE)
+
+        // 筛选按钮 — 次要色背景，白色文字
+        btnFilterToggle.backgroundTintList = ColorStateList.valueOf(secondaryColor)
+        btnFilterToggle.strokeWidth = 0
+        AnimationUtil.applyScaleClickAnimation(btnFilterToggle) { showFilterDialog() }
+        btnFilterToggle.setTextColor(Color.WHITE); btnFilterToggle.iconTint = ColorStateList.valueOf(Color.WHITE)
+        updateFilterToggleLabel()
     }
 
     // ═══════════════════════════════════════════
-    // 筛选（弹窗）
+    // 筛选（弹窗 — createStringPresetGrid / createStringPresetRow）
     // ═══════════════════════════════════════════
 
     private fun setupFilterToggle() {
-        val accent = ThemeColors.accent(this)
-        val textPrimary = ThemeColors.textPrimary(this)
-        btnFilterToggle.backgroundTintList = ColorStateList.valueOf(accent)
-        btnFilterToggle.setTextColor(Color.WHITE)
-        btnFilterToggle.iconTint = ColorStateList.valueOf(Color.WHITE)
-        btnFilterToggle.strokeWidth = 0
-        updateFilterToggleLabel()
-        AnimationUtil.applyScaleClickAnimation(btnFilterToggle) { showFilterDialog() }
+        // 样式已在 setupActionBar 中设置，此处无需额外操作
     }
 
     private fun updateFilterToggleLabel() {
@@ -163,9 +165,6 @@ class AlertHistoryActivity : AppCompatActivity() {
 
     private fun showFilterDialog() {
         val ctx = this
-        val accent = ThemeColors.accent(this)
-        val textPrimary = ThemeColors.textPrimary(this)
-        val cardBg = ThemeColors.cardBg(this)
         var curType = viewModel.filter.value.type
         var curRead = viewModel.filter.value.readStatus
 
@@ -173,94 +172,83 @@ class AlertHistoryActivity : AppCompatActivity() {
             context = ctx, title = "筛选警报", iconRes = R.drawable.ic_notification,
             onFill = { content ->
                 content.addView(sectionLabel("类型"))
-                // 类型 — 双栏网格
-                val typeGrid = GridLayout(ctx).apply {
-                    columnCount = 2
-                    layoutParams = fillWidth().apply { bottomMargin = dp(10) }
-                }
-                val tBtns = mutableListOf<MaterialButton>()
-                for (opt in typeFilters) {
-                    val b = gridChip(opt.label, opt.id == curType, accent, textPrimary, cardBg)
-                    b.setOnClickListener {
-                        curType = opt.id
-                        tBtns.forEachIndexed { i, btn -> styleChip(btn, typeFilters[i].id == curType, accent, textPrimary, cardBg) }
-                    }
-                    tBtns.add(b); typeGrid.addView(b)
-                }
+                var typeUpdate: ((String) -> Unit)? = null
+                val (typeGrid, tUpdate) = CommonDialogHelper.createStringPresetGrid(
+                    context = ctx, options = typeOptions, currentValue = curType,
+                    onSelect = { id -> curType = id; typeUpdate?.invoke(id) }
+                )
+                typeUpdate = tUpdate
                 content.addView(typeGrid)
 
-                content.addView(sectionLabel("状态"))
-                val readRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = fillWidth() }
-                val rBtns = mutableListOf<MaterialButton>()
-                for (opt in readFilters) {
-                    val b = chip(opt.label, opt.id == curRead, accent, textPrimary, cardBg)
-                    b.setOnClickListener {
-                        curRead = opt.id
-                        rBtns.forEachIndexed { i, btn -> styleChip(btn, readFilters[i].id == curRead, accent, textPrimary, cardBg) }
-                    }
-                    rBtns.add(b); readRow.addView(b)
-                }
+                content.addView(sectionLabel("状态").apply {
+                    layoutParams = fillWidth().apply { topMargin = dp(8) }
+                })
+                var readUpdate: ((String) -> Unit)? = null
+                val (readRow, rUpdate) = CommonDialogHelper.createStringPresetRow(
+                    context = ctx, options = readOptions, currentValue = curRead,
+                    onSelect = { id -> curRead = id; readUpdate?.invoke(id) }
+                )
+                readUpdate = rUpdate
                 content.addView(readRow)
             },
             primaryBtnText = "应用",
             onPrimaryClick = { d ->
-                viewModel.filter.value = AlertFilter(curType, curRead); adapter.refresh()
+                viewModel.filter.value = AlertFilter(curType, curRead)
+                adapter.refresh()
                 updateFilterToggleLabel(); d.dismiss()
             },
             secondaryBtnText = "清除筛选",
             onSecondaryClick = { d ->
-                viewModel.filter.value = AlertFilter(); adapter.refresh()
+                viewModel.filter.value = AlertFilter()
+                adapter.refresh()
                 updateFilterToggleLabel(); d.dismiss()
             }
         )
     }
 
     // ═══════════════════════════════════════════
-    // 设置弹窗
+    // 设置弹窗（createPresetRow）
     // ═══════════════════════════════════════════
 
     private fun showSettingsDialog() {
         val ctx = this
-        val accent = ThemeColors.accent(this)
-        val textPrimary = ThemeColors.textPrimary(this)
-        val cardBg = ThemeColors.cardBg(this)
         var curPageSize = AlertHistoryManager.getPageSize(this)
         var curMaxCount = AlertHistoryManager.getMaxCount(this)
 
         val pageOptions = listOf(10, 20, 50, 100)
-        val maxOptions = listOf(100, 500, 1000, 0) // 0=无限制
-        val maxLabels = listOf("100", "500", "1000", "不限")
+        val maxOptions = listOf(100, 500, 1000, 0)
+        val maxLabels = mapOf(100 to "100", 500 to "500", 1000 to "1000", 0 to "不限")
 
         CommonDialogHelper.showCommonDialog(
             context = ctx, title = "警报设置", iconRes = R.drawable.ic_settings,
             onFill = { content ->
-                // 每页条数
                 content.addView(sectionLabel("每页显示条数"))
-                val pageRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = fillWidth().apply { bottomMargin = dp(12) } }
-                val pBtns = mutableListOf<MaterialButton>()
-                for (v in pageOptions) {
-                    val b = chip("$v", v == curPageSize, accent, textPrimary, cardBg)
-                    b.setOnClickListener { curPageSize = v; pBtns.forEachIndexed { i, btn -> styleChip(btn, pageOptions[i] == curPageSize, accent, textPrimary, cardBg) } }
-                    pBtns.add(b); pageRow.addView(b)
-                }
+                var pageUpdate: ((Int) -> Unit)? = null
+                val (pageRow, pUpdate) = CommonDialogHelper.createPresetRow(
+                    context = ctx, values = pageOptions,
+                    formatLabel = { "$it" }, currentValue = curPageSize,
+                    onSelect = { v -> curPageSize = v; pageUpdate?.invoke(v) }
+                )
+                pageUpdate = pUpdate
                 content.addView(pageRow)
 
-                // 最大保存数量
-                content.addView(sectionLabel("最多保存通知数"))
-                val maxRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = fillWidth() }
-                val mBtns = mutableListOf<MaterialButton>()
-                for ((idx, v) in maxOptions.withIndex()) {
-                    val b = chip(maxLabels[idx], v == curMaxCount, accent, textPrimary, cardBg)
-                    b.setOnClickListener { curMaxCount = v; mBtns.forEachIndexed { i, btn -> styleChip(btn, maxOptions[i] == curMaxCount, accent, textPrimary, cardBg) } }
-                    mBtns.add(b); maxRow.addView(b)
-                }
+                content.addView(sectionLabel("最多保存通知数").apply {
+                    layoutParams = fillWidth().apply { topMargin = dp(12) }
+                })
+                var maxUpdate: ((Int) -> Unit)? = null
+                val (maxRow, mUpdate) = CommonDialogHelper.createPresetRow(
+                    context = ctx, values = maxOptions,
+                    formatLabel = { maxLabels[it] ?: "$it" }, currentValue = curMaxCount,
+                    onSelect = { v -> curMaxCount = v; maxUpdate?.invoke(v) }
+                )
+                maxUpdate = mUpdate
                 content.addView(maxRow)
             },
             primaryBtnText = "保存",
             onPrimaryClick = { d ->
                 AlertHistoryManager.saveSettings(ctx, curPageSize, curMaxCount)
                 viewModel.pageSize.value = curPageSize
-                adapter.refresh()  // 触发当前 PagingSource 刷新；若 pageSize 变了，flatMapLatest 会创建新 Pager
+                adapter.refresh()
                 d.dismiss()
             },
             secondaryBtnText = "取消",
@@ -268,42 +256,12 @@ class AlertHistoryActivity : AppCompatActivity() {
         )
     }
 
-    // ── Dialog chip helpers ──
+    // ── 辅助 ──
 
     private fun sectionLabel(text: String) = TextView(this).apply {
         this.text = text; textSize = 11f
         setTextColor(ThemeColors.textSecondary(this@AlertHistoryActivity)); alpha = 0.6f
         layoutParams = fillWidth().apply { bottomMargin = dp(4) }
-    }
-
-    @SuppressLint("PrivateResource")
-    private fun chip(text: String, sel: Boolean, accent: Int, textPri: Int, cardBg: Int): MaterialButton {
-        return MaterialButton(this, null, com.google.android.material.R.attr.materialButtonStyle).apply {
-            styleChip(this, sel, accent, textPri, cardBg)
-            this.text = text; textSize = 12f; insetTop = 0; insetBottom = 0
-            setPadding(dp(12), 0, dp(12), 0)
-            layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f).apply { marginEnd = dp(4) }
-        }
-    }
-
-    @SuppressLint("PrivateResource")
-    private fun gridChip(text: String, sel: Boolean, accent: Int, textPri: Int, cardBg: Int): MaterialButton {
-        return MaterialButton(this, null, com.google.android.material.R.attr.materialButtonStyle).apply {
-            styleChip(this, sel, accent, textPri, cardBg)
-            this.text = text; textSize = 12f; insetTop = 0; insetBottom = 0
-            setPadding(dp(8), 0, dp(8), 0)
-            layoutParams = GridLayout.LayoutParams().apply {
-                width = 0; height = dp(36)
-                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                setMargins(dp(3), dp(3), dp(3), dp(3))
-            }
-        }
-    }
-
-    private fun styleChip(b: MaterialButton, sel: Boolean, accent: Int, textPri: Int, cardBg: Int) {
-        b.backgroundTintList = ColorStateList.valueOf(if (sel) accent else cardBg)
-        b.setTextColor(if (sel) Color.WHITE else textPri)
-        b.strokeWidth = 0; b.cornerRadius = dp(8)
     }
 
     private fun fillWidth() = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
@@ -386,27 +344,48 @@ class AlertHistoryActivity : AppCompatActivity() {
     }
 
     // ═══════════════════════════════════════════
-    // 数据观察
+    // 数据观察 — 按钮可见性由 totalCount 控制
     // ═══════════════════════════════════════════
 
     private fun observeData() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                // 数据收集
                 launch { viewModel.alerts.collect { adapter.submitData(it) } }
+
+                // 列表空态 vs 按钮可见性分离
                 launch {
                     adapter.loadStateFlow.collect { ls ->
                         if (ls.refresh is LoadState.NotLoading) {
-                            val empty = adapter.itemCount == 0
-                            emptyState.visibility = if (empty) View.VISIBLE else View.GONE
-                            alertList.visibility = if (empty) View.GONE else View.VISIBLE
-                            if (empty) { actionBar.visibility = View.GONE; btnFilterToggle.visibility = View.GONE }
-                            else { actionBar.visibility = View.VISIBLE; btnFilterToggle.visibility = View.VISIBLE }
+                            val listEmpty = adapter.itemCount == 0
+                            if (listEmpty && totalRecordCount > 0) {
+                                // 有数据但筛选无结果
+                                emptyState.visibility = View.VISIBLE
+                                alertList.visibility = View.GONE
+                                tvEmptyText.text = "无匹配结果，请调整筛选条件"
+                            } else if (listEmpty) {
+                                // 完全无数据
+                                emptyState.visibility = View.VISIBLE
+                                alertList.visibility = View.GONE
+                                tvEmptyText.text = "暂无警报记录"
+                            } else {
+                                emptyState.visibility = View.GONE
+                                alertList.visibility = View.VISIBLE
+                            }
                         }
                     }
                 }
+
+                // 按钮可见性由 totalCount 控制（不随筛选变化消失）
                 launch {
                     viewModel.subtitleInfo.collect { (total, unread) ->
+                        totalRecordCount = total
                         tvSubtitle.text = if (unread > 0) "共 ${total} 条，${unread} 条未读" else "共 ${total} 条"
+                        if (total > 0) {
+                            actionBar.visibility = View.VISIBLE
+                        } else {
+                            actionBar.visibility = View.GONE
+                        }
                     }
                 }
             }
@@ -419,12 +398,11 @@ class AlertHistoryActivity : AppCompatActivity() {
 
     private fun showAlertActionDialog(record: AlertRecord) {
         val ctx = this; val timeStr = fullTimeFormat.format(Date(record.timestamp))
-        // 去除消息中已嵌入的"触发时间"行（无日期），由下方统一显示带日期的完整时间
         val cleanMsg = record.message.replace(Regex("\\n?触发时间:\\s*\\S+"), "").trimEnd()
         CommonDialogHelper.showCommonDialog(
             context = ctx, title = record.title, iconRes = typeToIconRes(record.type),
             onFill = { c ->
-                c.addView(TextView(ctx).apply { text = cleanMsg; textSize = 13f; setTextColor(ThemeColors.textPrimary(ctx)); setLineSpacing(0f, 1.3f) })
+                c.addView(TextView(ctx).apply { text = cleanMsg; textSize = 14f; setTextColor(ThemeColors.textPrimary(ctx)); setLineSpacing(0f, 1.4f) })
                 c.addView(TextView(ctx).apply { text = "触发时间: $timeStr"; textSize = 12f; setTextColor(ThemeColors.textSecondary(ctx)); layoutParams = fillWidth().apply { topMargin = dp(8) } })
                 if (!record.isRead) {
                     c.addView(CommonSettingsItemHelper.createDivider(ctx).apply { layoutParams = fillWidth().apply { topMargin = dp(6); bottomMargin = dp(6) } })

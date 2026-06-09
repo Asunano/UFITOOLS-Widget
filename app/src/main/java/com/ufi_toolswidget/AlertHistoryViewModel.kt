@@ -38,6 +38,7 @@ class AlertHistoryViewModel(application: Application) : AndroidViewModel(applica
                     config = PagingConfig(
                         pageSize = ps,
                         initialLoadSize = ps,
+                        maxSize = ps * 3,
                         enablePlaceholders = false,
                         prefetchDistance = ps / 2
                     ),

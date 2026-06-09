@@ -24,7 +24,7 @@ object AlertHistoryManager {
     /** SharedPreferences 键 */
     const val PREF_KEY_PAGE_SIZE = "alert_page_size"
     const val PREF_KEY_MAX_COUNT = "alert_max_count"
-    const val DEFAULT_PAGE_SIZE = 20
+    const val DEFAULT_PAGE_SIZE = 10
     const val DEFAULT_MAX_COUNT = 500  // 0 = 无限制
 
     private val writeLock = ReentrantLock()
