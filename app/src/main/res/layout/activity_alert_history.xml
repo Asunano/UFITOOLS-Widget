@@ -56,16 +56,17 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginHorizontal="16dp"
-        android:paddingBottom="4dp">
+        android:layout_marginHorizontal="16dp">
 
-        <!-- Action bar (programmatic) -->
+        <!-- Action bar card (programmatic) -->
         <LinearLayout
             android:id="@+id/action_bar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="end"
+            android:background="@drawable/bg_widget_card"
             android:orientation="horizontal"
+            android:padding="6dp"
+            android:gravity="center"
             android:layout_marginBottom="6dp"
             android:visibility="gone" />
 
@@ -74,7 +75,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:scrollbars="none"
-            android:layout_marginBottom="4dp">
+            android:layout_marginBottom="2dp">
 
             <LinearLayout
                 android:id="@+id/filter_type_group"
@@ -90,7 +91,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center" />
+            android:gravity="center"
+            android:layout_marginBottom="4dp" />
     </LinearLayout>
 
     <!-- RecyclerView -->

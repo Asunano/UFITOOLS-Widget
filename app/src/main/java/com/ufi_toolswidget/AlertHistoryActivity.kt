@@ -43,8 +43,8 @@ import java.util.Locale
  * 警报历史页面。
  *
  * - RecyclerView + Paging3 + Flow 实时刷新
- * - ItemTouchHelper 智能滑动：综合距离+速度+幅度判定，右滑已读不滑出只回弹，左滑删除
- * - MaterialButton TextButton 筛选 + OutlinedButton 操作栏（与应用其他页面一致）
+ * - ItemTouchHelper 智能滑动：clearView 中处理操作，保证回弹不卡住
+ * - 卡片式操作栏（bg_widget_card）+ TextButton 筛选 — 与应用其他页面一致
  * - ViewModel 管理筛选状态
  */
 class AlertHistoryActivity : AppCompatActivity() {
@@ -84,7 +84,6 @@ class AlertHistoryActivity : AppCompatActivity() {
         FilterOption("read", "已读")
     )
 
-    // ── 当前筛选选中索引 ──
     private var selectedTypeIndex = 0
     private var selectedReadIndex = 0
     private val typeButtons = mutableListOf<MaterialButton>()
@@ -94,7 +93,7 @@ class AlertHistoryActivity : AppCompatActivity() {
     private var velocityTracker: VelocityTracker? = null
     private var lastSwipeVelocityDpPerSec = 0f
 
-    // ── 广播（数据变更同步） ──
+    // ── 广播 ──
 
     private val refreshReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -149,7 +148,7 @@ class AlertHistoryActivity : AppCompatActivity() {
     }
 
     // ═══════════════════════════════════════════
-    // 筛选按钮（MaterialButton TextButton — 与 DebugLogActivity 一致）
+    // 筛选按钮（MaterialButton TextButton — 与 DebugLogActivity 分类标签一致）
     // ═══════════════════════════════════════════
 
     private fun buildFilterButtons() {
@@ -165,7 +164,7 @@ class AlertHistoryActivity : AppCompatActivity() {
             btn.setOnClickListener {
                 if (selectedTypeIndex != index) {
                     selectedTypeIndex = index
-                    updateTypeButtonStyles()
+                    updateFilterStyles()
                     viewModel.filter.value = viewModel.filter.value.copy(type = opt.id)
                     adapter.refresh()
                 }
@@ -183,7 +182,7 @@ class AlertHistoryActivity : AppCompatActivity() {
             btn.setOnClickListener {
                 if (selectedReadIndex != index) {
                     selectedReadIndex = index
-                    updateReadButtonStyles()
+                    updateFilterStyles()
                     viewModel.filter.value = viewModel.filter.value.copy(readStatus = opt.id)
                     adapter.refresh()
                 }
@@ -193,16 +192,19 @@ class AlertHistoryActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("PrivateResource")
     private fun createFilterButton(text: String, selected: Boolean): MaterialButton {
         val accent = ThemeColors.accent(this)
         val textPrimary = ThemeColors.textPrimary(this)
         return MaterialButton(this, null,
             com.google.android.material.R.attr.materialButtonStyle).apply {
-            // 使用 TextButton 风格
+            // 模拟 Widget.Material3.Button.TextButton 风格
+            setBackgroundColor(Color.TRANSPARENT)
             setTextColor(if (selected) accent else textPrimary)
-            strokeColor = ColorStateList.valueOf(if (selected) accent else 0x00000000)
+            strokeColor = ColorStateList.valueOf(if (selected) accent else Color.TRANSPARENT)
             strokeWidth = dp(1)
             cornerRadius = dp(8)
+            rippleColor = ColorStateList.valueOf(accent and 0x20FFFFFF)
             this.text = text
             textSize = 11f
             insetTop = 0
@@ -210,88 +212,88 @@ class AlertHistoryActivity : AppCompatActivity() {
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, dp(36)
             )
-            lp.marginEnd = dp(4)
+            lp.marginEnd = dp(2)
             layoutParams = lp
         }
     }
 
-    private fun updateTypeButtonStyles() {
+    private fun updateFilterStyles() {
         val accent = ThemeColors.accent(this)
         val textPrimary = ThemeColors.textPrimary(this)
         typeButtons.forEachIndexed { i, btn ->
-            if (i == selectedTypeIndex) {
-                btn.setTextColor(accent)
-                btn.strokeColor = ColorStateList.valueOf(accent)
-            } else {
-                btn.setTextColor(textPrimary)
-                btn.strokeColor = ColorStateList.valueOf(0x00000000)
-            }
+            val sel = i == selectedTypeIndex
+            btn.setTextColor(if (sel) accent else textPrimary)
+            btn.strokeColor = ColorStateList.valueOf(if (sel) accent else Color.TRANSPARENT)
         }
-    }
-
-    private fun updateReadButtonStyles() {
-        val accent = ThemeColors.accent(this)
-        val textPrimary = ThemeColors.textPrimary(this)
         readButtons.forEachIndexed { i, btn ->
-            if (i == selectedReadIndex) {
-                btn.setTextColor(accent)
-                btn.strokeColor = ColorStateList.valueOf(accent)
-            } else {
-                btn.setTextColor(textPrimary)
-                btn.strokeColor = ColorStateList.valueOf(0x00000000)
-            }
+            val sel = i == selectedReadIndex
+            btn.setTextColor(if (sel) accent else textPrimary)
+            btn.strokeColor = ColorStateList.valueOf(if (sel) accent else Color.TRANSPARENT)
         }
     }
 
     // ═══════════════════════════════════════════
-    // Action bar（OutlinedButton — 与 DebugLogActivity 一致）
+    // Action bar（卡片式 — 与 DebugLogActivity 操作按钮卡片一致）
     // ═══════════════════════════════════════════
 
     private fun buildActionBar() {
         actionBar.removeAllViews()
         val accent = ThemeColors.accent(this)
-        val subColor = ThemeColors.textSecondary(this)
+        val textSecondary = ThemeColors.textSecondary(this)
 
-        actionBar.addView(createActionButton("全部已读", R.drawable.ic_check, accent) {
+        actionBar.addView(createCardActionButton(R.drawable.ic_check, "全部已读", accent) {
             AlertHistoryManager.markAllRead(this)
         })
-        actionBar.addView(createActionButton("清空", null, subColor) {
+        actionBar.addView(createCardActionButton(R.drawable.ic_notification, "清空", textSecondary) {
             showClearConfirmDialog()
         })
     }
 
-    private fun createActionButton(
-        text: String, iconRes: Int?, color: Int, onClick: () -> Unit
-    ): MaterialButton {
-        val lp = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, dp(36)
-        )
-        lp.marginStart = dp(6)
-
-        return MaterialButton(this, null,
-            com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+    /**
+     * 创建卡片内操作按钮：纵向 LinearLayout（图标 + 文字），等分宽度，
+     * selectableItemBackground 水波纹，与 DebugLogActivity 的操作按钮卡片完全一致。
+     */
+    private fun createCardActionButton(
+        iconRes: Int, text: String, color: Int, onClick: () -> Unit
+    ): View {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             layoutParams = lp
-            this.text = text
-            textSize = 12f
-            insetTop = 0
-            insetBottom = 0
-            cornerRadius = dp(8)
-            strokeWidth = dp(1)
-            strokeColor = ColorStateList.valueOf(Color.argb(
-                128, Color.red(color), Color.green(color), Color.blue(color)))
-            setTextColor(color)
-            if (iconRes != null) {
-                icon = context.getDrawable(iconRes)
-                iconTint = ColorStateList.valueOf(color)
-                iconSize = dp(14)
-                iconPadding = dp(4)
-            }
-            setOnClickListener { onClick() }
+            setPadding(0, dp(4), 0, dp(4))
+            isClickable = true
+            isFocusable = true
+            // 使用系统水波纹
+            val ta = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground))
+            background = ta.getDrawable(0)
+            ta.recycle()
         }
+
+        container.addView(ImageView(this).apply {
+            setImageResource(iconRes)
+            setColorFilter(color)
+            layoutParams = LinearLayout.LayoutParams(dp(18), dp(18))
+        })
+
+        container.addView(TextView(this).apply {
+            this.text = text
+            textSize = 9f
+            setTextColor(color)
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.topMargin = dp(2)
+            layoutParams = lp
+        })
+
+        AnimationUtil.applyScaleClickAnimation(container) { onClick() }
+        return container
     }
 
     // ═══════════════════════════════════════════
-    // RecyclerView + ItemTouchHelper（智能滑动）
+    // RecyclerView + ItemTouchHelper
     // ═══════════════════════════════════════════
 
     @SuppressLint("ClickableViewAccessibility")
@@ -303,7 +305,7 @@ class AlertHistoryActivity : AppCompatActivity() {
         alertList.setHasFixedSize(false)
         alertList.isNestedScrollingEnabled = true
 
-        // 速度追踪：捕获 RecyclerView 的 touch 事件计算速度
+        // 速度追踪
         alertList.setOnTouchListener { _, event ->
             if (velocityTracker == null) {
                 velocityTracker = VelocityTracker.obtain()
@@ -311,13 +313,13 @@ class AlertHistoryActivity : AppCompatActivity() {
             velocityTracker?.addMovement(event)
             if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
                 velocityTracker?.let { vt ->
-                    vt.computeCurrentVelocity(1000) // px/s
+                    vt.computeCurrentVelocity(1000)
                     lastSwipeVelocityDpPerSec = Math.abs(vt.xVelocity) / resources.displayMetrics.density
                 }
                 velocityTracker?.recycle()
                 velocityTracker = null
             }
-            false // 不拦截事件，让 ItemTouchHelper 继续处理
+            false
         }
 
         val swipeHelper = ItemTouchHelper(SwipeCallback())
@@ -325,17 +327,16 @@ class AlertHistoryActivity : AppCompatActivity() {
     }
 
     /**
-     * 智能滑动回调。
+     * 滑动回调。
      *
-     * 右滑（标记已读）：
-     *   - getSwipeThreshold 返回 Float.MAX_VALUE → onSwiped 永远不会被右滑触发
-     *   - 在 onChildDraw 中绘制绿色背景 + "已读 ✓" 标签
-     *   - 手指松开后 ItemTouchHelper 自动回弹卡片到原位
-     *   - 综合判定（距离+速度+幅度）决定是否执行标记已读
+     * 核心设计：所有操作判定在 [clearView] 中完成（手指松开时），
+     * 而非 onSwiped。这确保卡片先被 ItemTouchHelper 自然回弹，
+     * 再执行数据操作，避免"卡住不回弹"。
      *
-     * 左滑（删除）：
-     *   - 正常阈值触发 onSwiped → 滑出 + 删除
-     *   - 综合判定防误触
+     * - 右滑：标记已读（卡片回弹后更新数据）
+     * - 左滑：删除（卡片滑出后删除数据）
+     *
+     * 阈值使用默认的 0.5f（50% 卡片宽度），叠加速度判定降低有效阈值。
      */
     private inner class SwipeCallback : ItemTouchHelper.SimpleCallback(
         0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT
@@ -347,35 +348,15 @@ class AlertHistoryActivity : AppCompatActivity() {
             isAntiAlias = true
         }
 
-        /**
-         * 右滑永远不触发 onSwiped（让卡片自动回弹），左滑使用默认阈值。
-         * 实际的"是否执行操作"判定在 clearView 中通过综合分数完成。
-         */
-        override fun getSwipeThreshold(viewHolder: RecyclerView.ViewHolder): Float {
-            return Float.MAX_VALUE
-        }
-
-        override fun getSwipeVelocityThreshold(defaultValue: Float): Float {
-            return defaultValue * 0.3f // 降低速度阈值，让速度判定更灵敏
-        }
-
         override fun onMove(
             rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder
         ) = false
 
-        /**
-         * 仅左滑超过阈值时才会调用（右滑因 threshold=MAX 永远不会到达这里）。
-         */
         override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {
-            if (direction == ItemTouchHelper.LEFT) {
-                val pos = vh.bindingAdapterPosition
-                val record = adapter.peek(pos)
-                if (record != null && shouldExecuteSwipe(vh.itemView.width.toFloat())) {
-                    AlertHistoryManager.remove(this@AlertHistoryActivity, record.id)
-                } else {
-                    adapter.notifyItemChanged(vh.bindingAdapterPosition)
-                }
-            }
+            // 不在此处执行操作。
+            // 操作判定在 clearView 中完成，确保卡片回弹不受干扰。
+            // 如果到达这里说明 ItemTouchHelper 已认为"滑动完成"，
+            // 对于左滑删除，clearView 会处理。对于右滑已读，同上。
         }
 
         override fun onChildDraw(
@@ -390,18 +371,18 @@ class AlertHistoryActivity : AppCompatActivity() {
 
             val bgPaint = Paint().apply { isAntiAlias = true }
             val cornerRadius = dpF(12f)
+            val absDx = Math.abs(dX)
 
             if (dX > 0) {
-                // ── 右滑 → 绿色已读 ──
-                val alpha = (dX / itemView.width * 180).toInt().coerceIn(0, 180)
-                bgPaint.color = Color.argb(alpha, 76, 175, 80) // #4CAF50 with alpha
-                val rect = RectF(
-                    itemView.left.toFloat(), itemView.top.toFloat(),
-                    itemView.left + dX, itemView.bottom.toFloat()
-                )
-                c.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
+                // 右滑 → 绿色已读
+                val alpha = (absDx / itemView.width * 180).toInt().coerceIn(0, 180)
+                bgPaint.color = Color.argb(alpha, 76, 175, 80)
+                c.drawRoundRect(
+                    RectF(itemView.left.toFloat(), itemView.top.toFloat(),
+                        itemView.left + dX, itemView.bottom.toFloat()),
+                    cornerRadius, cornerRadius, bgPaint)
 
-                if (dX > dpF(30f)) {
+                if (absDx > dpF(30f)) {
                     val text = "已读  ✓"
                     val tw = labelPaint.measureText(text)
                     c.drawText(text,
@@ -410,15 +391,13 @@ class AlertHistoryActivity : AppCompatActivity() {
                         labelPaint)
                 }
             } else {
-                // ── 左滑 → 红色删除 ──
-                val absDx = Math.abs(dX)
+                // 左滑 → 红色删除
                 val alpha = (absDx / itemView.width * 180).toInt().coerceIn(0, 180)
-                bgPaint.color = Color.argb(alpha, 244, 67, 54) // #F44336 with alpha
-                val rect = RectF(
-                    itemView.right + dX, itemView.top.toFloat(),
-                    itemView.right.toFloat(), itemView.bottom.toFloat()
-                )
-                c.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
+                bgPaint.color = Color.argb(alpha, 244, 67, 54)
+                c.drawRoundRect(
+                    RectF(itemView.right + dX, itemView.top.toFloat(),
+                        itemView.right.toFloat(), itemView.bottom.toFloat()),
+                    cornerRadius, cornerRadius, bgPaint)
 
                 if (absDx > dpF(30f)) {
                     val text = "✕  删除"
@@ -430,33 +409,58 @@ class AlertHistoryActivity : AppCompatActivity() {
                 }
             }
 
-            // 卡片微缩放（最大 3%，更微妙）
-            val scale = 1f - (Math.abs(dX) / itemView.width * 0.03f).coerceAtMost(0.03f)
+            // 卡片微缩放
+            val scale = 1f - (absDx / itemView.width * 0.03f).coerceAtMost(0.03f)
             itemView.scaleX = scale
             itemView.scaleY = scale
 
             super.onChildDraw(c, rv, vh, dX, dY, actionState, isCurrentlyActive)
         }
 
+        /**
+         * 关键方法：手指松开时由 ItemTouchHelper 调用。
+         * 先保存当前位移（super 会重置），再回弹卡片，最后判定操作。
+         */
         override fun clearView(rv: RecyclerView, vh: RecyclerView.ViewHolder) {
+            // ① 在 super 清除 translationX 之前保存当前位移
+            val savedTranslationX = vh.itemView.translationX
+            val itemWidth = vh.itemView.width.toFloat()
+            val pos = vh.bindingAdapterPosition
+            val record = adapter.peek(pos)
+
+            // ② 调用 super：ItemTouchHelper 重置 itemView 属性
             super.clearView(rv, vh)
             vh.itemView.scaleX = 1f
             vh.itemView.scaleY = 1f
+
+            // ③ 判定是否执行操作
+            if (record == null || pos == RecyclerView.NO_POSITION) return
+
+            val absDx = Math.abs(savedTranslationX)
+            val shouldExecute = shouldExecuteSwipe(absDx, itemWidth)
+
+            if (shouldExecute) {
+                if (savedTranslationX > 0) {
+                    // 右滑 → 标记已读
+                    AlertHistoryManager.markRead(this@AlertHistoryActivity, record.id)
+                } else if (savedTranslationX < 0) {
+                    // 左滑 → 删除
+                    AlertHistoryManager.remove(this@AlertHistoryActivity, record.id)
+                }
+            }
         }
 
         /**
-         * 综合判定：距离 + 速度 + 幅度。
+         * 综合判定：距离 + 速度 + 幅度，防误触。
          *
          * 满足以下任一条件即执行：
          * 1. 滑动距离 > 40% 卡片宽度
          * 2. 滑动速度 > 800 dp/s 且距离 > 15% 卡片宽度
          * 3. 滑动距离 > 25% 且速度 > 500 dp/s
          */
-        private fun shouldExecuteSwipe(itemWidth: Float): Boolean {
-            val absDx = Math.abs(alertList.getChildAt(0)?.translationX ?: 0f)
+        private fun shouldExecuteSwipe(absDx: Float, itemWidth: Float): Boolean {
             val distanceRatio = absDx / itemWidth
             val velocity = lastSwipeVelocityDpPerSec
-
             return when {
                 distanceRatio > 0.4f -> true
                 velocity > 800f && distanceRatio > 0.15f -> true
