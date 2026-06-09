@@ -2,7 +2,6 @@ package com.ufi_toolswidget.util
 
 import android.content.Context
 import android.content.Intent
-import androidx.paging.PagingSource
 import com.ufi_toolswidget.db.AlertDao
 import com.ufi_toolswidget.db.AlertRecord
 import com.ufi_toolswidget.db.AppDatabase
@@ -73,26 +72,24 @@ object AlertHistoryManager {
         }
     }
 
-    /** 分页查询（PagingSource） */
-    fun getAllPaged(): PagingSource<Int, AlertRecord> = getDao().getAllPaged()
-
-    fun getPagedByType(type: String): PagingSource<Int, AlertRecord> =
-        getDao().getPagedByType(type)
-
-    fun getPagedByReadStatus(isRead: Boolean): PagingSource<Int, AlertRecord> =
-        getDao().getPagedByReadStatus(isRead)
-
-    fun getPagedFiltered(type: String, isRead: Boolean): PagingSource<Int, AlertRecord> =
-        getDao().getPagedFiltered(type, isRead)
-
-    /** 未读数量 */
-    fun getUnreadCount(ctx: Context): Int = getDao().getUnreadCount()
-
     /** 未读数量观察（Flow，实时响应 Room 变更） */
     fun observeUnreadCount(): Flow<Int> = getDao().observeUnreadCount()
 
     /** 总数观察（Flow） */
     fun observeTotalCount(): Flow<Int> = getDao().observeTotalCount()
+
+    /** 同步计数 */
+    fun getUnreadCount(ctx: Context): Int = getDao().getUnreadCount()
+    fun getTotalCount(): Int = getDao().getTotalCount()
+    fun getCountByType(type: String): Int = getDao().getCountByType(type)
+    fun getCountByReadStatus(isRead: Boolean): Int = getDao().getCountByReadStatus(isRead)
+    fun getCountFiltered(type: String, isRead: Boolean): Int = getDao().getCountFiltered(type, isRead)
+
+    /** 分页查询（LIMIT/OFFSET） */
+    fun getPage(limit: Int, offset: Int): List<AlertRecord> = getDao().getPage(limit, offset)
+    fun getPageByType(type: String, limit: Int, offset: Int): List<AlertRecord> = getDao().getPageByType(type, limit, offset)
+    fun getPageByReadStatus(isRead: Boolean, limit: Int, offset: Int): List<AlertRecord> = getDao().getPageByReadStatus(isRead, limit, offset)
+    fun getPageFiltered(type: String, isRead: Boolean, limit: Int, offset: Int): List<AlertRecord> = getDao().getPageFiltered(type, isRead, limit, offset)
 
     /** 添加一条警报记录（加锁，插入后自动清理超限旧记录） */
     fun addAlert(ctx: Context, type: String, title: String, message: String) {

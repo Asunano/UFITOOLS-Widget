@@ -1,6 +1,5 @@
 package com.ufi_toolswidget.db
 
-import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
@@ -13,17 +12,27 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface AlertDao {
 
-    @Query("SELECT * FROM alerts ORDER BY timestamp DESC")
-    fun getAllPaged(): PagingSource<Int, AlertRecord>
+    // ── 分页查询（LIMIT/OFFSET）──
 
-    @Query("SELECT * FROM alerts WHERE type = :type ORDER BY timestamp DESC")
-    fun getPagedByType(type: String): PagingSource<Int, AlertRecord>
+    @Query("SELECT * FROM alerts ORDER BY timestamp DESC LIMIT :limit OFFSET :offset")
+    fun getPage(limit: Int, offset: Int): List<AlertRecord>
 
-    @Query("SELECT * FROM alerts WHERE isRead = :isRead ORDER BY timestamp DESC")
-    fun getPagedByReadStatus(isRead: Boolean): PagingSource<Int, AlertRecord>
+    @Query("SELECT * FROM alerts WHERE type = :type ORDER BY timestamp DESC LIMIT :limit OFFSET :offset")
+    fun getPageByType(type: String, limit: Int, offset: Int): List<AlertRecord>
 
-    @Query("SELECT * FROM alerts WHERE type = :type AND isRead = :isRead ORDER BY timestamp DESC")
-    fun getPagedFiltered(type: String, isRead: Boolean): PagingSource<Int, AlertRecord>
+    @Query("SELECT * FROM alerts WHERE isRead = :isRead ORDER BY timestamp DESC LIMIT :limit OFFSET :offset")
+    fun getPageByReadStatus(isRead: Boolean, limit: Int, offset: Int): List<AlertRecord>
+
+    @Query("SELECT * FROM alerts WHERE type = :type AND isRead = :isRead ORDER BY timestamp DESC LIMIT :limit OFFSET :offset")
+    fun getPageFiltered(type: String, isRead: Boolean, limit: Int, offset: Int): List<AlertRecord>
+
+    // ── 计数 ──
+
+    @Query("SELECT COUNT(*) FROM alerts")
+    fun getTotalCount(): Int
+
+    @Query("SELECT COUNT(*) FROM alerts")
+    fun observeTotalCount(): Flow<Int>
 
     @Query("SELECT COUNT(*) FROM alerts WHERE isRead = 0")
     fun getUnreadCount(): Int
@@ -31,11 +40,16 @@ interface AlertDao {
     @Query("SELECT COUNT(*) FROM alerts WHERE isRead = 0")
     fun observeUnreadCount(): Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM alerts")
-    fun getTotalCount(): Int
+    @Query("SELECT COUNT(*) FROM alerts WHERE type = :type")
+    fun getCountByType(type: String): Int
 
-    @Query("SELECT COUNT(*) FROM alerts")
-    fun observeTotalCount(): Flow<Int>
+    @Query("SELECT COUNT(*) FROM alerts WHERE isRead = :isRead")
+    fun getCountByReadStatus(isRead: Boolean): Int
+
+    @Query("SELECT COUNT(*) FROM alerts WHERE type = :type AND isRead = :isRead")
+    fun getCountFiltered(type: String, isRead: Boolean): Int
+
+    // ── 写操作 ──
 
     @Insert
     fun insert(record: AlertRecord)
@@ -55,7 +69,6 @@ interface AlertDao {
     @Query("DELETE FROM alerts")
     fun clearAll()
 
-    /** 删除超出上限的旧记录（保留最新的 maxCount 条） */
     @Query("DELETE FROM alerts WHERE id NOT IN (SELECT id FROM alerts ORDER BY timestamp DESC LIMIT :maxCount)")
     fun deleteOldRecords(maxCount: Int)
 }

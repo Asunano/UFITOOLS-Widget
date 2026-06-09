@@ -18,6 +18,7 @@ import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -27,7 +28,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.Lifecycle
-import androidx.paging.LoadState
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -47,8 +47,11 @@ class AlertHistoryActivity : AppCompatActivity() {
     private lateinit var emptyState: View
     private lateinit var tvEmptyText: TextView
     private lateinit var actionBar: LinearLayout
+    private lateinit var filterRow: FrameLayout
+    private lateinit var paginationBar: LinearLayout
     private lateinit var btnFilterToggle: MaterialButton
     private lateinit var tvSubtitle: TextView
+    private lateinit var tvPageInfo: TextView
 
     private lateinit var viewModel: AlertHistoryViewModel
     private lateinit var adapter: AlertItemAdapter
@@ -66,11 +69,10 @@ class AlertHistoryActivity : AppCompatActivity() {
 
     private var velocityTracker: VelocityTracker? = null
     private var lastSwipeVelocityDpPerSec = 0f
-    private var totalRecordCount = 0
 
     private val refreshReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            try { adapter.refresh() } catch (e: Exception) {
+            try { viewModel.refresh() } catch (e: Exception) {
                 DebugLogger.e(TAG, "Refresh failed: ${e.message}")
             }
         }
@@ -93,8 +95,11 @@ class AlertHistoryActivity : AppCompatActivity() {
         emptyState = findViewById(R.id.empty_state)
         tvEmptyText = findViewById(R.id.tv_empty_text)
         actionBar = findViewById(R.id.action_bar)
+        filterRow = findViewById(R.id.filter_row)
+        paginationBar = findViewById(R.id.pagination_bar)
         btnFilterToggle = findViewById(R.id.btn_filter_toggle)
         tvSubtitle = findViewById(R.id.tv_alert_subtitle)
+        tvPageInfo = findViewById(R.id.tv_page_info)
 
         AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_back)) { finish() }
         AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_settings)) { showSettingsDialog() }
@@ -102,6 +107,7 @@ class AlertHistoryActivity : AppCompatActivity() {
         registerRefreshReceiver()
         setupActionBar()
         setupFilterToggle()
+        setupPagination()
         setupRecyclerView()
         observeData()
     }
@@ -127,12 +133,11 @@ class AlertHistoryActivity : AppCompatActivity() {
     private fun setupActionBar() {
         val accent = ThemeColors.accent(this)
         val dangerColor = Color.parseColor("#F44336")
-        val secondaryColor = ThemeColors.textSecondary(this)
 
         val btnMarkAllRead = findViewById<MaterialButton>(R.id.btn_mark_all_read)
         btnMarkAllRead.backgroundTintList = ColorStateList.valueOf(accent)
         btnMarkAllRead.strokeWidth = 0; btnMarkAllRead.strokeColor = ColorStateList.valueOf(accent)
-        AnimationUtil.applyScaleClickAnimation(btnMarkAllRead) { AlertHistoryManager.markAllRead(this) }
+        AnimationUtil.applyScaleClickAnimation(btnMarkAllRead) { AlertHistoryManager.markAllRead(this); viewModel.refresh() }
         btnMarkAllRead.setTextColor(Color.WHITE); btnMarkAllRead.iconTint = ColorStateList.valueOf(Color.WHITE)
 
         val btnClearAll = findViewById<MaterialButton>(R.id.btn_clear_all)
@@ -140,21 +145,20 @@ class AlertHistoryActivity : AppCompatActivity() {
         btnClearAll.strokeWidth = 0; btnClearAll.strokeColor = ColorStateList.valueOf(dangerColor)
         AnimationUtil.applyScaleClickAnimation(btnClearAll) { showClearConfirmDialog() }
         btnClearAll.setTextColor(Color.WHITE); btnClearAll.iconTint = ColorStateList.valueOf(Color.WHITE)
-
-        // 筛选按钮 — 次要色背景，白色文字
-        btnFilterToggle.backgroundTintList = ColorStateList.valueOf(secondaryColor)
-        btnFilterToggle.strokeWidth = 0
-        AnimationUtil.applyScaleClickAnimation(btnFilterToggle) { showFilterDialog() }
-        btnFilterToggle.setTextColor(Color.WHITE); btnFilterToggle.iconTint = ColorStateList.valueOf(Color.WHITE)
-        updateFilterToggleLabel()
     }
 
     // ═══════════════════════════════════════════
-    // 筛选（弹窗 — createStringPresetGrid / createStringPresetRow）
+    // 筛选按钮（独立行，右对齐）
     // ═══════════════════════════════════════════
 
     private fun setupFilterToggle() {
-        // 样式已在 setupActionBar 中设置，此处无需额外操作
+        val secondaryColor = ThemeColors.textSecondary(this)
+        btnFilterToggle.backgroundTintList = ColorStateList.valueOf(secondaryColor)
+        btnFilterToggle.strokeWidth = 0
+        AnimationUtil.applyScaleClickAnimation(btnFilterToggle) { showFilterDialog() }
+        btnFilterToggle.setTextColor(Color.WHITE)
+        btnFilterToggle.iconTint = ColorStateList.valueOf(Color.WHITE)
+        updateFilterToggleLabel()
     }
 
     private fun updateFilterToggleLabel() {
@@ -194,16 +198,39 @@ class AlertHistoryActivity : AppCompatActivity() {
             primaryBtnText = "应用",
             onPrimaryClick = { d ->
                 viewModel.filter.value = AlertFilter(curType, curRead)
-                adapter.refresh()
-                updateFilterToggleLabel(); d.dismiss()
+                viewModel.currentPage.value = 1
+                viewModel.refresh()
+                updateFilterToggleLabel()
+                d.dismiss()
             },
             secondaryBtnText = "清除筛选",
             onSecondaryClick = { d ->
                 viewModel.filter.value = AlertFilter()
-                adapter.refresh()
-                updateFilterToggleLabel(); d.dismiss()
+                viewModel.currentPage.value = 1
+                viewModel.refresh()
+                updateFilterToggleLabel()
+                d.dismiss()
             }
         )
+    }
+
+    // ═══════════════════════════════════════════
+    // 翻页栏
+    // ═══════════════════════════════════════════
+
+    private fun setupPagination() {
+        AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_first)) { viewModel.firstPage() }
+        AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_prev)) { viewModel.prevPage() }
+        AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_next)) { viewModel.nextPage() }
+        AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_last)) { viewModel.lastPage() }
+    }
+
+    private fun updatePaginationUI(result: PageResult) {
+        tvPageInfo.text = "${result.currentPage} / ${result.totalPages}"
+        findViewById<MaterialButton>(R.id.btn_first).isEnabled = result.currentPage > 1
+        findViewById<MaterialButton>(R.id.btn_prev).isEnabled = result.currentPage > 1
+        findViewById<MaterialButton>(R.id.btn_next).isEnabled = result.currentPage < result.totalPages
+        findViewById<MaterialButton>(R.id.btn_last).isEnabled = result.currentPage < result.totalPages
     }
 
     // ═══════════════════════════════════════════
@@ -248,7 +275,8 @@ class AlertHistoryActivity : AppCompatActivity() {
             onPrimaryClick = { d ->
                 AlertHistoryManager.saveSettings(ctx, curPageSize, curMaxCount)
                 viewModel.pageSize.value = curPageSize
-                adapter.refresh()
+                viewModel.currentPage.value = 1
+                viewModel.refresh()
                 d.dismiss()
             },
             secondaryBtnText = "取消",
@@ -270,7 +298,7 @@ class AlertHistoryActivity : AppCompatActivity() {
     // RecyclerView + ItemTouchHelper
     // ═══════════════════════════════════════════
 
-    @SuppressLint("ClickableViewAccessibility")
+    @SuppressLint("ClickableViewNotifications")
     private fun setupRecyclerView() {
         adapter = AlertItemAdapter { record, _ -> showAlertActionDialog(record) }
         alertList.layoutManager = LinearLayoutManager(this)
@@ -319,7 +347,8 @@ class AlertHistoryActivity : AppCompatActivity() {
 
         override fun clearView(rv: RecyclerView, vh: RecyclerView.ViewHolder) {
             val peak = peakTranslationX; val w = vh.itemView.width.toFloat()
-            val pos = vh.bindingAdapterPosition; val rec = adapter.peek(pos)
+            val pos = vh.bindingAdapterPosition
+            val rec = if (pos != RecyclerView.NO_POSITION) adapter.currentList.getOrNull(pos) else null
             super.clearView(rv, vh); vh.itemView.scaleX = 1f; vh.itemView.scaleY = 1f; peakTranslationX = 0f
             if (rec == null || pos == RecyclerView.NO_POSITION) return
             val abs = Math.abs(peak); if (abs < dpF(10f)) return
@@ -330,6 +359,7 @@ class AlertHistoryActivity : AppCompatActivity() {
                 } else if (peak < 0) {
                     AlertHistoryManager.remove(this@AlertHistoryActivity, rec.id)
                 }
+                viewModel.refresh()
             }
         }
 
@@ -344,47 +374,42 @@ class AlertHistoryActivity : AppCompatActivity() {
     }
 
     // ═══════════════════════════════════════════
-    // 数据观察 — 按钮可见性由 totalCount 控制
+    // 数据观察
     // ═══════════════════════════════════════════
 
     private fun observeData() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                // 数据收集
-                launch { viewModel.alerts.collect { adapter.submitData(it) } }
-
-                // 列表空态 vs 按钮可见性分离
+                // 页数据
                 launch {
-                    adapter.loadStateFlow.collect { ls ->
-                        if (ls.refresh is LoadState.NotLoading) {
-                            val listEmpty = adapter.itemCount == 0
-                            if (listEmpty && totalRecordCount > 0) {
-                                // 有数据但筛选无结果
-                                emptyState.visibility = View.VISIBLE
-                                alertList.visibility = View.GONE
-                                tvEmptyText.text = "无匹配结果，请调整筛选条件"
-                            } else if (listEmpty) {
-                                // 完全无数据
-                                emptyState.visibility = View.VISIBLE
-                                alertList.visibility = View.GONE
-                                tvEmptyText.text = "暂无警报记录"
-                            } else {
-                                emptyState.visibility = View.GONE
-                                alertList.visibility = View.VISIBLE
-                            }
+                    viewModel.pageData.collect { result ->
+                        adapter.submitList(result.data)
+                        updatePaginationUI(result)
+                        val isEmpty = result.data.isEmpty()
+                        emptyState.visibility = if (isEmpty) View.VISIBLE else View.GONE
+                        alertList.visibility = if (isEmpty) View.GONE else View.VISIBLE
+                        if (isEmpty && result.totalRecords > 0) {
+                            tvEmptyText.text = "无匹配结果，请调整筛选条件"
+                        } else {
+                            tvEmptyText.text = "暂无警报记录"
                         }
+                        // 翻页时滚动到顶部
+                        if (result.data.isNotEmpty()) alertList.scrollToPosition(0)
                     }
                 }
 
-                // 按钮可见性由 totalCount 控制（不随筛选变化消失）
+                // 副标题 + 按钮可见性
                 launch {
                     viewModel.subtitleInfo.collect { (total, unread) ->
-                        totalRecordCount = total
                         tvSubtitle.text = if (unread > 0) "共 ${total} 条，${unread} 条未读" else "共 ${total} 条"
                         if (total > 0) {
                             actionBar.visibility = View.VISIBLE
+                            filterRow.visibility = View.VISIBLE
+                            paginationBar.visibility = View.VISIBLE
                         } else {
                             actionBar.visibility = View.GONE
+                            filterRow.visibility = View.GONE
+                            paginationBar.visibility = View.GONE
                         }
                     }
                 }
@@ -412,9 +437,12 @@ class AlertHistoryActivity : AppCompatActivity() {
                 }
             },
             primaryBtnText = if (record.isRead) "关闭" else "标记已读",
-            onPrimaryClick = { d -> if (!record.isRead) AlertHistoryManager.markRead(ctx, record.id); d.dismiss() },
+            onPrimaryClick = { d ->
+                if (!record.isRead) AlertHistoryManager.markRead(ctx, record.id)
+                viewModel.refresh(); d.dismiss()
+            },
             secondaryBtnText = "删除",
-            onSecondaryClick = { d -> AlertHistoryManager.remove(ctx, record.id); d.dismiss() }
+            onSecondaryClick = { d -> AlertHistoryManager.remove(ctx, record.id); viewModel.refresh(); d.dismiss() }
         )
     }
 
@@ -423,7 +451,7 @@ class AlertHistoryActivity : AppCompatActivity() {
         CommonDialogHelper.showCommonDialog(
             context = ctx, title = "清空警报历史", iconRes = R.drawable.ic_trash,
             onFill = { c -> c.addView(TextView(ctx).apply { text = "确定要清空所有警报记录吗？此操作不可撤销。"; textSize = 14f; setTextColor(ThemeColors.textSecondary(ctx)) }) },
-            primaryBtnText = "清空", onPrimaryClick = { d -> AlertHistoryManager.clearAll(ctx); d.dismiss() },
+            primaryBtnText = "清空", onPrimaryClick = { d -> AlertHistoryManager.clearAll(ctx); viewModel.refresh(); d.dismiss() },
             secondaryBtnText = "取消", onSecondaryClick = { d -> d.dismiss() }
         )
     }

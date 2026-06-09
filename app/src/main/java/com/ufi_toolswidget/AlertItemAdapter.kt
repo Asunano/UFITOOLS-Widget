@@ -8,8 +8,8 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.ufi_toolswidget.db.AlertRecord
 import com.ufi_toolswidget.util.ThemeColors
@@ -18,13 +18,13 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 警报列表 Paging3 适配器。
+ * 警报列表 Adapter（传统分页，非 Paging3）。
  *
  * 使用 MaterialCardView 包裹，确保滑动时圆角无锯齿。
  */
 class AlertItemAdapter(
     private val onItemClick: (AlertRecord, View) -> Unit
-) : PagingDataAdapter<AlertRecord, AlertItemAdapter.AlertViewHolder>(DIFF_CALLBACK) {
+) : ListAdapter<AlertRecord, AlertItemAdapter.AlertViewHolder>(DIFF_CALLBACK) {
 
     companion object {
         private val DIFF_CALLBACK = object : DiffUtil.ItemCallback<AlertRecord>() {
@@ -68,7 +68,6 @@ class AlertItemAdapter(
             setPadding(hPad, vPad, hPad, vPad)
         }
 
-        // 未读色条占位
         val barSpace = View(ctx).apply {
             layoutParams = LinearLayout.LayoutParams(dp(ctx, 3), dp(ctx, 36))
             visibility = View.GONE
@@ -83,14 +82,12 @@ class AlertItemAdapter(
         }
         content.addView(barGap)
 
-        // 图标
         val icon = ImageView(ctx).apply {
             layoutParams = LinearLayout.LayoutParams(dp(ctx, 22), dp(ctx, 22))
             tag = "icon"
         }
         content.addView(icon)
 
-        // 文本区
         val textArea = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -144,7 +141,6 @@ class AlertItemAdapter(
 
         val content = holder.card.getChildAt(0) as LinearLayout
 
-        // 未读色条
         val bar = content.findViewWithTag<View>("bar")
         val barGap = content.findViewWithTag<View>("barGap")
         if (!record.isRead) {
@@ -159,14 +155,12 @@ class AlertItemAdapter(
             barGap.visibility = View.GONE
         }
 
-        // 图标
         val icon = content.findViewWithTag<ImageView>("icon")
         icon.setImageResource(typeToIconRes(record.type))
         val iconColor = if (!record.isRead) accent else textSecondary
         icon.setColorFilter(iconColor)
         icon.alpha = if (record.isRead) 0.5f else 1f
 
-        // 标题
         val title = content.findViewWithTag<TextView>("title")
         title.text = record.title
         title.setTextColor(textPrimary)
@@ -176,12 +170,10 @@ class AlertItemAdapter(
             title.setTypeface(null, Typeface.NORMAL)
         }
 
-        // 消息
         val message = content.findViewWithTag<TextView>("message")
         message.text = record.message
         message.setTextColor(if (!record.isRead) textPrimary else textSecondary)
 
-        // 时间
         val time = content.findViewWithTag<TextView>("time")
         time.text = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
             .format(Date(record.timestamp))

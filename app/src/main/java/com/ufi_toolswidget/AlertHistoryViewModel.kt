@@ -3,57 +3,96 @@ package com.ufi_toolswidget
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.paging.Pager
-import androidx.paging.PagingConfig
-import androidx.paging.PagingData
 import com.ufi_toolswidget.db.AlertRecord
 import com.ufi_toolswidget.util.AlertHistoryManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.stateIn
 
 data class AlertFilter(
     val type: String = "all",
     val readStatus: String = "all"
 )
 
+data class PageResult(
+    val data: List<AlertRecord>,
+    val currentPage: Int,
+    val totalPages: Int,
+    val totalRecords: Int
+)
+
+@OptIn(ExperimentalCoroutinesApi::class)
 class AlertHistoryViewModel(application: Application) : AndroidViewModel(application) {
 
     val filter = MutableStateFlow(AlertFilter())
-
-    /** 每页条数（可从设置页更改） */
+    val currentPage = MutableStateFlow(1)
     val pageSize = MutableStateFlow(AlertHistoryManager.getPageSize(application))
 
-    val unreadCount: Flow<Int> = AlertHistoryManager.observeUnreadCount()
-    val totalCount: Flow<Int> = AlertHistoryManager.observeTotalCount()
-    val subtitleInfo: Flow<Pair<Int, Int>> = totalCount.combine(unreadCount) { t, u -> t to u }
+    /** 刷新触发器 — 每次递增触发重新加载当前页 */
+    private val refreshTrigger = MutableStateFlow(0)
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val alerts: Flow<PagingData<AlertRecord>> =
-        filter.combine(pageSize) { f, ps -> f to ps }
-            .flatMapLatest { (f, ps) ->
-                Pager(
-                    config = PagingConfig(
-                        pageSize = ps,
-                        initialLoadSize = ps,
-                        maxSize = ps * 3,
-                        enablePlaceholders = false,
-                        prefetchDistance = ps / 2
-                    ),
-                    pagingSourceFactory = {
-                        when {
-                            f.type == "all" && f.readStatus == "all" ->
-                                AlertHistoryManager.getAllPaged()
-                            f.type != "all" && f.readStatus == "all" ->
-                                AlertHistoryManager.getPagedByType(f.type)
-                            f.type == "all" && f.readStatus != "all" ->
-                                AlertHistoryManager.getPagedByReadStatus(f.readStatus == "read")
-                            else ->
-                                AlertHistoryManager.getPagedFiltered(f.type, f.readStatus == "read")
-                        }
-                    }
-                ).flow
-            }
+    val unreadCount: StateFlow<Int> = AlertHistoryManager.observeUnreadCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val totalCount: StateFlow<Int> = AlertHistoryManager.observeTotalCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val subtitleInfo = totalCount.combine(unreadCount) { t, u -> t to u }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0 to 0)
+
+    /** 当前页数据 + 分页信息 */
+    val pageData: StateFlow<PageResult> =
+        combine(currentPage, filter, pageSize, refreshTrigger) { page, f, ps, _ ->
+            arrayOf(page as Any, f as Any, ps as Any)
+        }.mapLatest { arr ->
+            @Suppress("UNCHECKED_CAST")
+            val page = arr[0] as Int
+            val f = arr[1] as AlertFilter
+            val ps = arr[2] as Int
+            loadPage(page, f, ps)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000),
+            PageResult(emptyList(), 1, 1, 0))
+
+    fun refresh() { refreshTrigger.value++ }
+
+    fun goToPage(p: Int) { currentPage.value = p }
+    fun nextPage() { currentPage.value = currentPage.value + 1 }
+    fun prevPage() { currentPage.value = currentPage.value - 1 }
+    fun firstPage() { currentPage.value = 1 }
+    fun lastPage() { currentPage.value = pageData.value.totalPages }
+
+    // ── 加载指定页（在 IO 线程执行）──
+
+    private fun loadPage(page: Int, f: AlertFilter, ps: Int): PageResult {
+        val total = when {
+            f.type == "all" && f.readStatus == "all" ->
+                AlertHistoryManager.getTotalCount()
+            f.type != "all" && f.readStatus == "all" ->
+                AlertHistoryManager.getCountByType(f.type)
+            f.type == "all" && f.readStatus != "all" ->
+                AlertHistoryManager.getCountByReadStatus(f.readStatus == "read")
+            else ->
+                AlertHistoryManager.getCountFiltered(f.type, f.readStatus == "read")
+        }
+        val totalPages = maxOf(1, (total + ps - 1) / ps)
+        val safeP = page.coerceIn(1, totalPages)
+        if (safeP != page) currentPage.value = safeP
+        val offset = (safeP - 1) * ps
+        val data = when {
+            f.type == "all" && f.readStatus == "all" ->
+                AlertHistoryManager.getPage(ps, offset)
+            f.type != "all" && f.readStatus == "all" ->
+                AlertHistoryManager.getPageByType(f.type, ps, offset)
+            f.type == "all" && f.readStatus != "all" ->
+                AlertHistoryManager.getPageByReadStatus(f.readStatus == "read", ps, offset)
+            else ->
+                AlertHistoryManager.getPageFiltered(f.type, f.readStatus == "read", ps, offset)
+        }
+        return PageResult(data, safeP, totalPages, total)
+    }
 }
