@@ -51,125 +51,74 @@
             app:iconTint="@color/text_main" />
     </FrameLayout>
 
-    <!-- Control section -->
+    <!-- Action buttons -->
     <LinearLayout
+        android:id="@+id/action_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:layout_marginHorizontal="16dp">
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginBottom="4dp"
+        android:visibility="gone">
 
-        <!-- Action buttons -->
-        <LinearLayout
-            android:id="@+id/action_bar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center"
-            android:layout_marginBottom="4dp"
-            android:visibility="gone">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_mark_all_read"
-                style="@style/Widget.Material3.Button"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
-                android:layout_weight="1"
-                android:layout_marginEnd="4dp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:text="全部已读"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.02"
-                app:cornerRadius="12dp"
-                app:icon="@drawable/ic_check"
-                app:iconSize="16dp"
-                app:iconGravity="textStart"
-                app:iconPadding="6dp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_clear_all"
-                style="@style/Widget.Material3.Button"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
-                android:layout_weight="1"
-                android:layout_marginStart="4dp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:text="清空记录"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.02"
-                app:cornerRadius="12dp"
-                app:icon="@drawable/ic_trash"
-                app:iconSize="16dp"
-                app:iconGravity="textStart"
-                app:iconPadding="6dp" />
-        </LinearLayout>
-
-        <!-- Filter toggle button -->
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_filter_toggle"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:layout_gravity="start"
+            android:id="@+id/btn_mark_all_read"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
             android:insetTop="0dp"
             android:insetBottom="0dp"
-            android:text="筛选 ▾"
-            android:textSize="12sp"
-            android:visibility="gone"
-            app:cornerRadius="8dp"
-            app:icon="@drawable/ic_chevron_right"
-            app:iconSize="14dp"
-            app:iconGravity="textEnd"
-            app:iconPadding="2dp" />
+            android:text="全部已读"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.02"
+            app:cornerRadius="12dp"
+            app:icon="@drawable/ic_check"
+            app:iconSize="16dp"
+            app:iconGravity="textStart"
+            app:iconPadding="6dp" />
 
-        <!-- Collapsible filter panel -->
-        <LinearLayout
-            android:id="@+id/filter_panel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:layout_marginBottom="10dp"
-            android:visibility="gone">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="类型"
-                android:textSize="10sp"
-                android:alpha="0.4"
-                android:layout_marginBottom="2dp"
-                android:layout_marginStart="4dp" />
-
-            <!-- Type filter: 2-column GridLayout -->
-            <GridLayout
-                android:id="@+id/filter_type_group"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:columnCount="2"
-                android:rowCount="4"
-                android:layout_marginBottom="8dp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="状态"
-                android:textSize="10sp"
-                android:alpha="0.4"
-                android:layout_marginBottom="2dp"
-                android:layout_marginStart="4dp" />
-
-            <!-- Read status filter: horizontal -->
-            <LinearLayout
-                android:id="@+id/filter_read_group"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical" />
-        </LinearLayout>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_clear_all"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:text="清空记录"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.02"
+            app:cornerRadius="12dp"
+            app:icon="@drawable/ic_trash"
+            app:iconSize="16dp"
+            app:iconGravity="textStart"
+            app:iconPadding="6dp" />
     </LinearLayout>
+
+    <!-- Filter toggle button -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_filter_toggle"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="32dp"
+        android:layout_gravity="start"
+        android:layout_marginHorizontal="16dp"
+        android:insetTop="0dp"
+        android:insetBottom="0dp"
+        android:text="筛选"
+        android:textSize="12sp"
+        android:visibility="gone"
+        app:cornerRadius="8dp"
+        app:icon="@drawable/ic_chevron_right"
+        app:iconSize="14dp"
+        app:iconGravity="textEnd"
+        app:iconPadding="2dp" />
 
     <!-- RecyclerView -->
     <androidx.recyclerview.widget.RecyclerView
