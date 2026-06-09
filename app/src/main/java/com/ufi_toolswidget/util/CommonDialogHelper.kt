@@ -15,7 +15,6 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
-import android.view.WindowManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
@@ -39,16 +38,6 @@ object CommonDialogHelper {
     private const val TAG = "CommonDialogHelper"
 
     // ── 弹窗创建 ──
-
-    /**
-     * 创建一个已设置透明主题的 Dialog。
-     * 调用方需要自行 setContentView、管理生命周期。
-     */
-    fun createDialog(context: Context): Dialog {
-        val dialog = Dialog(context, R.style.Theme_UFITOOLSWidget_Transparent)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        return dialog
-    }
 
     /**
      * 创建带自动退场动画的 Dialog（全局统一）。
@@ -80,15 +69,10 @@ object CommonDialogHelper {
                     return
                 }
                 isAnimatingOut = true
-                // 清理模糊标志，防止系统模糊层在退场动画期间暂留
-                cleanBlurBeforeDismiss()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    // API 31+：执行模糊退场动画后关闭
-                    AnimationUtil.applyDialogBlurOut(this) { realDismiss() }
-                } else {
-                    // API <31：直接关闭（XML 退出动画由 windowAnimations 处理）
-                    realDismiss()
-                }
+                // 全版本统一走 applyDialogBlurOut 退场动画：
+                // - API 31+：缩放淡出 + 模糊/遮罩同步消退
+                // - API <31：缩放淡出（内部 setWindowAnimations(0) 覆盖 XML 动画）
+                AnimationUtil.applyDialogBlurOut(this) { realDismiss() }
             }
         }
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -178,6 +162,11 @@ object CommonDialogHelper {
             }
             is TextView -> {
                 if (view.id == R.id.common_dialog_btn_primary) return
+                // switch label / 标题类文字统一取主色（粗体由 XML style 或代码设置）
+                if (view.id == R.id.common_switch_label || view.id == R.id.common_item_title) {
+                    view.setTextColor(textPrimary)
+                    return
+                }
                 if (view.textSize <= 13f) view.setTextColor(textSecondary)
                 else view.setTextColor(textPrimary)
             }
@@ -226,44 +215,6 @@ object CommonDialogHelper {
         }
     }
 
-    // ── 模糊背景清理（退出动画前调用） ──
-
-    /**
-     * 在弹窗消失前清除 FLAG_BLUR_BEHIND 与模糊背景，
-     * 解决系统级模糊在退出动画期间产生暂留+闪烁的问题。
-     */
-    private fun Dialog.cleanBlurBeforeDismiss() {
-        val win = window ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // 清除 FLAG_BLUR_BEHIND，消除系统模糊层的暂留
-            val srcAttrs = win.attributes
-            val cleanAttrs = WindowManager.LayoutParams().apply {
-                copyFrom(srcAttrs)
-                flags = flags and WindowManager.LayoutParams.FLAG_BLUR_BEHIND.inv()
-                blurBehindRadius = 0
-            }
-            win.attributes = cleanAttrs
-        } else {
-            // 清除 legacy BitmapDrawable 模糊背景
-            win.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-        }
-    }
-
-    /** 为 dialog 安装退出时清理模糊的钩子：按钮点击 + 外部取消 */
-    private fun Dialog.installBlurCleanupHooks() {
-        // 按钮点击：清理模糊后再 dismiss
-        findViewById<MaterialButton>(R.id.common_dialog_btn_primary)?.setOnClickListener {
-            cleanBlurBeforeDismiss()
-            dismiss() // 此时 dismiss() 的 XML 动画不再受模糊层干扰
-        }
-        findViewById<MaterialButton>(R.id.common_dialog_btn_secondary)?.setOnClickListener {
-            cleanBlurBeforeDismiss()
-            dismiss()
-        }
-        // 外部触摸取消：cancel() 会调用 dismiss()，在 cancel 回调中提前清理
-        setOnCancelListener { cleanBlurBeforeDismiss() }
-    }
-
     // ── 通用弹窗组装 ──
 
     /**
@@ -293,10 +244,8 @@ object CommonDialogHelper {
         btnPrimary.text = primaryBtnText
         AnimationUtil.applyScaleClickAnimation(btnPrimary) {
             if (onPrimaryClick != null) {
-                dialog.cleanBlurBeforeDismiss()
                 onPrimaryClick(dialog)
             } else {
-                dialog.cleanBlurBeforeDismiss()
                 dialog.dismiss()
             }
         }
@@ -306,7 +255,6 @@ object CommonDialogHelper {
             btnSecondary.visibility = View.VISIBLE
             btnSecondary.text = secondaryBtnText
             AnimationUtil.applyScaleClickAnimation(btnSecondary) {
-                dialog.cleanBlurBeforeDismiss()
                 onSecondaryClick?.invoke(dialog) ?: dialog.dismiss()
             }
             (btnPrimary.layoutParams as? LinearLayout.LayoutParams)?.marginStart =
@@ -315,9 +263,6 @@ object CommonDialogHelper {
             btnSecondary.visibility = View.GONE
             (btnPrimary.layoutParams as? LinearLayout.LayoutParams)?.marginStart = 0
         }
-
-        // 外部触摸取消时也清理模糊
-        dialog.setOnCancelListener { dialog.cleanBlurBeforeDismiss() }
 
         setupDialogWindow(context, dialog, widthRatio)
         dialog.show()
@@ -446,8 +391,7 @@ object CommonDialogHelper {
         cancelText: String = "取消",
         onConfirm: () -> Unit
     ): Dialog {
-        val dialog = Dialog(context, R.style.Theme_UFITOOLSWidget_Transparent)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val dialog = createAnimatedDialog(context)
         dialog.setContentView(R.layout.layout_common_dialog)
 
         val isDark = ThemeColors.isDark(context)
@@ -505,13 +449,12 @@ object CommonDialogHelper {
             setBackgroundColor(warnDivider)
         }
 
-        // ── 5+6. 按钮：点击前先清理模糊 ──
+        // ── 5+6. 按钮（dismiss 由 createAnimatedDialog 自动处理模糊清理+退场动画）──
         dialog.findViewById<MaterialButton>(R.id.common_dialog_btn_primary).apply {
             text = confirmText
             backgroundTintList = ColorStateList.valueOf(warnColor)
             setTextColor(Color.WHITE)
             setOnClickListener {
-                dialog.cleanBlurBeforeDismiss()
                 dialog.dismiss()
                 onConfirm()
             }
@@ -524,13 +467,9 @@ object CommonDialogHelper {
             strokeColor = ColorStateList.valueOf(warnColor)
             strokeWidth = (1 * density).toInt()
             setOnClickListener {
-                dialog.cleanBlurBeforeDismiss()
                 dialog.dismiss()
             }
         }
-
-        // 外部触摸取消
-        dialog.setOnCancelListener { dialog.cleanBlurBeforeDismiss() }
 
         // ── 7. 窗口设置 ──
         dialog.setCanceledOnTouchOutside(true)

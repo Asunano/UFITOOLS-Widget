@@ -2,7 +2,6 @@ package com.ufi_toolswidget
 
 import android.content.pm.PackageManager
 import android.graphics.drawable.GradientDrawable
-import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -14,7 +13,9 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import com.google.android.material.button.MaterialButton
+import com.ufi_toolswidget.service.BackgroundMonitorService
 import com.ufi_toolswidget.util.*
+import com.ufi_toolswidget.util.DebugLogger.Category
 import com.ufi_toolswidget.view.ThemeSlider
 
 class NotificationSettingsActivity : AppCompatActivity() {
@@ -54,6 +55,8 @@ class NotificationSettingsActivity : AppCompatActivity() {
 
         NotificationHelper.requestPermission(this, REQUEST_NOTIFICATION_PERMISSION)
 
+        DebugLogger.log(Category.SYS, TAG_INIT, "onCreate start")
+
         initMasterItem()
         initFlowDaily()
         initFlowMonthly()
@@ -63,7 +66,10 @@ class NotificationSettingsActivity : AppCompatActivity() {
         initDeviceBattery()
         initDeviceMemory()
         initMonitorInterval()
+        initBackgroundKeepAliveEntry()
         initSettingsContainerVisibility()
+
+        DebugLogger.log(Category.SYS, TAG_INIT, "onCreate complete")
     }
 
     override fun onResume() {
@@ -72,6 +78,12 @@ class NotificationSettingsActivity : AppCompatActivity() {
         ThemeUtil.applyTheme(this, ThemeUtil.PageType.APP_SETTINGS)
         updateAllSubtitles()
         initSettingsContainerVisibility()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // 离开页面时将内存日志落盘，防止进程被杀丢失日志
+        DebugLogger.flushToFile()
     }
 
     private fun updateAllSubtitles() {
@@ -84,6 +96,7 @@ class NotificationSettingsActivity : AppCompatActivity() {
         updateDeviceBatterySubtitle()
         updateDeviceMemorySubtitle()
         updateMonitorIntervalSubtitle()
+        updateKeepAliveEntrySubtitle()
     }
 
     private fun dp2px(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
@@ -108,7 +121,13 @@ class NotificationSettingsActivity : AppCompatActivity() {
                     notifEnabled = checked
                     SPUtil.setNotificationEnabled(this, checked)
                     updateMasterSubtitle()
+                    updateKeepAliveEntrySubtitle()
                     animateSettingsContainer(checked)
+                    BackgroundMonitorService.syncState(this)
+                    // 开关打开时提示用户配置后台保活
+                    if (checked) {
+                        showKeepAlivePrompt()
+                    }
                 }
             }
         )
@@ -127,19 +146,32 @@ class NotificationSettingsActivity : AppCompatActivity() {
         notifEnabled = false
         SPUtil.setNotificationEnabled(this, false)
         updateMasterSubtitle()
+        updateKeepAliveEntrySubtitle()
         animateSettingsContainer(false)
+        BackgroundMonitorService.syncState(this)
     }
 
     /** 未授权时弹出引导对话框 */
     private fun showPermissionRequiredDialog() {
-        android.app.AlertDialog.Builder(this)
-            .setTitle("需要通知权限")
-            .setMessage("系统通知是本应用的核心功能。\n\n请授予通知权限，以便在流量超标、设备异常时及时收到系统推送。")
-            .setPositiveButton("去授权") { _, _ ->
+        CommonDialogHelper.showCommonDialog(
+            context = this,
+            title = "需要通知权限",
+            iconRes = R.drawable.ic_notification,
+            onFill = { content ->
+                content.addView(TextView(this).apply {
+                    text = "系统通知是本应用的核心功能。\n\n请授予通知权限，以便在流量超标、设备异常时及时收到系统推送。"
+                    textSize = 14f
+                    setTextColor(ThemeColors.textPrimary(this@NotificationSettingsActivity))
+                    setLineSpacing(0f, 1.4f)
+                })
+            },
+            primaryBtnText = "去授权",
+            onPrimaryClick = { dialog ->
+                dialog.dismiss()
                 NotificationHelper.requestPermission(this, REQUEST_NOTIFICATION_PERMISSION)
-            }
-            .setNegativeButton("暂不", null)
-            .show()
+            },
+            secondaryBtnText = "暂不"
+        )
     }
 
     override fun onRequestPermissionsResult(
@@ -154,7 +186,10 @@ class NotificationSettingsActivity : AppCompatActivity() {
                 notifEnabled = true
                 SPUtil.setNotificationEnabled(this, true)
                 updateMasterSubtitle()
+                updateKeepAliveEntrySubtitle()
                 animateSettingsContainer(true)
+                BackgroundMonitorService.syncState(this)
+                showKeepAlivePrompt()
             }
             // 重新初始化 master item，使 ThemeUtil.setupSwitch 内部的 isChecked 状态
             // 与 SP 值和视觉状态保持同步，避免因 revertMasterSwitch 导致的内部状态不一致
@@ -164,6 +199,7 @@ class NotificationSettingsActivity : AppCompatActivity() {
 
     companion object {
         private const val REQUEST_NOTIFICATION_PERMISSION = 201
+        private const val TAG_INIT = "NotifSettings_Init"
     }
 
     private fun updateMasterSubtitle() {
@@ -804,6 +840,78 @@ class NotificationSettingsActivity : AppCompatActivity() {
             subtitle = subtitle,
             initialChecked = checked,
             onToggle = onToggle
+        )
+    }
+
+    // ==================== 10. 后台保活配置入口 ====================
+
+    private fun initBackgroundKeepAliveEntry() {
+        try {
+            val entryView = findViewById<ViewGroup>(R.id.item_background_keep_alive) ?: return
+            CommonSettingsItemHelper.setupSettingItem(
+                itemView = entryView,
+                iconRes = R.drawable.ic_rocket,
+                title = "后台保活配置",
+                subtitle = getKeepAliveEntrySubtitle(),
+                onClick = {
+                    startActivity(android.content.Intent(this, BackgroundKeepAliveActivity::class.java))
+                }
+            )
+        } catch (e: Exception) {
+            DebugLogger.w(TAG_INIT, "init keep-alive entry FAILED: ${e::class.java.simpleName}: ${e.message}", force = true)
+        }
+    }
+
+    private fun getKeepAliveEntrySubtitle(): String {
+        val bgEnabled = SPUtil.getBackgroundServiceEnabled(this)
+        return if (bgEnabled) "前台保活已开启 · 点击管理" else "前台服务、电池优化、自启动 · 点击配置"
+    }
+
+    private fun updateKeepAliveEntrySubtitle() {
+        try {
+            findViewById<ViewGroup>(R.id.item_background_keep_alive)
+                ?.findViewById<TextView>(R.id.common_item_subtitle)
+                ?.text = getKeepAliveEntrySubtitle()
+        } catch (e: Exception) {
+            DebugLogger.w("NotificationSettingsActivity", "update keep-alive entry subtitle failed: ${e.message}")
+        }
+    }
+
+    /** 通知总开关开启时，弹窗提示用户配置后台保活 */
+    private fun showKeepAlivePrompt() {
+        val bgEnabled = SPUtil.getBackgroundServiceEnabled(this)
+        val msgText = buildString {
+            appendLine("通知功能已开启。")
+            appendLine()
+            appendLine("由于系统后台限制，通知可能存在 1~5 分钟的延迟。为获得最佳体验，建议：")
+            appendLine()
+            appendLine("• 开启前台保活服务，防止进程被系统回收")
+            appendLine("• 加入电池优化白名单，避免被省电策略终止")
+            appendLine("• 允许自启动权限，确保开机后自动恢复")
+            if (!bgEnabled) {
+                appendLine()
+                appendLine("当前前台保活服务尚未开启，建议前往配置。")
+            }
+        }
+
+        CommonDialogHelper.showCommonDialog(
+            context = this,
+            title = "后台保活建议",
+            iconRes = R.drawable.ic_rocket,
+            onFill = { content ->
+                content.addView(TextView(this).apply {
+                    text = msgText
+                    textSize = 14f
+                    setTextColor(ThemeColors.textPrimary(this@NotificationSettingsActivity))
+                    setLineSpacing(0f, 1.4f)
+                })
+            },
+            primaryBtnText = "前往配置",
+            onPrimaryClick = { dialog ->
+                dialog.dismiss()
+                startActivity(android.content.Intent(this, BackgroundKeepAliveActivity::class.java))
+            },
+            secondaryBtnText = "知道了"
         )
     }
 }

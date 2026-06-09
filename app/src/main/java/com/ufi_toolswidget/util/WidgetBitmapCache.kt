@@ -100,16 +100,25 @@ object WidgetBitmapCache {
 
     /**
      * 安全加载、缩放并圆角化用户选择的背景图（防止 RemoteViews 超 1MB 崩溃）。
-     * 从 WifiWidget.loadResizedBitmap 迁移，精简冗余日志。
+     * 支持 content:// URI 和绝对文件路径两种来源。
      */
     private fun loadResizedBitmap(context: Context, uriString: String, cornerRadiusDp: Float = 0f): Bitmap? {
         return try {
-            val uri = Uri.parse(uriString)
+            // 判断是文件路径还是 URI
+            val isFilePath = !uriString.startsWith("content://") && !uriString.startsWith("file://")
+            val uri = if (isFilePath) Uri.fromFile(java.io.File(uriString)) else Uri.parse(uriString)
 
             // 1. 获取图片原始尺寸（仅解码尺寸），使用 use{} 确保流关闭
             val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 android.graphics.BitmapFactory.decodeStream(stream, null, options)
+            } ?: run {
+                // contentResolver 失败时尝试直接 FileInputStream（兼容内部存储文件路径）
+                if (isFilePath && java.io.File(uriString).exists()) {
+                    java.io.FileInputStream(java.io.File(uriString)).use { stream ->
+                        android.graphics.BitmapFactory.decodeStream(stream, null, options)
+                    }
+                }
             } ?: return null
 
             // 2. 计算缩放比例（必须是 2 的幂，Android 文档要求）
@@ -124,6 +133,14 @@ object WidgetBitmapCache {
             val rawBitmap = context.contentResolver.openInputStream(uri)?.use { finalStream ->
                 android.graphics.BitmapFactory.decodeStream(finalStream, null,
                     android.graphics.BitmapFactory.Options().apply { this.inSampleSize = inSampleSize })
+            } ?: run {
+                // 兜底：直接 FileInputStream
+                if (isFilePath && java.io.File(uriString).exists()) {
+                    java.io.FileInputStream(java.io.File(uriString)).use { stream ->
+                        android.graphics.BitmapFactory.decodeStream(stream, null,
+                            android.graphics.BitmapFactory.Options().apply { this.inSampleSize = inSampleSize })
+                    }
+                } else null
             } ?: return null
 
             // 4. 应用圆角

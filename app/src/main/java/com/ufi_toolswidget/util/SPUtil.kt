@@ -600,14 +600,36 @@ object SPUtil {
     fun clearBgImageUri(ctx: Context) = getSp(ctx).edit().remove("bg_image_uri").apply()
 
     // ==================== 小组件自定义背景 ====================
-    /** 获取小组件自定义背景图片 URI（空字符串=未设置） */
+    /** 获取小组件自定义背景图片 URI / 文件路径（空字符串=未设置） */
     fun getWidgetBgImageUri(ctx: Context) = getSp(ctx).getString("widget_bg_image_uri", "") ?: ""
 
-    /** 保存小组件自定义背景图片 URI */
+    /** 保存小组件自定义背景图片 URI / 文件路径 */
     fun setWidgetBgImageUri(ctx: Context, uri: String) = getSp(ctx).edit().putString("widget_bg_image_uri", uri).apply()
 
     /** 清除小组件自定义背景图片 */
     fun clearWidgetBgImageUri(ctx: Context) = getSp(ctx).edit().remove("widget_bg_image_uri").apply()
+
+    /**
+     * 将 content:// URI 拷贝到应用内部存储，返回绝对文件路径。
+     * 解决 content:// URI 在 Widget 进程跨进程访问权限问题。
+     */
+    fun saveWidgetBgImageToInternal(ctx: Context, sourceUri: android.net.Uri): String? {
+        return try {
+            val dir = java.io.File(ctx.filesDir, "widget_bg")
+            if (!dir.exists()) dir.mkdirs()
+            // 使用时间戳文件名，避免历史记录覆盖同一物理文件
+            val file = java.io.File(dir, "custom_bg_${System.currentTimeMillis()}.jpg")
+            ctx.contentResolver.openInputStream(sourceUri)?.use { input ->
+                java.io.FileOutputStream(file).use { output ->
+                    input.copyTo(output)
+                }
+            } ?: return null
+            file.absolutePath
+        } catch (e: Exception) {
+            DebugLogger.w("SPUtil", "saveWidgetBgImageToInternal failed: ${e.message}")
+            null
+        }
+    }
 
     // ==================== 设备平台缓存（AT+CGMI 探测结果） ====================
     // "spreadtrum" | "quectel" | "" (未探测)
@@ -706,16 +728,29 @@ object SPUtil {
         getSp(ctx).edit().putString("widget_bg_image_history", arr.toString()).apply()
     }
 
-    /** 添加一条 URI 到背景历史（去重后插入首位，超出 3 条截断） */
+    /** 添加一条 URI 到背景历史（去重后插入首位，超出 3 条截断并清理旧文件） */
     fun addWidgetBgHistory(ctx: Context, uri: String) {
         val current = getWidgetBgHistory(ctx).toMutableList()
         current.remove(uri)          // 去重
         current.add(0, uri)          // 插入首位
-        setWidgetBgHistory(ctx, current.take(MAX_BG_HISTORY))
+        val trimmed = current.take(MAX_BG_HISTORY)
+        // 删除被淘汰的历史文件
+        val evicted = current.drop(MAX_BG_HISTORY)
+        evicted.forEach { oldPath ->
+            if (!oldPath.startsWith("content://")) {
+                try { java.io.File(oldPath).delete() } catch (_: Exception) {}
+            }
+        }
+        setWidgetBgHistory(ctx, trimmed)
     }
 
-    /** 清除小组件背景（同时保留历史不变） */
+    /** 清除小组件背景（删除内部文件 + 清除 SP，保留历史不变） */
     fun clearWidgetBgImage(ctx: Context) {
+        // 删除内部存储的背景文件
+        val filePath = getWidgetBgImageUri(ctx)
+        if (filePath.isNotBlank() && !filePath.startsWith("content://")) {
+            try { java.io.File(filePath).delete() } catch (_: Exception) {}
+        }
         getSp(ctx).edit()
             .remove("widget_bg_image_uri")
             .putBoolean("widget_bg_image_enabled", false)
@@ -832,5 +867,45 @@ object SPUtil {
     /** 后台监控检查间隔（秒），默认 60 秒 */
     fun getMonitorIntervalSec(ctx: Context): Int = getSp(ctx).getInt("monitor_interval_sec", 60)
     fun setMonitorIntervalSec(ctx: Context, seconds: Int) = getSp(ctx).edit().putInt("monitor_interval_sec", seconds).apply()
+
+    // ══════════════════════════════════════════════
+    // 后台保活服务
+    // ══════════════════════════════════════════════
+
+    /** 后台保活前台服务开关 */
+    fun getBackgroundServiceEnabled(ctx: Context): Boolean = getSp(ctx).getBoolean("background_service_enabled", false)
+    fun setBackgroundServiceEnabled(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("background_service_enabled", enabled).apply()
+
+    // ══════════════════════════════════════════════
+    // 前台服务通知自定义
+    // ══════════════════════════════════════════════
+
+    /** 前台保活服务通知标题（空字符串 = 使用默认值） */
+    fun getCustomNotifTitle(ctx: Context): String = getSp(ctx).getString("custom_notif_title", "").orEmpty()
+    fun setCustomNotifTitle(ctx: Context, title: String) = getSp(ctx).edit().putString("custom_notif_title", title).apply()
+
+    /** 前台保活服务通知内容（空字符串 = 使用默认值） */
+    fun getCustomNotifText(ctx: Context): String = getSp(ctx).getString("custom_notif_text", "").orEmpty()
+    fun setCustomNotifText(ctx: Context, text: String) = getSp(ctx).edit().putString("custom_notif_text", text).apply()
+
+    // ══════════════════════════════════════════════
+    // 保活增强功能
+    // ══════════════════════════════════════════════
+
+    /** 从最近任务中隐藏本应用 */
+    fun getHideFromRecents(ctx: Context): Boolean = getSp(ctx).getBoolean("hide_from_recents", false)
+    fun setHideFromRecents(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("hide_from_recents", enabled).apply()
+
+    /** WorkManager 周期性保活任务开关 */
+    fun getPeriodicWorkerEnabled(ctx: Context): Boolean = getSp(ctx).getBoolean("periodic_worker_enabled", false)
+    fun setPeriodicWorkerEnabled(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("periodic_worker_enabled", enabled).apply()
+
+    /** WorkManager 周期性保活任务间隔（分钟），默认 15，最小 15（WorkManager 限制） */
+    fun getPeriodicWorkerIntervalMin(ctx: Context): Int = getSp(ctx).getInt("periodic_worker_interval_min", 15)
+    fun setPeriodicWorkerIntervalMin(ctx: Context, minutes: Int) = getSp(ctx).edit().putInt("periodic_worker_interval_min", minutes.coerceAtLeast(15)).apply()
+
+    /** 无障碍保活服务开关（记录用户意图，实际状态由系统控制） */
+    fun getAccessibilityKeepAlive(ctx: Context): Boolean = getSp(ctx).getBoolean("accessibility_keep_alive", false)
+    fun setAccessibilityKeepAlive(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("accessibility_keep_alive", enabled).apply()
 
 }

@@ -53,9 +53,10 @@ class AppSettingsActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
-            val croppedUriStr = result.data?.getStringExtra("cropped_uri")
-            if (!croppedUriStr.isNullOrBlank()) {
-                applyBgImage(croppedUriStr.toUri())
+            val filePath = result.data?.getStringExtra("cropped_file_path")
+            if (!filePath.isNullOrBlank()) {
+                val uri = Uri.fromFile(java.io.File(filePath))
+                applyBgImage(uri)
             }
         }
     }
@@ -87,6 +88,8 @@ class AppSettingsActivity : AppCompatActivity() {
                         data = uri
                         putExtra("targetW", screenW)
                         putExtra("targetH", screenH)
+                        putExtra("saveSubDir", "app_bg")
+                        putExtra("saveFileName", "custom_bg.jpg")
                     }
                     cropLauncher.launch(intent)
                 } else {

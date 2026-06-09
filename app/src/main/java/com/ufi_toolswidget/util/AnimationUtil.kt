@@ -27,9 +27,6 @@ object AnimationUtil {
 
     @Volatile
     var pendingTransitionBitmap: java.lang.ref.WeakReference<Bitmap>? = null
-    
-    @Volatile
-    var transitionInitiator: String? = null
 
     // ========== 基础动画 ==========
 
@@ -131,21 +128,22 @@ object AnimationUtil {
     }
 
     /**
-     * 为 Dialog 执行背景模糊退场步进动画 (Android 12+)，
-     * 同时通过动画缩放和淡出 Dialog 内容，最后调用 onComplete。
-     * Android 12 以下使用视图渐退动画，保证全版本平滑退出。
+     * 为 Dialog 执行统一退场动画。
+     *
+     * - API 31+：350ms AccelerateInterpolator(1.8f)，缩放 0.88f + 淡出 + 模糊/遮罩同步消退
+     * - API <31：280ms AccelerateInterpolator(1.8f)，缩放 0.88f + 淡出
+     *
+     * 调用方无需关心 window 动画抑制，函数内部已处理。
      */
     fun applyDialogBlurOut(dialog: Dialog, onComplete: () -> Unit) {
         val window = dialog.window ?: run { onComplete(); return }
-
-        // 立即抑制 XML 退出动画，避免与程序动画冲突导致闪烁
-        window.setWindowAnimations(0)
+        window.setWindowAnimations(0)  // 立即抑制 XML 退出动画
 
         val contentView = window.findViewById<View>(android.R.id.content)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val attrs = window.attributes
-            val startBlur = attrs.blurBehindRadius
+            // ── Android 12+：350ms 内容缩放淡出 + 模糊/遮罩同步消退 ──
+            val startBlur = window.attributes.blurBehindRadius
             val startDim = window.attributes.dimAmount
 
             ValueAnimator.ofFloat(1f, 0f).apply {
@@ -153,14 +151,18 @@ object AnimationUtil {
                 interpolator = AccelerateInterpolator(1.8f)
                 addUpdateListener { anim ->
                     val ratio = anim.animatedValue as Float
+                    // 内容缩放 + 淡出
+                    contentView?.apply {
+                        alpha = ratio
+                        val scale = 0.88f + 0.12f * ratio  // 1.0f → 0.88f
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    // 模糊半径 + 遮罩同步消退
                     window.attributes = window.attributes?.apply {
                         blurBehindRadius = (startBlur * ratio).toInt()
                     }
                     window.setDimAmount(startDim * ratio)
-
-                    contentView?.alpha = ratio
-                    contentView?.scaleX = 0.88f + 0.12f * ratio
-                    contentView?.scaleY = 0.88f + 0.12f * ratio
                 }
                 addListener(object : AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: Animator) {
@@ -175,13 +177,13 @@ object AnimationUtil {
                 start()
             }
         } else {
-            // 低版本：缩放缩小 + 淡出，抑制 XML 后统一走程序动画
+            // ── 低版本：280ms 缩放 + 淡出 ──
             contentView?.animate()
                 ?.alpha(0f)
                 ?.scaleX(0.88f)
                 ?.scaleY(0.88f)
                 ?.setDuration(280)
-                ?.setInterpolator(AccelerateInterpolator(1.5f))
+                ?.setInterpolator(AccelerateInterpolator(1.8f))
                 ?.withEndAction(onComplete)
                 ?.start()
                 ?: onComplete()
@@ -189,11 +191,6 @@ object AnimationUtil {
     }
 
     // ========== 传统 Crossfade (供 MainActivity 等通配使用) ==========
-
-    fun applyCrossfadeExitForRecreate(activity: Activity, onExit: () -> Unit) {
-        pendingTransitionBitmap = captureActivity(activity)?.let { java.lang.ref.WeakReference(it) }
-        onExit()
-    }
 
     fun applyCrossfadeEnterFromRecreate(activity: Activity, duration: Long = 600) {
         val bitmap = pendingTransitionBitmap?.get() ?: return
@@ -225,48 +222,13 @@ object AnimationUtil {
 
     // ========== 主题切换专用：中心扩散圆形揭露 ==========
 
-    fun applyCircleRevealExit(activity: Activity, onExit: () -> Unit) {
-        pendingTransitionBitmap = captureActivity(activity)?.let { java.lang.ref.WeakReference(it) }
-        transitionInitiator = activity::class.java.name
-        onExit()
-    }
-
-    /**
-     * 深浅色模式切换进入动画（Activity 重建后调用）。
-     *
-     * 策略：旧截图 backdrop 置顶遮住新 content → decorView.post 等待布局完成 →
-     * 合成全屏 overlay（新主题 content + pageBg）→ CircularReveal overlay 全屏扩散。
-     */
-    fun applyCircleRevealEnter(activity: Activity, duration: Long = 800) {
-        if (transitionInitiator != activity::class.java.name) return
-        val oldBitmap = pendingTransitionBitmap?.get() ?: return
-        pendingTransitionBitmap = null
-        transitionInitiator = null
-
-        val decorView = activity.window.decorView as? ViewGroup ?: return
-        val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
-        if (content.childCount == 0) return
-        if (decorView.width <= 0 || decorView.height <= 0) return
-
-        // backdrop 加到最上层，遮住新 content
-        val backdrop = ImageView(activity).apply {
-            setImageBitmap(oldBitmap)
-            scaleType = ImageView.ScaleType.FIT_XY
-        }
-        decorView.addView(backdrop,
-            ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-
-        // content 已渲染新主题（在 backdrop 下层），布局完成后捕获并做 reveal
-        performReveal(activity, decorView, content, backdrop, oldBitmap, duration, pulse = false)
-    }
-
     /**
      * 配色原位切换圆形揭露动画。
      *
      * 策略：旧截图 backdrop 置顶遮住一切 → onMutation 静默改主题（content 在下层更新）→
      * decorView.post 等待布局 → 合成全屏 overlay → CircularReveal overlay 全屏扩散。
      *
-     * 与 [applyCircleRevealEnter] 不同：Pulse 中旧/新界面结构完全一致（仅颜色不同），
+     * Pulse 模式中旧/新界面结构完全一致（仅颜色不同），
      * 圆圈边界难以察觉，因此全程零延迟强模糊强化切换感知。
      */
     fun applyCircleRevealPulse(activity: Activity, duration: Long = 1000, onMutation: () -> Unit) {
@@ -287,19 +249,16 @@ object AnimationUtil {
         onMutation()
 
         // 等待布局完成，再捕获、合成、reveal（pulse 模式：全程强模糊）
-        performReveal(activity, decorView, content, backdrop, oldBitmap, duration, pulse = true)
+        performReveal(activity, decorView, content, backdrop, oldBitmap, duration)
     }
 
     /**
      * 统一引擎：等待 content 布局完成 → 捕获 content（新主题）→ 合成全屏 overlay →
      * CircularReveal overlay → 旧截图模糊淡出 → 清理。
-     *
-     * @param pulse true=配色切换模式（全程零延迟强模糊），false=深浅切换模式（延迟叠加模糊）
      */
     private fun performReveal(
         activity: Activity, decorView: ViewGroup, content: ViewGroup,
-        backdrop: ImageView, oldBitmap: Bitmap, duration: Long,
-        pulse: Boolean = false
+        backdrop: ImageView, oldBitmap: Bitmap, duration: Long
     ) {
         decorView.post {
             if (!decorView.isAttachedToWindow || decorView.width <= 0 || decorView.height <= 0) {
@@ -330,11 +289,8 @@ object AnimationUtil {
                 anim.duration = duration
                 anim.interpolator = AccelerateDecelerateInterpolator()
 
-                // Pulse：模糊从第 0ms 开始持续全程
-                // Enter：延迟启动避免过早遮挡 reveal
-                val fadeDelay = if (pulse) 0L else (duration * 0.08).toLong()
-                val fadeDuration = if (pulse) duration else (duration * 0.82).toLong()
-                animateBackdropBlurOut(backdrop, fadeDelay, fadeDuration)
+                // 全程零延迟强模糊，强化切换感知
+                animateBackdropBlurOut(backdrop, 0L, duration)
 
                 anim.addListener(object : AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: Animator) {

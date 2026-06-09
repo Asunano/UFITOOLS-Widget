@@ -70,6 +70,11 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
+            <!-- ========== 后台保活配置（置顶入口） ========== -->
+            <include
+                layout="@layout/layout_common_setting_item"
+                android:id="@+id/item_background_keep_alive" />
+
             <!-- ========== 监控设置 ========== -->
             <TextView
                 android:layout_width="match_parent"

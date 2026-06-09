@@ -399,6 +399,50 @@ object ThemeUtil {
             updateVisuals(true)
             onCheckedChange(isChecked)
         }
+
+        // 暴露 setChecked 引用，供外部（如 onResume 状态同步）可靠地设置开关状态
+        track.tag = { value: Boolean ->
+            isChecked = value
+            updateVisuals(false)
+        }
+    }
+
+    /**
+     * 静默设置开关视觉状态和内部 isChecked，不触发 onCheckedChange 回调。
+     * 用于互斥警告弹窗中回退/恢复开关状态，避免因 performClick 再次触发回调导致弹窗循环。
+     * 通过 track.tag 中存储的 setChecked lambda 同步闭包内的 isChecked 变量。
+     */
+    fun setSwitchVisualSilently(view: View?, checked: Boolean) {
+        if (view == null) return
+        val track = view.findViewById<View>(R.id.common_switch_track) ?: return
+        // 先通过 track.tag 同步闭包内的 isChecked（不触发 onCheckedChange）
+        @Suppress("UNCHECKED_CAST")
+        val setChecked = track.tag as? ((Boolean) -> Unit)
+        setChecked?.invoke(checked)
+        // setChecked 内部已调用 updateVisuals(false) 设置视觉，
+        // 但如果 updateVisuals 走了 track.post 非动画路径，这里补充一次动画过渡
+        val thumb = view.findViewById<View>(R.id.common_switch_thumb) ?: return
+        val ctx = view.context
+        val accent = ThemeColors.accent(ctx)
+        val offColor = ThemeColors.accentSecondary(ctx)
+        val targetColor = if (checked) accent else offColor
+        val margin = (thumb.layoutParams as ViewGroup.MarginLayoutParams).marginStart
+        val targetX = if (checked) (track.width - thumb.width - margin * 2).toFloat() else 0f
+        thumb.animate().translationX(targetX).setDuration(200).start()
+        val anim = android.animation.ValueAnimator.ofArgb(
+            (track.background as? GradientDrawable)?.color?.defaultColor ?: offColor,
+            targetColor
+        )
+        anim.duration = 200
+        anim.addUpdateListener {
+            val c = it.animatedValue as Int
+            track.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(c)
+                cornerRadius = 100f
+            }
+        }
+        anim.start()
     }
 
     private fun dpToPx(ctx: android.content.Context, dp: Int): Int = (dp * ctx.resources.displayMetrics.density).toInt()

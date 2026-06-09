@@ -209,6 +209,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             h = 31 * h + sp.getInt("widget_custom_accent_light", 0)
             h = 31 * h + sp.getInt("widget_custom_accent_dark", 0)
             h = 31 * h + (sp.getString("widget_bg_image_uri", "") ?: "").hashCode()
+            h = 31 * h + sp.getBoolean("widget_bg_image_enabled", false).hashCode()
             h = 31 * h + sp.getInt("widget_bg_opacity", 100)
             h = 31 * h + sp.getBoolean("widget_clip_to_outline", false).hashCode()
             // Android 12+ 动态配色开关（影响调色板选择，变更时必须重渲染）
@@ -622,9 +623,10 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
         /** 从 RSRP dBm 信号值推算 1-5 格信号强度 */
         private fun parseSignalLevel(signal: String): Int {
             return try {
-                val rssi = signal.replace("dBm", "").trim().toIntOrNull() ?: 0
-                // RSRP 是负数；>=0 视为无效（如 "null"/"--"）
-                if (rssi >= 0) return 0
+                val raw = signal.replace("dBm", "").trim().toIntOrNull() ?: 0
+                // RSRP 应为负值；若为正值则取反（兼容部分设备返回绝对值的情况）
+                val rssi = if (raw > 0) -raw else raw
+                if (rssi >= 0) return 0   // 0 或无法解析 → 无信号
                 when {
                     rssi > -85  -> 5   // 非常好
                     rssi >= -95 -> 4   // 良好

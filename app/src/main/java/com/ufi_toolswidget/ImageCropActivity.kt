@@ -9,11 +9,11 @@ import android.os.Bundle
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
-import com.ufi_toolswidget.util.BackgroundUtil
 import com.ufi_toolswidget.util.SimpleCropView
 import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.ThemeUtil
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import com.ufi_toolswidget.util.ToastStyle
 import com.ufi_toolswidget.util.ToastUtil
@@ -27,6 +27,8 @@ class ImageCropActivity : AppCompatActivity() {
     private var sourceUri: Uri? = null
     private var targetW: Int = 1080
     private var targetH: Int = 1920
+    private var saveSubDir: String = "widget_bg"
+    private var saveFileName: String = "custom_bg.jpg"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,6 +41,8 @@ class ImageCropActivity : AppCompatActivity() {
         sourceUri = intent.data
         targetW = intent.getIntExtra("targetW", 1080)
         targetH = intent.getIntExtra("targetH", 1920)
+        saveSubDir = intent.getStringExtra("saveSubDir") ?: "widget_bg"
+        saveFileName = intent.getStringExtra("saveFileName") ?: "custom_bg.jpg"
 
         if (sourceUri == null) {
             finish()
@@ -58,17 +62,29 @@ class ImageCropActivity : AppCompatActivity() {
 
     private fun loadSourceImage() {
         try {
-            contentResolver.openInputStream(sourceUri!!)?.use { stream ->
-                // 如果图片非常大，建议先压缩加载以防 OOM
-                val options = BitmapFactory.Options().apply {
-                    inPreferredConfig = Bitmap.Config.ARGB_8888
+            val bitmap: Bitmap? = try {
+                contentResolver.openInputStream(sourceUri!!)?.use { stream ->
+                    val options = BitmapFactory.Options().apply {
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                    }
+                    BitmapFactory.decodeStream(stream, null, options)
                 }
-                val bitmap = BitmapFactory.decodeStream(stream, null, options)
-                if (bitmap != null) {
-                    cropView.setImageBitmap(bitmap, targetW, targetH)
-                } else {
-                    throw Exception("Bitmap decode failed")
-                }
+            } catch (_: Exception) {
+                // contentResolver 失败时尝试直接 FileInputStream（兼容 file:// URI）
+                val path = sourceUri?.path
+                if (path != null && File(path).exists()) {
+                    FileInputStream(File(path)).use { stream ->
+                        val options = BitmapFactory.Options().apply {
+                            inPreferredConfig = Bitmap.Config.ARGB_8888
+                        }
+                        BitmapFactory.decodeStream(stream, null, options)
+                    }
+                } else null
+            }
+            if (bitmap != null) {
+                cropView.setImageBitmap(bitmap, targetW, targetH)
+            } else {
+                throw Exception("Bitmap decode failed")
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -84,18 +100,18 @@ class ImageCropActivity : AppCompatActivity() {
             return
         }
 
-        // 保存到内部目录以获得持久权限
+        // 保存到内部存储（filesDir/{saveSubDir}/{saveFileName}），确保 Widget 进程可访问
         try {
-            val file = File(getExternalFilesDir("background"), "custom_bg_${System.currentTimeMillis()}.jpg")
-            file.parentFile?.mkdirs()
-            
+            val dir = File(filesDir, saveSubDir)
+            if (!dir.exists()) dir.mkdirs()
+            val file = File(dir, saveFileName)
+
             FileOutputStream(file).use { out ->
                 cropped.compress(Bitmap.CompressFormat.JPEG, 90, out)
             }
-            
-            val resultUri = Uri.fromFile(file)
+
             val resultIntent = Intent().apply {
-                putExtra("cropped_uri", resultUri.toString())
+                putExtra("cropped_file_path", file.absolutePath)
             }
             setResult(Activity.RESULT_OK, resultIntent)
             finish()

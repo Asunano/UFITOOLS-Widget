@@ -1,5 +1,7 @@
 package com.ufi_toolswidget
 
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
 import android.app.Dialog
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -13,6 +15,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.*
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.app.AppCompatActivity
@@ -87,6 +90,9 @@ class MainActivity : AppCompatActivity() {
 
     /** 首次加载动画是否已执行（避免旋转后重复触发） */
     private var hasShownFirstLoadAnimation = false
+
+    /** 检查更新是否正在进行中（防止重复点击） */
+    private var isCheckingUpdate = false
 
     override fun onResume() {
         super.onResume()
@@ -279,6 +285,53 @@ class MainActivity : AppCompatActivity() {
 
     private fun initViews() {
         tvModel = findViewById(R.id.main_tv_model)
+
+        // 设备名称 Q 弹回弹动画（纯视觉反馈，无实际功能）
+        apply {
+            val overshoot = OvershootInterpolator(1.3f)
+            var pressAnim: AnimatorSet? = null
+            var releaseAnim: AnimatorSet? = null
+            tvModel.setOnTouchListener { v, event ->
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        pressAnim?.cancel()
+                        releaseAnim?.cancel()
+                        pressAnim = AnimatorSet().apply {
+                            playTogether(
+                                ObjectAnimator.ofFloat(v, "scaleX", 0.92f),
+                                ObjectAnimator.ofFloat(v, "scaleY", 0.92f)
+                            )
+                            duration = 100
+                            start()
+                        }
+                    }
+                    android.view.MotionEvent.ACTION_UP -> {
+                        pressAnim?.cancel()
+                        releaseAnim = AnimatorSet().apply {
+                            playTogether(
+                                ObjectAnimator.ofFloat(v, "scaleX", 1f),
+                                ObjectAnimator.ofFloat(v, "scaleY", 1f)
+                            )
+                            duration = 250
+                            interpolator = overshoot
+                            start()
+                        }
+                    }
+                    android.view.MotionEvent.ACTION_CANCEL -> {
+                        pressAnim?.cancel()
+                        releaseAnim = AnimatorSet().apply {
+                            playTogether(
+                                ObjectAnimator.ofFloat(v, "scaleX", 1f),
+                                ObjectAnimator.ofFloat(v, "scaleY", 1f)
+                            )
+                            duration = 150
+                            start()
+                        }
+                    }
+                }
+                true
+            }
+        }
         tvSubtitle = findViewById(R.id.main_tv_subtitle)
         tvNetSignal = findViewById(R.id.main_tv_net_signal)
         tvTemp = findViewById(R.id.main_tv_temp)
@@ -348,30 +401,142 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<View>(R.id.btn_check_update).apply {
-            findViewById<TextView>(R.id.common_btn_text).text = "检查更新"
-            setOnClickListener {
-                ToastUtil.showDropToast(this@MainActivity, ToastStyle.INFO, "正在检查更新...")
-                lifecycleScope.launch {
-                    when (val result = UpdateChecker.checkUpdate(this@MainActivity)) {
-                        is UpdateChecker.UpdateResult.NewVersion -> {
-                            showUpdateDialog(result.info)
-                        }
-                        is UpdateChecker.UpdateResult.Latest -> {
-                            ToastUtil.showDropToast(this@MainActivity, ToastStyle.SUCCESS, "当前已是最新版本 ✓")
-                        }
-                        is UpdateChecker.UpdateResult.Error -> {
-                            ToastUtil.showDropToast(this@MainActivity, ToastStyle.WARNING, result.message)
-                        }
-                    }
-                }
-            }
-            setOnTouchListener(ScaleTouchListener())
-        }
+        // 检查更新按钮：使用 applyScaleClickAnimation 统一按压动画 + 点击回调
+        // 修复旧代码 setOnTouchListener + setOnClickListener 冲突导致 onClick 不触发的 Bug
+        setupCheckUpdateButton()
 
         // 启动载入动画（文字点动画 + 容器脉冲）
         startLoadingDotAnimation()
         startLoadingPulse()
+    }
+
+    /**
+     * 初始化检查更新按钮：ObjectAnimator Q 弹缩放动画 + 点击触发更新检查。
+     *
+     * 将 TouchListener 设置在内部 TextView 上（绕开 <include> 标签的 ViewPropertyAnimator 兼容问题），
+     * 使用 ObjectAnimator + AnimatorSet 提供可靠的按压缩放 + OvershootInterpolator 弹性回弹。
+     */
+    private fun setupCheckUpdateButton() {
+        val btnRoot = findViewById<View>(R.id.btn_check_update)
+        val btnText = btnRoot.findViewById<TextView>(R.id.common_btn_text)
+        btnText.text = "检查更新"
+        btnText.isClickable = true
+        btnText.isFocusable = true
+
+        val overshoot = OvershootInterpolator(1.3f)
+        var pressAnim: AnimatorSet? = null
+        var releaseAnim: AnimatorSet? = null
+
+        btnText.setOnTouchListener { v, event ->
+            when (event.action) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    pressAnim?.cancel()
+                    releaseAnim?.cancel()
+                    pressAnim = AnimatorSet().apply {
+                        playTogether(
+                            ObjectAnimator.ofFloat(v, "scaleX", 0.92f),
+                            ObjectAnimator.ofFloat(v, "scaleY", 0.92f)
+                        )
+                        duration = 100
+                        start()
+                    }
+                }
+                android.view.MotionEvent.ACTION_UP -> {
+                    pressAnim?.cancel()
+                    releaseAnim = AnimatorSet().apply {
+                        playTogether(
+                            ObjectAnimator.ofFloat(v, "scaleX", 1f),
+                            ObjectAnimator.ofFloat(v, "scaleY", 1f)
+                        )
+                        duration = 250
+                        interpolator = overshoot
+                        start()
+                    }
+                    if (event.x >= 0 && event.x <= v.width &&
+                        event.y >= 0 && event.y <= v.height) {
+                        v.performClick()
+                    }
+                }
+                android.view.MotionEvent.ACTION_CANCEL -> {
+                    pressAnim?.cancel()
+                    releaseAnim = AnimatorSet().apply {
+                        playTogether(
+                            ObjectAnimator.ofFloat(v, "scaleX", 1f),
+                            ObjectAnimator.ofFloat(v, "scaleY", 1f)
+                        )
+                        duration = 150
+                        start()
+                    }
+                }
+            }
+            true
+        }
+        btnText.setOnClickListener {
+            if (isCheckingUpdate) return@setOnClickListener
+            performCheckUpdate(btnRoot, btnText)
+        }
+    }
+
+    /**
+     * 执行更新检查，期间按钮半透明且不可重复点击，文字显示 "检查中" 点循环动画，
+     * 完成后显示结果文字并自动恢复。
+     */
+    private fun performCheckUpdate(btnRoot: View, btnText: TextView) {
+        isCheckingUpdate = true
+        btnRoot.alpha = 0.65f
+        btnRoot.isEnabled = false
+
+        // "检查中" 文字点动画（检查中 → 检查中. → 检查中.. → 检查中... 循环）
+        val dotJob = lifecycleScope.launch {
+            val base = "检查中"
+            val dots = arrayOf("", ".", "..", "...")
+            var i = 0
+            while (true) {
+                btnText.text = base + dots[i % dots.size]
+                i++
+                delay(400)
+            }
+        }
+
+        lifecycleScope.launch {
+            val result = try {
+                UpdateChecker.checkUpdate(this@MainActivity)
+            } catch (e: Exception) {
+                UpdateChecker.UpdateResult.Error("检查失败: ${e.message ?: "未知错误"}")
+            }
+
+            dotJob.cancel()
+            isCheckingUpdate = false
+            btnRoot.alpha = 1f
+            btnRoot.isEnabled = true
+
+            when (result) {
+                is UpdateChecker.UpdateResult.NewVersion -> {
+                    btnText.text = "发现新版本"
+                    showUpdateDialog(result.info)
+                    lifecycleScope.launch {
+                        delay(3000)
+                        btnText.text = "检查更新"
+                    }
+                }
+                is UpdateChecker.UpdateResult.Latest -> {
+                    btnText.text = "已是最新版本 ✓"
+                    ToastUtil.showDropToast(this@MainActivity, ToastStyle.SUCCESS, "当前已是最新版本")
+                    lifecycleScope.launch {
+                        delay(2500)
+                        btnText.text = "检查更新"
+                    }
+                }
+                is UpdateChecker.UpdateResult.Error -> {
+                    btnText.text = "检查失败"
+                    ToastUtil.showDropToast(this@MainActivity, ToastStyle.WARNING, result.message)
+                    lifecycleScope.launch {
+                        delay(2500)
+                        btnText.text = "检查更新"
+                    }
+                }
+            }
+        }
     }
 
     /** "请稍候" 文字点动画（. → .. → ... 循环） */
@@ -438,8 +603,10 @@ class MainActivity : AppCompatActivity() {
     /** 从 RSRP dBm 信号值推算 0-5 格信号强度 */
     private fun parseSignalLevel(signal: String): Int {
         return try {
-            val rssi = signal.replace("dBm", "").trim().toIntOrNull() ?: 0
-            if (rssi >= 0) return 0
+            val raw = signal.replace("dBm", "").trim().toIntOrNull() ?: 0
+            // RSRP 应为负值；若为正值则取反（兼容部分设备返回绝对值的情况）
+            val rssi = if (raw > 0) -raw else raw
+            if (rssi >= 0) return 0   // 0 或无法解析 → 无信号
             when {
                 rssi > -85  -> 5
                 rssi >= -95 -> 4
@@ -926,10 +1093,7 @@ class MainActivity : AppCompatActivity() {
         // ── 动态模糊背景：API 31+ 原生模糊，API 26-30 bitmap 缩放模糊 ──
         CommonDialogHelper.applyDialogBlur(this, dialog)
 
-        dialog.setOnDismissListener {
-            activeDialog = null
-            viewModel.setActiveDialogType(null)
-        }
+        // 清理逻辑已由 createAnimatedDialog 的 onDismissed 回调处理，无需重复设置
         activeDialog = dialog
         viewModel.setActiveDialogType(dialogType)
         return dialog

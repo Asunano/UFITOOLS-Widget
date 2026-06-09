@@ -40,7 +40,10 @@ object BackgroundUtil {
             // 加载并缓存
             try {
                 val uri = Uri.parse(uriStr)
-                activity.contentResolver.openInputStream(uri)?.use { stream ->
+                val isFilePath = !uriStr.startsWith("content://") && !uriStr.startsWith("file://")
+                val resolvedUri = if (isFilePath) Uri.fromFile(java.io.File(uriStr)) else uri
+
+                activity.contentResolver.openInputStream(resolvedUri)?.use { stream ->
                     val options = BitmapFactory.Options().apply {
                         inPreferredConfig = Bitmap.Config.RGB_565 // 节省内存
                     }
@@ -53,7 +56,24 @@ object BackgroundUtil {
                         cachedUri = uriStr
                         activity.window.decorView.background = BitmapDrawable(activity.resources, bitmap)
                     }
-                } ?: throw Exception("Stream is null")
+                } ?: run {
+                    // contentResolver 失败时尝试直接 FileInputStream（兼容内部存储文件路径）
+                    val path = if (isFilePath) uriStr else resolvedUri.path
+                    if (path != null && java.io.File(path).exists()) {
+                        java.io.FileInputStream(java.io.File(path)).use { stream ->
+                            val options = BitmapFactory.Options().apply {
+                                inPreferredConfig = Bitmap.Config.RGB_565
+                            }
+                            val bitmap = BitmapFactory.decodeStream(stream, null, options)
+                            if (bitmap != null) {
+                                cachedBitmap?.let { if (!it.isRecycled && it != bitmap) it.recycle() }
+                                cachedBitmap = bitmap
+                                cachedUri = uriStr
+                                activity.window.decorView.background = BitmapDrawable(activity.resources, bitmap)
+                            } else throw Exception("Bitmap decode returned null")
+                        }
+                    } else throw Exception("Stream is null and no file found")
+                }
                 return
             } catch (e: Exception) {
                 e.printStackTrace()

@@ -35,6 +35,7 @@ object DebugLogger {
 
     private const val TAG = "DebugLogger"
     private const val MAX_ENTRIES = 800
+    private const val FLUSH_THRESHOLD = 20  // 待写入条目超过此数量时自动落盘
 
     // ── 预编译脱敏 Regex ──
     private val IP_MASK_RE = Regex("(\\d{1,3})\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")
@@ -56,8 +57,8 @@ object DebugLogger {
     private val entriesLock = Any()
     private val entries = ArrayDeque<Entry>(MAX_ENTRIES)
 
-    /** 待写入文件队列（线程安全，无锁 ConcurrenLinkQueue）。
-     *  log() 中只入队不写文件，在 getWifiData() 结束或 onPause() 时批量 flush。 */
+    /** 待写入文件队列（线程安全，无锁 ConcurrentLinkedQueue）。
+     *  log() 中入队，force 日志或条目达到阈值时自动 flush，onPause() 时手动 flush。 */
     private val pendingEntries = ConcurrentLinkedQueue<Entry>()
 
     /** 是否启用调试模式 (通过 SP 持久化) */
@@ -68,6 +69,9 @@ object DebugLogger {
         }
 
     private var contextRef: java.lang.ref.WeakReference<Context>? = null
+
+    /** 是否已完成完整初始化（文件加载 + 系统信息采集） */
+    private var fullyInitialized = false
 
     /** 系统信息缓存（init 时生成） */
     private val systemInfoCache = StringBuilder()
@@ -94,12 +98,37 @@ object DebugLogger {
 
     // ==================== 初始化 ====================
 
-    /** 初始化，载入持久化配置并采集系统信息 */
+    /**
+     * 轻量初始化：仅设置 context 引用和 enabled 状态。
+     * 用于 Application.onCreate()，不阻塞主线程。
+     * 使 CrashHandler 崩溃时 flushToFile() 可以工作。
+     */
+    fun setContextOnly(context: Context) {
+        if (contextRef?.get() != null) return  // 已初始化则跳过
+        contextRef = java.lang.ref.WeakReference(context.applicationContext)
+        enabled = SPUtil.getDebugEnabled(context)
+    }
+
+    /** 初始化，载入持久化配置并采集系统信息（含文件 I/O，应在 Activity 中调用） */
     fun init(context: Context) {
         contextRef = java.lang.ref.WeakReference(context.applicationContext)
         enabled = SPUtil.getDebugEnabled(context)
-        captureSystemInfo(context)
+        if (!fullyInitialized) {
+            fullyInitialized = true
+            loadPreviousLogs()
+            captureSystemInfo(context)
+        }
         log(Category.SYS, "DebugLogger", "DebugLogger initialized, enabled=$enabled")
+    }
+
+    /**
+     * 从持久化文件加载上一轮的日志到内存。
+     * 供 :crash_handler 等独立进程使用（这些进程不会走 init 流程）。
+     */
+    fun loadPreviousLogsIfAvailable(context: Context) {
+        contextRef = java.lang.ref.WeakReference(context.applicationContext)
+        enabled = SPUtil.getDebugEnabled(context)
+        loadPreviousLogs()
     }
 
     // ==================== 系统信息采集 ====================
@@ -173,6 +202,42 @@ object DebugLogger {
 
     /** 获取系统信息文本 */
     fun getSystemInfo() = systemInfoCache.toString()
+
+    /** 从文件加载上一轮持久化的日志到内存 */
+    private fun loadPreviousLogs() {
+        val ctx = contextRef?.get() ?: return
+        try {
+            val file = getLogFilePath(ctx)
+            if (!file.exists()) return
+            val lines = file.readLines()
+            if (lines.isEmpty()) return
+            val sdf = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.getDefault())
+            val categoryMap = Category.values().associateBy { it.colorTag }
+            synchronized(entriesLock) {
+                // 避免重复加载
+                if (entries.isNotEmpty()) return
+                lines.takeLast(MAX_ENTRIES).forEach { line ->
+                    // 格式: [MM-dd HH:mm:ss.SSS] [TAG] [LEVEL] [srcTag] message
+                    val timeMatch = Regex("\\[(\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3})]").find(line)
+                    val tagMatch = Regex("\\] \\[(\\w+)] \\[([DEIW])]").find(line)
+                    if (timeMatch != null && tagMatch != null) {
+                        val time = try { sdf.parse(timeMatch.groupValues[1])?.time ?: 0L } catch (_: Exception) { 0L }
+                        val category = categoryMap[tagMatch.groupValues[1]] ?: Category.GENERAL
+                        val level = tagMatch.groupValues[2]
+                        entries.addLast(Entry(time, level, category, "prev", line))
+                    } else {
+                        entries.addLast(Entry(0L, "D", Category.GENERAL, "prev", line))
+                    }
+                }
+                while (entries.size > MAX_ENTRIES) {
+                    entries.removeFirst()
+                }
+            }
+            Log.d(TAG, "Loaded ${lines.size} previous log entries from file")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load previous logs: ${e.message}")
+        }
+    }
 
     // ==================== UI 诊断 ====================
 
@@ -253,8 +318,14 @@ object DebugLogger {
             lastRenderEventTime = System.currentTimeMillis()
         }
 
-        // 只入队，不写文件 — 批量 flush 时统一写入
+        // 只入队，批量 flush 时统一写入
         pendingEntries.add(entry)
+
+        // force 日志立即落盘（关键错误/诊断信息不能丢）
+        // 待写入条目过多时也自动落盘，防止进程被杀丢失大量日志
+        if (force || pendingEntries.size >= FLUSH_THRESHOLD) {
+            flushToFile()
+        }
     }
 
     private fun categoryLevel(cat: Category) = when (cat) {
@@ -403,21 +474,28 @@ object DebugLogger {
         synchronized(entriesLock) { entries.clear() }
         lastUiSnapshot = ""
         renderEventCount = 0
+        fullyInitialized = false
         contextRef?.get()?.let { ctx ->
             try {
-                val file = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "app_debug.log")
+                val file = getLogFilePath(ctx)
                 if (file.exists()) file.delete()
             } catch (_: Exception) {
                 // 清理日志文件失败（权限/磁盘问题），非关键错误
                 Log.w(TAG, "Failed to delete debug log file")
             }
         }
+        // 清空待写入队列，防止 clear 后还有旧数据落盘
+        pendingEntries.clear()
     }
 
-    /** 获取持久化的日志内容 */
+    /** 获取持久化的日志文件路径 */
+    private fun getLogFilePath(ctx: Context): File =
+        File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "app_debug.log")
+
+    /** 获取持久化的日志内容（用于诊断页面显示） */
     fun getPersistentLogs(ctx: Context): String {
         return try {
-            val file = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "app_debug.log")
+            val file = getLogFilePath(ctx)
             if (file.exists()) file.readText() else ""
         } catch (e: Exception) {
             "读取持久化日志失败: ${e.message}"
@@ -470,7 +548,7 @@ object DebugLogger {
 
             synchronized(fileWriteLock) {
                 try {
-                    val file = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "app_debug.log")
+                    val file = getLogFilePath(ctx)
                     if (lastLogFile != file) {
                         lastLogFile = file
                         file.parentFile?.mkdirs()

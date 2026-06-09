@@ -41,13 +41,15 @@ object MainDialogHelper {
         if (info.rsrp > Int.MIN_VALUE) {
             addView(dividerView(context))
             addView(sectionTitleView(context, "信号参数"))
+            // 防御：RSRP 物理上必须为负 dBm；若为正值则取反
+            val rsrpVal = if (info.rsrp > 0) -info.rsrp else info.rsrp
             val rsrpLabel = when {
-                info.rsrp >= -85 -> "excellent"
-                info.rsrp >= -100 -> "good"
-                info.rsrp >= -110 -> "fair"
+                rsrpVal >= -85 -> "excellent"
+                rsrpVal >= -100 -> "good"
+                rsrpVal >= -110 -> "fair"
                 else -> "poor"
             }
-            addView(keyValueView(context, "RSRP", "${info.rsrp} dBm  ($rsrpLabel)", info.rsrp < -110))
+            addView(keyValueView(context, "RSRP", "${rsrpVal} dBm  ($rsrpLabel)", rsrpVal < -110))
 
             // SINR
             if (info.sinr > Int.MIN_VALUE) {

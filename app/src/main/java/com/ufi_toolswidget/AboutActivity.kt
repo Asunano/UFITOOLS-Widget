@@ -28,7 +28,6 @@ import com.ufi_toolswidget.util.CommonDialogHelper
 import com.ufi_toolswidget.util.CommonSettingsItemHelper
 import com.ufi_toolswidget.util.DebugLogger
 import com.ufi_toolswidget.util.PopupViewUtil
-import com.ufi_toolswidget.util.ScaleTouchListener
 import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.ThemeChangeNotifier
 import com.ufi_toolswidget.util.ThemeColors
@@ -152,60 +151,66 @@ class AboutActivity : AppCompatActivity() {
             showUpdateSettingsDialog()
         }
 
-        // 检查更新按钮
-        val btnCheck = findViewById<MaterialButton>(R.id.btn_check_update)
+        // 检查更新按钮（使用 layout_common_action_button 统一样式）
+        val btnCheckRoot = findViewById<View>(R.id.btn_check_update)
+        val btnCheckText = btnCheckRoot.findViewById<TextView>(R.id.common_btn_text)
+        btnCheckText.text = "检查更新"
+        btnCheckText.textSize = 14f
+        // 动态取按钮底色，确保跟随主题配色
+        btnCheckText.background = GradientDrawable().apply {
+            setColor(ThemeColors.btnBg(this@AboutActivity))
+            cornerRadius = 12f * resources.displayMetrics.density
+        }
 
-        btnCheck.apply {
-            setOnClickListener {
-                btnCheck.isEnabled = false
+        AnimationUtil.applyScaleClickAnimation(btnCheckRoot) {
+            if (!(btnCheckRoot.isEnabled)) return@applyScaleClickAnimation
+            btnCheckRoot.isEnabled = false
 
-                // 显示加载中提示
-                ToastUtil.showLoadingToast(this@AboutActivity, "正在检查更新...")
+            // 显示加载中提示
+            ToastUtil.showLoadingToast(this@AboutActivity, "正在检查更新...")
 
-                // 记录本次检查所使用的镜像源
-                val usedMirror = currentMirror
+            // 记录本次检查所使用的镜像源
+            val usedMirror = currentMirror
 
-                lifecycleScope.launch {
-                    when (val result = UpdateChecker.checkUpdate(this@AboutActivity)) {
-                        is UpdateChecker.UpdateResult.Error -> {
-                            if (usedMirror == 0 && UpdateChecker.isNetworkError(result.message)) {
-                                ToastUtil.showDropToast(
-                                    activity = this@AboutActivity,
-                                    style = ToastStyle.WARNING,
-                                    title = "网络连接失败",
-                                    message = "建议切换至国内镜像源后重试"
-                                )
-                                showMirrorSwitchDialog()
-                            } else {
-                                ToastUtil.showDropToast(
-                                    activity = this@AboutActivity,
-                                    style = ToastStyle.WARNING,
-                                    title = "检查更新失败",
-                                    message = result.message
-                                )
-                            }
-                        }
-                        is UpdateChecker.UpdateResult.NewVersion -> {
+            lifecycleScope.launch {
+                when (val result = UpdateChecker.checkUpdate(this@AboutActivity)) {
+                    is UpdateChecker.UpdateResult.Error -> {
+                        if (usedMirror == 0 && UpdateChecker.isNetworkError(result.message)) {
                             ToastUtil.showDropToast(
                                 activity = this@AboutActivity,
-                                style = ToastStyle.INFO,
-                                title = "发现新版本",
-                                message = result.info.versionName
+                                style = ToastStyle.WARNING,
+                                title = "网络连接失败",
+                                message = "建议切换至国内镜像源后重试"
                             )
-                            showUpdateDialog(result.info)
-                        }
-                        is UpdateChecker.UpdateResult.Latest -> {
+                            showMirrorSwitchDialog()
+                        } else {
                             ToastUtil.showDropToast(
                                 activity = this@AboutActivity,
-                                style = ToastStyle.SUCCESS,
-                                title = "已是最新版本"
+                                style = ToastStyle.WARNING,
+                                title = "检查更新失败",
+                                message = result.message
                             )
                         }
                     }
-                    btnCheck.isEnabled = true
+                    is UpdateChecker.UpdateResult.NewVersion -> {
+                        ToastUtil.showDropToast(
+                            activity = this@AboutActivity,
+                            style = ToastStyle.INFO,
+                            title = "发现新版本",
+                            message = result.info.versionName
+                        )
+                        showUpdateDialog(result.info)
+                    }
+                    is UpdateChecker.UpdateResult.Latest -> {
+                        ToastUtil.showDropToast(
+                            activity = this@AboutActivity,
+                            style = ToastStyle.SUCCESS,
+                            title = "已是最新版本"
+                        )
+                    }
                 }
+                btnCheckRoot.isEnabled = true
             }
-            setOnTouchListener(ScaleTouchListener())
         }
 
     }
@@ -389,8 +394,6 @@ class AboutActivity : AppCompatActivity() {
     }
 
     private fun dp2px(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
-
-    /** 网络连接失败时弹窗提示切换国内镜像源 */
 
     /** 网络连接失败时弹窗提示切换国内镜像源 */
     private fun showMirrorSwitchDialog() {

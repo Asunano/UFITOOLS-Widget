@@ -121,14 +121,20 @@
                     android:id="@+id/main_tv_model"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:paddingHorizontal="24dp"
+                    android:paddingHorizontal="16dp"
+                    android:layout_marginHorizontal="8dp"
                     android:textColor="@color/text_main"
-                    android:textSize="42sp"
+                    android:textSize="48sp"
                     android:textStyle="bold"
                     android:letterSpacing="0.04"
                     android:gravity="center"
                     android:maxLines="1"
-                    android:ellipsize="end" />
+                    app:autoSizeTextType="uniform"
+                    app:autoSizeMinTextSize="18sp"
+                    app:autoSizeMaxTextSize="48sp"
+                    app:autoSizeStepGranularity="2sp"
+                    android:clickable="true"
+                    android:focusable="true" />
 
                 <TextView
                     android:id="@+id/main_tv_subtitle"

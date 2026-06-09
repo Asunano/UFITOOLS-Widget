@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipToPadding="false"
+    android:fitsSystemWindows="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingBottom="32dp">
+
+        <!-- Header -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="16dp"
+            android:layout_marginTop="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingTop="24dp"
+                android:paddingBottom="24dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="后台保活配置"
+                    android:textColor="@color/text_main"
+                    android:textSize="28sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.02" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="确保通知功能在后台持续运行"
+                    android:textColor="@color/text_main"
+                    android:alpha="0.45"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_back"
+                style="@style/Widget.Material3.Button.IconButton"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_gravity="start|top"
+                android:layout_marginTop="6dp"
+                app:icon="@drawable/ic_arrow_back"
+                app:iconTint="@color/text_main" />
+        </FrameLayout>
+
+        <!-- ========== 服务开关 ========== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="6dp"
+            android:text="服务开关"
+            android:textColor="@color/text_main"
+            android:alpha="0.6"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <include
+            layout="@layout/layout_common_switch_item"
+            android:id="@+id/item_background_service" />
+
+        <!-- 通知自定义（仅在服务开启时显示） -->
+        <LinearLayout
+            android:id="@+id/group_notif_custom"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="20dp"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="6dp"
+                android:text="通知自定义"
+                android:textColor="@color/text_main"
+                android:alpha="0.6"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <include
+                layout="@layout/layout_common_setting_item"
+                android:id="@+id/item_notif_custom" />
+        </LinearLayout>
+
+        <!-- ========== 权限优化 ========== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="6dp"
+            android:text="权限优化"
+            android:textColor="@color/text_main"
+            android:alpha="0.6"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_battery_optimization" />
+
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_auto_start" />
+
+        <LinearLayout
+            style="@style/AppCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clickable="false"
+            android:focusable="false"
+            android:foreground="@null"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="锁定最近任务"
+                android:textColor="@color/text_main"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/text_task_lock_guide"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="@color/text_main"
+                android:alpha="0.6"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- ========== 保活增强 ========== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="6dp"
+            android:text="保活增强"
+            android:textColor="@color/text_main"
+            android:alpha="0.6"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <include
+            layout="@layout/layout_common_switch_item"
+            android:id="@+id/item_hide_recents" />
+
+        <include
+            layout="@layout/layout_common_switch_item"
+            android:id="@+id/item_periodic_worker" />
+
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_periodic_worker_interval" />
+
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_accessibility_service" />
+
+    </LinearLayout>
+</ScrollView>

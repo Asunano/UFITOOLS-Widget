@@ -8,4 +8,5 @@
     <string name="app_theme">软件主题</string>
     <string name="app_description">UFI-TOOLS Widget 是一款专为 UFI 随身 WiFi 设备打造的桌面监控小组件工具。支持实时查看设备信号、流量、温度、电量等关键信息，通过桌面小组件随时掌握设备运行状态。</string>
     <string name="widget_description">UFI-TOOLS 设备监控小组件，实时显示信号、流量、温度等信息</string>
+    <string name="accessibility_service_description">UFI-TOOLS 保活服务，用于确保通知功能在后台持续运行。本服务不会收集或访问任何个人数据。</string>
 </resources>

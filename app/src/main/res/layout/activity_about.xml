@@ -48,23 +48,25 @@
                 app:iconTint="@color/text_main" />
         </FrameLayout>
 
-        <!-- ==================== App 信息卡片 ==================== -->
+        <!-- ==================== App 信息区域（无卡片容器） ==================== -->
         <LinearLayout
-            style="@style/AppCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="vertical"
-            android:paddingTop="28dp"
+            android:paddingTop="24dp"
             android:paddingBottom="22dp"
-            android:paddingHorizontal="28dp">
+            android:paddingHorizontal="28dp"
+            android:descendantFocusability="blocksDescendants">
 
             <ImageView
                 android:id="@+id/iv_app_icon"
                 android:layout_width="72dp"
                 android:layout_height="72dp"
                 android:contentDescription="UFI-TOOLS Widget"
-                android:src="@mipmap/ic_launcher" />
+                android:src="@mipmap/ic_launcher"
+                android:clickable="false"
+                android:focusable="false" />
 
             <TextView
                 android:layout_width="wrap_content"
@@ -73,7 +75,9 @@
                 android:text="UFI-TOOLS Widget"
                 android:textColor="@color/text_main"
                 android:textSize="20sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                android:clickable="false"
+                android:focusable="false" />
 
             <TextView
                 android:id="@+id/tv_app_version"
@@ -83,7 +87,12 @@
                 android:text="Version 1.0.0"
                 android:textColor="@color/text_main"
                 android:alpha="0.45"
-                android:textSize="14sp" />
+                android:textSize="14sp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="2dp" />
 
             <View
                 android:layout_width="match_parent"
@@ -100,7 +109,9 @@
                 android:text="UFI-TOOLS Widget 是一款开源的随身 WiFi 桌面监控工具。支持实时查看 4G/5G 信号（含 RSRP/SINR 等）、流量统计、硬件温度、电池状态及存储空间。"
                 android:textColor="@color/text_main"
                 android:alpha="0.6"
-                android:textSize="13sp" />
+                android:textSize="13sp"
+                android:clickable="false"
+                android:focusable="false" />
         </LinearLayout>
 
         <!-- ==================== 更新设置卡片 ==================== -->
@@ -153,49 +164,35 @@
                 android:alpha="0.06"
                 android:background="@color/text_sub" />
 
-            <!-- 检查更新行 -->
+            <!-- 检查更新区域（垂直堆叠：文字 + 全宽按钮） -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
+                android:orientation="vertical"
                 android:paddingVertical="12dp">
 
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="版本更新"
-                        android:textColor="@color/text_main"
-                        android:textSize="14sp" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        android:text="检查并下载最新版本"
-                        android:textColor="@color/text_main"
-                        android:alpha="0.4"
-                        android:textSize="12sp" />
-                </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_check_update"
+                <TextView
                     android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:insetTop="0dp"
-                    android:insetBottom="0dp"
-                    android:minWidth="88dp"
-                    android:paddingHorizontal="14dp"
-                    android:text="检查更新"
-                    android:textSize="12sp"
-                    app:cornerRadius="18dp"
-                    app:strokeWidth="0dp" />
+                    android:layout_height="wrap_content"
+                    android:text="版本更新"
+                    android:textColor="@color/text_main"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:layout_marginBottom="10dp"
+                    android:text="检查并下载最新版本"
+                    android:textColor="@color/text_main"
+                    android:alpha="0.4"
+                    android:textSize="12sp" />
+
+                <include
+                    layout="@layout/layout_common_action_button"
+                    android:id="@+id/btn_check_update"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp" />
             </LinearLayout>
 
             <!-- 更新状态区域 -->

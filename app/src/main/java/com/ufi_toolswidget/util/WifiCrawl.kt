@@ -274,10 +274,30 @@ object WifiCrawl {
 
             // 信号解析逻辑
             val netType = signalInfo?.optString("network_type") ?: ""
-            val signalVal = when {
+            val goformSignalRaw = when {
                 netType.contains("5G") -> signalInfo?.optString("Z5g_rsrp")
                 else -> signalInfo?.optString("lte_rsrp")
             } ?: signalInfo?.optString("rssi") ?: "--"
+
+            // AT 命令的 RSRP 更可靠（直接来自基带芯片），优先用于信号图标显示
+            // goform API 作为回退（部分设备可能不返回有效 dBm 值）
+            val signalStr = run {
+                val atRsrp = atNetworkInfo?.rsrp
+                if (atRsrp != null && atRsrp < 0 && atRsrp > Int.MIN_VALUE) {
+                    DebugLogger.logApi(TAG, "Signal: using AT RSRP=${atRsrp}dBm (goform=$goformSignalRaw)")
+                    "${atRsrp}dBm"
+                } else {
+                    // goform 回退：部分设备返回正值（绝对值），需修正为负 dBm
+                    val goformInt = goformSignalRaw.toIntOrNull()
+                    val s = when {
+                        goformSignalRaw.isEmpty() || goformSignalRaw == "null" || goformSignalRaw == "--" -> "--"
+                        goformInt != null && goformInt > 0 -> "${-goformInt}dBm"
+                        else -> "${goformSignalRaw}dBm"
+                    }
+                    DebugLogger.logApi(TAG, "Signal: using goform=$s (AT RSRP=${atRsrp ?: "null"})")
+                    s
+                }
+            }
 
             DebugLogger.flushToFile() // 本轮数据刷新完毕，批量落盘
 
@@ -285,7 +305,7 @@ object WifiCrawl {
                 model = model,
                 flow = formatFlow(monthlyRaw),
                 dailyFlow = formatFlow(dailyRaw),
-                signal = if (signalVal == "" || signalVal == "null") "--" else "${signalVal}dBm",
+                signal = signalStr,
                 temp = formatTemp(tempRaw),
                 battery = if (batteryPercent >= 0) "${batteryPercent}%" else "--",
                 batteryPercent = if (batteryPercent >= 0) batteryPercent else -1,
@@ -1197,6 +1217,13 @@ object WifiCrawl {
             || pinStatusAt.isNotEmpty() || rfFunc.isNotEmpty() || moduleState.isNotEmpty() || psAttached.isNotEmpty()
         if (!hasOldData && !hasNewData) {
             return null
+        }
+
+        // 防御性校验：RSRP 物理上必须为负 dBm 值
+        // QENG 解析器可能在字段偏移异常时取到正值，此处统一修正
+        if (rsrp > 0 && rsrp != Int.MIN_VALUE) {
+            Log.w(TAG, "RSRP normalization: $rsrp → ${-rsrp} (QENG field offset suspected)")
+            rsrp = -rsrp
         }
 
         return AtSignalInfo(

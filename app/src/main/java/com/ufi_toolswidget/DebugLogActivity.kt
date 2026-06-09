@@ -66,6 +66,9 @@ class DebugLogActivity : AppCompatActivity() {
 
         isCrashMode = intent.getBooleanExtra(EXTRA_CRASH_MODE, false)
 
+        // 从持久化文件加载上一轮日志（:crash_handler 进程内存中无主进程日志）
+        DebugLogger.loadPreviousLogsIfAvailable(this)
+
         tvLogContent = findViewById(R.id.tv_log_content)
         scrollLog = findViewById(R.id.scroll_log)
         tvStatus = findViewById(R.id.tv_log_status)
@@ -230,6 +233,14 @@ class DebugLogActivity : AppCompatActivity() {
                 if (!DebugLogger.enabled) {
                     sb.appendLine()
                     sb.appendLine("提示: 调试模式已关闭，请先启用顶部开关")
+                }
+                // 检查是否有上一轮的持久化日志文件
+                val persistedLog = DebugLogger.getPersistentLogs(this)
+                if (persistedLog.isNotBlank()) {
+                    sb.appendLine()
+                    sb.appendLine("═══════ 上一轮持久化日志 (文件) ═══════")
+                    sb.appendLine()
+                    sb.appendLine(persistedLog)
                 }
             } else {
                 entries.forEach { sb.appendLine(it.formatted()) }

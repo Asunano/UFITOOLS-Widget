@@ -55,9 +55,10 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    /** 用户是否已设置小组件背景图 */
+    /** 用户是否已设置并启用了小组件背景图 */
     private fun hasWidgetBgImage(): Boolean {
         return SPUtil.getWidgetBgImageUri(this).isNotBlank()
+            && SPUtil.getWidgetBgImageEnabled(this)
     }
 
     /** 检查背景图状态，没设背景时禁用动态配色并提示 */
@@ -73,6 +74,10 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
                 text = "请先返回「小组件设置」中设置背景图片后再启用"
                 visibility = View.VISIBLE
             }
+            // 如果开关视觉上处于 ON，通过 setChecked 引用同步为 OFF
+            @Suppress("UNCHECKED_CAST")
+            val setChecked = track?.tag as? ((Boolean) -> Unit)
+            setChecked?.invoke(false)
             track?.isEnabled = false
             track?.alpha = 0.4f
             updateDynamicColorVisibility(false)
@@ -101,7 +106,38 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
             subtitle = if (hasBg) "根据壁纸主色自动适配文字和图标颜色" else "请先返回「小组件设置」中设置背景图片后再启用",
             initialChecked = hasBg && SPUtil.getWidgetDynamicColor(this),
             onToggle = { checked ->
-                if (!hasBg) return@setupSwitchItem
+                // 每次回调都重新检查背景状态，防止用户从设置页修改后此处仍用旧值
+                if (!hasWidgetBgImage()) {
+                    // 背景已被关闭，静默回退开关视觉（不触发回调）
+                    ThemeUtil.setSwitchVisualSilently(dynamicColorItem, false)
+                    return@setupSwitchItem
+                }
+                // 检测所有可能的主题冲突：跟随主题 / 手动深浅色 / 手动配色
+                val hasThemeConflict = checked && (
+                    SPUtil.getWidgetFollowAppTheme(this)
+                        || SPUtil.getWidgetTheme(this) != "follow_app"
+                        || SPUtil.getWidgetColorThemeIndex(this) != 0
+                )
+                if (hasThemeConflict) {
+                    CommonDialogHelper.showWarningConfirmDialog(
+                        context = this,
+                        title = "互斥提醒",
+                        message = "开启「动态配色」将自动关闭「跟随应用主题」及手动配色设置，由壁纸颜色独立控制配色方案。三种配色模式只能开启一种。",
+                        confirmText = "继续开启",
+                        cancelText = "取消",
+                        onConfirm = {
+                            SPUtil.setWidgetDynamicColor(this, true)
+                            SPUtil.setWidgetFollowAppTheme(this, false)
+                            updateDynamicColorVisibility(true)
+                            BaseWifiWidget.renderAllWidgets(this, force = true)
+                            // 静默恢复开关视觉为 ON（不触发回调，避免重复弹窗）
+                            ThemeUtil.setSwitchVisualSilently(dynamicColorItem, true)
+                        }
+                    )
+                    // 用户尚未确认，静默回退开关视觉（不触发回调）
+                    ThemeUtil.setSwitchVisualSilently(dynamicColorItem, false)
+                    return@setupSwitchItem
+                }
                 SPUtil.setWidgetDynamicColor(this, checked)
                 updateDynamicColorVisibility(checked)
                 BaseWifiWidget.renderAllWidgets(this, force = true)
