@@ -1,7 +1,6 @@
 package com.ufi_toolswidget
 
-import android.graphics.Color
-import android.graphics.Typeface
+import android.app.Dialog
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
@@ -20,9 +19,8 @@ import java.util.Locale
 /**
  * 警报历史页面。
  *
- * 展示所有历史警报记录，支持：
- * - 单条已读 / 全部已读
- * - 单条删除 / 一键清空
+ * 使用 layout_common_setting_item 公用组件展示每条警报记录，
+ * 支持单条已读/删除、全部已读、一键清空。
  */
 class AlertHistoryActivity : AppCompatActivity() {
 
@@ -36,6 +34,7 @@ class AlertHistoryActivity : AppCompatActivity() {
     private lateinit var tvSubtitle: TextView
 
     private val timeFormat = SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault())
+    private val shortTimeFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,6 +66,7 @@ class AlertHistoryActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        ThemeUtil.applyTheme(this, ThemeUtil.PageType.APP_SETTINGS)
         refreshList()
     }
 
@@ -90,7 +90,7 @@ class AlertHistoryActivity : AppCompatActivity() {
         tvSubtitle.text = if (unreadCount > 0) {
             "共 ${records.size} 条，${unreadCount} 条未读"
         } else {
-            "共 ${records.size} 条，全部已读"
+            "共 ${records.size} 条"
         }
 
         for (record in records) {
@@ -98,173 +98,108 @@ class AlertHistoryActivity : AppCompatActivity() {
         }
     }
 
-    // ── 构建单条警报视图 ──
+    // ── 构建单条警报：复用 layout_common_setting_item ──
 
     private fun buildAlertItem(record: AlertRecord): View {
         val ctx = this
-        val textColor = ThemeColors.textPrimary(ctx)
-        val subtextColor = ThemeColors.textSecondary(ctx)
-        val accentColor = ThemeColors.accent(ctx)
+        val itemView = layoutInflater.inflate(
+            R.layout.layout_common_setting_item, alertList, false
+        )
 
-        val container = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            val bg = GradientDrawable().apply {
-                cornerRadius = dp(10).toFloat()
-                setColor(if (record.isRead) Color.TRANSPARENT else (accentColor and 0x0DFFFFFF))
-                setStroke(dp(1), if (record.isRead) (subtextColor and 0x20FFFFFF) else (accentColor and 0x30FFFFFF))
-            }
-            background = bg
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            lp.bottomMargin = dp(8)
-            layoutParams = lp
-        }
+        val iconRes = typeToIconRes(record.type)
+        val timeStr = shortTimeFormat.format(Date(record.timestamp))
+        val subtitle = "${record.message}\n$timeStr"
 
-        // 第一行：类型标签 + 时间
-        val topRow = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
+        CommonSettingsItemHelper.setupSettingItem(
+            itemView = itemView,
+            iconRes = iconRes,
+            title = record.title,
+            subtitle = subtitle,
+            onClick = { showAlertActionDialog(record) }
+        )
 
-        val typeLabel = TextView(ctx).apply {
-            text = typeToLabel(record.type)
-            textSize = 11f
-            setTextColor(Color.WHITE)
-            val typeBg = GradientDrawable().apply {
-                cornerRadius = dp(4).toFloat()
-                setColor(typeToColor(record.type, accentColor))
-            }
-            background = typeBg
-            setPadding(dp(6), dp(2), dp(6), dp(2))
-        }
-        topRow.addView(typeLabel)
-
-        // 未读圆点
-        if (!record.isRead) {
-            val dot = View(ctx).apply {
-                val dotSize = dp(6)
-                val dotBg = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(accentColor)
-                }
-                background = dotBg
-                layoutParams = LinearLayout.LayoutParams(dotSize, dotSize).apply {
-                    marginStart = dp(6)
-                }
-            }
-            topRow.addView(dot)
-        }
-
-        topRow.addView(View(ctx).apply {
-            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
-        })
-
-        val timeText = TextView(ctx).apply {
-            text = timeFormat.format(Date(record.timestamp))
-            textSize = 11f
-            setTextColor(subtextColor)
-        }
-        topRow.addView(timeText)
-
-        container.addView(topRow)
-
-        // 第二行：标题
-        val titleView = TextView(ctx).apply {
-            text = record.title
-            textSize = 14f
-            setTextColor(textColor)
-            typeface = Typeface.DEFAULT_BOLD
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(6) }
-        }
-        container.addView(titleView)
-
-        // 第三行：内容
-        val msgView = TextView(ctx).apply {
-            text = record.message
-            textSize = 12f
-            setTextColor(subtextColor)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(3) }
-        }
-        container.addView(msgView)
-
-        // 第四行：操作按钮
-        val actionRow = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(8) }
-        }
+        // 未读条目：标题加粗 + 图标着主题色
+        val titleView = itemView.findViewById<TextView>(R.id.common_item_title)
+        val iconView = itemView.findViewById<ImageView>(R.id.common_item_icon)
+        val arrowView = itemView.findViewById<ImageView>(R.id.common_item_arrow)
 
         if (!record.isRead) {
-            val readBtn = TextView(ctx).apply {
-                text = "已读"
-                textSize = 12f
-                setTextColor(accentColor)
-                setPadding(dp(8), dp(3), dp(8), dp(3))
-                val btnBg = GradientDrawable().apply {
-                    cornerRadius = dp(4).toFloat()
-                    setStroke(dp(1), accentColor)
-                }
-                background = btnBg
-                isClickable = true
-                isFocusable = true
+            titleView?.setTypeface(null, android.graphics.Typeface.BOLD)
+            iconView?.setColorFilter(ThemeColors.accent(ctx))
+            // 箭头改为未读圆点指示
+            arrowView?.let { arrow ->
+                arrow.setImageResource(R.drawable.ic_check)
+                arrow.alpha = 0.6f
+                arrow.rotation = 0f
             }
-            AnimationUtil.applyScaleClickAnimation(readBtn) {
-                AlertHistoryManager.markRead(ctx, record.id)
+        } else {
+            iconView?.alpha = 0.5f
+            arrowView?.visibility = View.GONE
+        }
+
+        return itemView
+    }
+
+    // ── 单条警报操作弹窗 ──
+
+    private fun showAlertActionDialog(record: AlertRecord) {
+        val ctx = this
+        val timeStr = timeFormat.format(Date(record.timestamp))
+
+        CommonDialogHelper.showCommonDialog(
+            context = ctx,
+            title = record.title,
+            iconRes = typeToIconRes(record.type),
+            onFill = { content ->
+                content.addView(TextView(ctx).apply {
+                    text = record.message
+                    textSize = 13f
+                    setTextColor(ThemeColors.textPrimary(ctx))
+                    setLineSpacing(0f, 1.3f)
+                })
+                content.addView(TextView(ctx).apply {
+                    text = "触发时间: $timeStr"
+                    textSize = 12f
+                    setTextColor(ThemeColors.textSecondary(ctx))
+                    val lp = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                    lp.topMargin = dp(8)
+                    layoutParams = lp
+                })
+                if (!record.isRead) {
+                    content.addView(CommonSettingsItemHelper.createDivider(ctx).apply {
+                        val lp = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
+                        lp.topMargin = dp(4)
+                        lp.bottomMargin = dp(4)
+                        layoutParams = lp
+                    })
+                    content.addView(TextView(ctx).apply {
+                        text = "● 未读"
+                        textSize = 12f
+                        setTextColor(ThemeColors.accent(ctx))
+                    })
+                }
+            },
+            primaryBtnText = if (record.isRead) "关闭" else "标记已读",
+            onPrimaryClick = { dialog ->
+                if (!record.isRead) {
+                    AlertHistoryManager.markRead(ctx, record.id)
+                    refreshList()
+                }
+                dialog.dismiss()
+            },
+            secondaryBtnText = "删除",
+            onSecondaryClick = { dialog ->
+                AlertHistoryManager.remove(ctx, record.id)
+                dialog.dismiss()
                 refreshList()
             }
-            actionRow.addView(readBtn)
-        }
-
-        val deleteBtn = TextView(ctx).apply {
-            text = "删除"
-            textSize = 12f
-            setTextColor(subtextColor)
-            setPadding(dp(8), dp(3), dp(8), dp(3))
-            val btnBg = GradientDrawable().apply {
-                cornerRadius = dp(4).toFloat()
-                setStroke(dp(1), subtextColor and 0x40FFFFFF)
-            }
-            background = btnBg
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            lp.marginStart = dp(6)
-            layoutParams = lp
-            isClickable = true
-            isFocusable = true
-        }
-        AnimationUtil.applyScaleClickAnimation(deleteBtn) {
-            AlertHistoryManager.remove(ctx, record.id)
-            refreshList()
-        }
-        actionRow.addView(deleteBtn)
-
-        container.addView(actionRow)
-
-        // 点击卡片整体标记已读
-        if (!record.isRead) {
-            container.isClickable = true
-            container.isFocusable = true
-            container.setOnClickListener {
-                AlertHistoryManager.markRead(ctx, record.id)
-                refreshList()
-            }
-        }
-
-        return container
+        )
     }
 
     // ── 清空确认弹窗 ──
@@ -275,13 +210,12 @@ class AlertHistoryActivity : AppCompatActivity() {
             context = ctx,
             title = "清空警报历史",
             iconRes = R.drawable.ic_notification,
-            onFill = { container ->
-                val msg = TextView(ctx).apply {
+            onFill = { content ->
+                content.addView(TextView(ctx).apply {
                     text = "确定要清空所有警报记录吗？此操作不可撤销。"
                     textSize = 14f
                     setTextColor(ThemeColors.textSecondary(ctx))
-                }
-                container.addView(msg)
+                })
             },
             primaryBtnText = "清空",
             onPrimaryClick = { dialog ->
@@ -296,25 +230,15 @@ class AlertHistoryActivity : AppCompatActivity() {
 
     // ── 辅助方法 ──
 
-    private fun typeToLabel(type: String): String = when (type) {
-        "daily_flow" -> "今日流量"
-        "monthly_flow" -> "本月流量"
-        "temp" -> "温度"
-        "cpu" -> "CPU"
-        "memory" -> "内存"
-        "battery" -> "电量"
-        "device_online" -> "设备状态"
-        else -> type
-    }
-
-    private fun typeToColor(type: String, accent: Int): Int = when (type) {
-        "daily_flow", "monthly_flow" -> Color.parseColor("#2196F3")
-        "temp" -> Color.parseColor("#F44336")
-        "cpu" -> Color.parseColor("#FF9800")
-        "memory" -> Color.parseColor("#9C27B0")
-        "battery" -> Color.parseColor("#4CAF50")
-        "device_online" -> Color.parseColor("#00BCD4")
-        else -> accent
+    private fun typeToIconRes(type: String): Int = when (type) {
+        "daily_flow" -> R.drawable.ic_rocket
+        "monthly_flow" -> R.drawable.ic_rocket
+        "temp" -> R.drawable.ic_temp
+        "cpu" -> R.drawable.ic_cpu
+        "memory" -> R.drawable.ic_chip
+        "battery" -> R.drawable.ic_battery_2
+        "device_online" -> R.drawable.ic_router
+        else -> R.drawable.ic_notification
     }
 
     private fun dp(value: Int): Int {

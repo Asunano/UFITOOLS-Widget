@@ -1025,9 +1025,16 @@ class MainActivity : AppCompatActivity() {
      *
      * 如果 Worker 已恢复，关闭弹窗。
      */
-    /** 更新左上角警报按钮的未读圆点 */
+    /** 更新左上角警报按钮：通知功能关闭时隐藏整个按钮 */
     private fun updateAlertUnreadDot() {
         try {
+            val btnAlert = findViewById<View>(R.id.btn_alert_history) ?: return
+            val notifEnabled = SPUtil.getNotificationEnabled(this)
+            if (!notifEnabled) {
+                btnAlert.visibility = View.GONE
+                return
+            }
+            btnAlert.visibility = View.VISIBLE
             val unreadDot = findViewById<View>(R.id.alert_unread_dot) ?: return
             val unreadCount = AlertHistoryManager.getUnreadCount(this)
             if (unreadCount > 0) {
