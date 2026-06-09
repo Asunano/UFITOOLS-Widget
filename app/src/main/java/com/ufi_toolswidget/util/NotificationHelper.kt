@@ -43,8 +43,10 @@ object NotificationHelper {
     private const val NOTIFY_ID_MEMORY          = 2007
     private const val NOTIFY_ID_GROUP           = 1001  // 聚合摘要
 
-    /** 同类通知防抖间隔：1 分钟，防止用户忽略，持续提醒 */
-    private const val DEBOUNCE_MS = 60 * 1000L
+    /** 同类通知防抖间隔：动态读取用户设置的监控间隔，最小 15 秒 */
+    private fun getDebounceMs(context: Context): Long {
+        return SPUtil.getMonitorIntervalSec(context).coerceIn(15, 600) * 1000L
+    }
 
     /** 复用时间格式化器，避免每次通知创建新实例 */
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
@@ -382,24 +384,27 @@ object NotificationHelper {
 
     private val debounceLock = Any()
 
+    /**
+     * 防抖检查：距离上次通知是否已超过防抖间隔。
+     * 仅做时间窗口判断，不更新时间戳（时间戳在通知实际发送时由 [updateLastNotifyTime] 写入）。
+     */
     private fun debouncePass(context: Context, key: String): Boolean {
         synchronized(debounceLock) {
             val lastTime = SPUtil.getNotifyLastTime(context, key)
             val elapsed = System.currentTimeMillis() - lastTime
-            val pass = elapsed >= DEBOUNCE_MS
-            if (pass) {
-                // 在同一把锁内更新时间戳，确保并发的第二个调用会被拦截
-                SPUtil.setNotifyLastTime(context, key, System.currentTimeMillis())
-            } else {
-                DebugLogger.logApi(TAG, "debouncePass: key=$key blocked, elapsed=${elapsed / 1000}s < ${DEBOUNCE_MS / 1000}s")
+            val debounceMs = getDebounceMs(context)
+            val pass = elapsed >= debounceMs
+            if (!pass) {
+                DebugLogger.logApi(TAG, "debouncePass: key=$key blocked, elapsed=${elapsed / 1000}s < ${debounceMs / 1000}s")
             }
             return pass
         }
     }
 
     private fun updateLastNotifyTime(context: Context, key: String) {
-        // 时间戳已在 debouncePass 中原子更新，此方法保留兼容性
-        SPUtil.setNotifyLastTime(context, key, System.currentTimeMillis())
+        synchronized(debounceLock) {
+            SPUtil.setNotifyLastTime(context, key, System.currentTimeMillis())
+        }
     }
 
     // ─── 解析工具 ───
