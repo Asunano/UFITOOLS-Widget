@@ -40,6 +40,7 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
+        <!-- 左上：返回 -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_back"
             style="@style/Widget.Material3.Button.IconButton"
@@ -49,6 +50,37 @@
             android:layout_marginTop="6dp"
             app:icon="@drawable/ic_arrow_back"
             app:iconTint="@color/text_main" />
+
+        <!-- 右上：筛选 + 设置 -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|top"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_filter_toggle"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:text="筛选"
+                android:textSize="12sp"
+                android:visibility="gone"
+                app:cornerRadius="8dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_settings"
+                style="@style/Widget.Material3.Button.IconButton"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                app:icon="@drawable/ic_settings"
+                app:iconSize="18dp"
+                app:iconTint="@color/text_main" />
+        </LinearLayout>
     </FrameLayout>
 
     <!-- Action buttons -->
@@ -100,25 +132,6 @@
             app:iconGravity="textStart"
             app:iconPadding="6dp" />
     </LinearLayout>
-
-    <!-- Filter toggle button -->
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_filter_toggle"
-        style="@style/Widget.Material3.Button.TextButton"
-        android:layout_width="wrap_content"
-        android:layout_height="32dp"
-        android:layout_gravity="start"
-        android:layout_marginHorizontal="16dp"
-        android:insetTop="0dp"
-        android:insetBottom="0dp"
-        android:text="筛选"
-        android:textSize="12sp"
-        android:visibility="gone"
-        app:cornerRadius="8dp"
-        app:icon="@drawable/ic_chevron_right"
-        app:iconSize="14dp"
-        app:iconGravity="textEnd"
-        app:iconPadding="2dp" />
 
     <!-- RecyclerView -->
     <androidx.recyclerview.widget.RecyclerView

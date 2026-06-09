@@ -54,4 +54,8 @@ interface AlertDao {
 
     @Query("DELETE FROM alerts")
     fun clearAll()
+
+    /** 删除超出上限的旧记录（保留最新的 maxCount 条） */
+    @Query("DELETE FROM alerts WHERE id NOT IN (SELECT id FROM alerts ORDER BY timestamp DESC LIMIT :maxCount)")
+    fun deleteOldRecords(maxCount: Int)
 }

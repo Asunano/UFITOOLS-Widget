@@ -15,21 +15,23 @@ import java.util.concurrent.locks.ReentrantLock
  * 提供与旧 SP 版本兼容的 API，内部使用 Room 数据库存储。
  * 所有写操作通过 [writeLock] 串行化，防止清空与新增同时执行导致
  * PagingSource 失效崩溃。
- * 修改操作完成后发送 [ACTION_DATA_CHANGED] 广播，
- * 供外部组件（如 MainActivity 未读红点）响应数据变更。
  */
 object AlertHistoryManager {
 
     private const val TAG = "AlertHistoryManager"
     const val ACTION_DATA_CHANGED = "com.ufi_toolswidget.ALERT_HISTORY_CHANGED"
 
-    /** 串行化所有写操作，防止清空+新增并发导致 PagingSource 崩溃 */
+    /** SharedPreferences 键 */
+    const val PREF_KEY_PAGE_SIZE = "alert_page_size"
+    const val PREF_KEY_MAX_COUNT = "alert_max_count"
+    const val DEFAULT_PAGE_SIZE = 20
+    const val DEFAULT_MAX_COUNT = 500  // 0 = 无限制
+
     private val writeLock = ReentrantLock()
 
     @Volatile
     private var dao: AlertDao? = null
 
-    /** 初始化数据库连接（建议在 Application.onCreate 中调用） */
     fun initDatabase(context: Context) {
         if (dao == null) {
             synchronized(this) {
@@ -42,6 +44,34 @@ object AlertHistoryManager {
 
     private fun getDao(): AlertDao =
         dao ?: throw IllegalStateException("AlertHistoryManager not initialized. Call initDatabase() first.")
+
+    // ── 设置读写 ──
+
+    fun getPageSize(ctx: Context): Int =
+        ctx.getSharedPreferences("ufitools_prefs", Context.MODE_PRIVATE)
+            .getInt(PREF_KEY_PAGE_SIZE, DEFAULT_PAGE_SIZE)
+
+    fun getMaxCount(ctx: Context): Int =
+        ctx.getSharedPreferences("ufitools_prefs", Context.MODE_PRIVATE)
+            .getInt(PREF_KEY_MAX_COUNT, DEFAULT_MAX_COUNT)
+
+    fun saveSettings(ctx: Context, pageSize: Int, maxCount: Int) {
+        ctx.getSharedPreferences("ufitools_prefs", Context.MODE_PRIVATE).edit()
+            .putInt(PREF_KEY_PAGE_SIZE, pageSize)
+            .putInt(PREF_KEY_MAX_COUNT, maxCount)
+            .apply()
+        // 保存后立即执行清理
+        if (maxCount > 0) enforceMaxCount(maxCount)
+        notifyChanged(ctx)
+    }
+
+    /** 删除超出上限的旧记录 */
+    private fun enforceMaxCount(maxCount: Int) {
+        if (maxCount > 0) {
+            writeLock.lock()
+            try { getDao().deleteOldRecords(maxCount) } finally { writeLock.unlock() }
+        }
+    }
 
     /** 分页查询（PagingSource） */
     fun getAllPaged(): PagingSource<Int, AlertRecord> = getDao().getAllPaged()
@@ -64,7 +94,7 @@ object AlertHistoryManager {
     /** 总数观察（Flow） */
     fun observeTotalCount(): Flow<Int> = getDao().observeTotalCount()
 
-    /** 添加一条警报记录（加锁，防止与 clearAll 并发） */
+    /** 添加一条警报记录（加锁，插入后自动清理超限旧记录） */
     fun addAlert(ctx: Context, type: String, title: String, message: String) {
         writeLock.lock()
         try {
@@ -75,6 +105,9 @@ object AlertHistoryManager {
                 timestamp = System.currentTimeMillis()
             )
             getDao().insert(record)
+            // 插入后检查上限
+            val maxCount = getMaxCount(ctx)
+            if (maxCount > 0) getDao().deleteOldRecords(maxCount)
             DebugLogger.logApi(TAG, "Alert added: type=$type title=$title")
         } finally {
             writeLock.unlock()

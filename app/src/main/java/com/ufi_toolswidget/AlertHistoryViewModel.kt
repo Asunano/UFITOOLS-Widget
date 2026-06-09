@@ -15,54 +15,45 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 
-/**
- * 筛选状态。
- */
 data class AlertFilter(
-    val type: String = "all",        // "all" / "daily_flow" / "monthly_flow" / "temp" / "cpu" / "memory" / "battery" / "device_online"
-    val readStatus: String = "all"   // "all" / "unread" / "read"
+    val type: String = "all",
+    val readStatus: String = "all"
 )
 
-/**
- * 警报历史 ViewModel：管理筛选状态 + Paging3 数据流。
- */
 class AlertHistoryViewModel(application: Application) : AndroidViewModel(application) {
 
     val filter = MutableStateFlow(AlertFilter())
 
-    /** 未读数量（Flow，实时响应 Room 变更） */
+    /** 每页条数（可从设置页更改） */
+    val pageSize = MutableStateFlow(AlertHistoryManager.getPageSize(application))
+
     val unreadCount: Flow<Int> = AlertHistoryManager.observeUnreadCount()
-
-    /** 总数量（Flow，实时响应 Room 变更） */
     val totalCount: Flow<Int> = AlertHistoryManager.observeTotalCount()
-
-    /** 副标题信息（total + unread 合并，任一变化即发射） */
-    val subtitleInfo: Flow<Pair<Int, Int>> = totalCount.combine(unreadCount) { total, unread ->
-        total to unread
-    }
+    val subtitleInfo: Flow<Pair<Int, Int>> = totalCount.combine(unreadCount) { t, u -> t to u }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val alerts: Flow<PagingData<AlertRecord>> = filter
-        .flatMapLatest { f ->
-            Pager(
-                config = PagingConfig(
-                    pageSize = 20,
-                    enablePlaceholders = false,
-                    prefetchDistance = 10
-                ),
-                pagingSourceFactory = {
-                    when {
-                        f.type == "all" && f.readStatus == "all" ->
-                            AlertHistoryManager.getAllPaged()
-                        f.type != "all" && f.readStatus == "all" ->
-                            AlertHistoryManager.getPagedByType(f.type)
-                        f.type == "all" && f.readStatus != "all" ->
-                            AlertHistoryManager.getPagedByReadStatus(f.readStatus == "read")
-                        else ->
-                            AlertHistoryManager.getPagedFiltered(f.type, f.readStatus == "read")
+    val alerts: Flow<PagingData<AlertRecord>> =
+        filter.combine(pageSize) { f, ps -> f to ps }
+            .flatMapLatest { (f, ps) ->
+                Pager(
+                    config = PagingConfig(
+                        pageSize = ps,
+                        enablePlaceholders = false,
+                        prefetchDistance = ps / 2
+                    ),
+                    pagingSourceFactory = {
+                        when {
+                            f.type == "all" && f.readStatus == "all" ->
+                                AlertHistoryManager.getAllPaged()
+                            f.type != "all" && f.readStatus == "all" ->
+                                AlertHistoryManager.getPagedByType(f.type)
+                            f.type == "all" && f.readStatus != "all" ->
+                                AlertHistoryManager.getPagedByReadStatus(f.readStatus == "read")
+                            else ->
+                                AlertHistoryManager.getPagedFiltered(f.type, f.readStatus == "read")
+                        }
                     }
-                }
-            ).flow
-        }
-        .cachedIn(viewModelScope)
+                ).flow
+            }
+            .cachedIn(viewModelScope)
 }
