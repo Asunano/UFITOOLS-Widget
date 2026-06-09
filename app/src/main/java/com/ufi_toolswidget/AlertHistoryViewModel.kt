@@ -12,6 +12,7 @@ import com.ufi_toolswidget.util.AlertHistoryManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 
 /**
@@ -31,6 +32,14 @@ class AlertHistoryViewModel(application: Application) : AndroidViewModel(applica
 
     /** 未读数量（Flow，实时响应 Room 变更） */
     val unreadCount: Flow<Int> = AlertHistoryManager.observeUnreadCount()
+
+    /** 总数量（Flow，实时响应 Room 变更） */
+    val totalCount: Flow<Int> = AlertHistoryManager.observeTotalCount()
+
+    /** 副标题信息（total + unread 合并，任一变化即发射） */
+    val subtitleInfo: Flow<Pair<Int, Int>> = totalCount.combine(unreadCount) { total, unread ->
+        total to unread
+    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val alerts: Flow<PagingData<AlertRecord>> = filter

@@ -165,18 +165,23 @@ class AlertHistoryActivity : AppCompatActivity() {
     private fun setupActionBar() {
         val accent = ThemeColors.accent(this)
 
-        // 全部已读 — accent 填充，参考 CommonDialogHelper 主按钮
+        // 全部已读 — accent 填充
         val btnMarkAllRead = findViewById<MaterialButton>(R.id.btn_mark_all_read)
         btnMarkAllRead.backgroundTintList = ColorStateList.valueOf(accent)
+        btnMarkAllRead.strokeWidth = 0
+        btnMarkAllRead.strokeColor = ColorStateList.valueOf(accent)
         btnMarkAllRead.setTextColor(Color.WHITE)
         btnMarkAllRead.iconTint = ColorStateList.valueOf(Color.WHITE)
         AnimationUtil.applyScaleClickAnimation(btnMarkAllRead) {
             AlertHistoryManager.markAllRead(this)
         }
 
-        // 清空记录 — 红色填充 + 垃圾桶图标，危险操作独立着色
+        // 清空记录 — 红色填充 + 垃圾桶图标
+        val dangerColor = Color.parseColor("#F44336")
         val btnClearAll = findViewById<MaterialButton>(R.id.btn_clear_all)
-        btnClearAll.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F44336"))
+        btnClearAll.backgroundTintList = ColorStateList.valueOf(dangerColor)
+        btnClearAll.strokeWidth = 0
+        btnClearAll.strokeColor = ColorStateList.valueOf(dangerColor)
         btnClearAll.setTextColor(Color.WHITE)
         btnClearAll.iconTint = ColorStateList.valueOf(Color.WHITE)
         AnimationUtil.applyScaleClickAnimation(btnClearAll) {
@@ -201,39 +206,52 @@ class AlertHistoryActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateFilterToggleState() {
+    private fun updateFilterToggleState(animated: Boolean = true) {
         val accent = ThemeColors.accent(this)
         val textSecondary = ThemeColors.textSecondary(this)
 
-        // 用 RotateDrawable 包裹 chevron 实现旋转指示
-        val baseIcon = androidx.core.content.ContextCompat.getDrawable(this, R.drawable.ic_chevron_right)
-        val rotateDrawable = android.graphics.drawable.RotateDrawable().apply {
-            drawable = baseIcon
-        }
-
         if (isFilterExpanded) {
+            // 展开：先设置可见再动画进入
             filterPanel.visibility = View.VISIBLE
+            if (animated) {
+                filterPanel.alpha = 0f
+                filterPanel.translationY = -dp(8).toFloat()
+                filterPanel.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setDuration(200)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator())
+                    .start()
+            }
             btnFilterToggle.text = "收起筛选"
             btnFilterToggle.setTextColor(accent)
             btnFilterToggle.iconTint = ColorStateList.valueOf(accent)
-            rotateDrawable.fromDegrees = 90f
-            rotateDrawable.toDegrees = 90f
-            rotateDrawable.level = 10000
         } else {
-            filterPanel.visibility = View.GONE
+            // 收起：动画退出后再隐藏
+            if (animated) {
+                filterPanel.animate()
+                    .alpha(0f)
+                    .translationY(-dp(8).toFloat())
+                    .setDuration(150)
+                    .setInterpolator(android.view.animation.AccelerateInterpolator())
+                    .withEndAction {
+                        filterPanel.visibility = View.GONE
+                        filterPanel.alpha = 1f
+                        filterPanel.translationY = 0f
+                    }
+                    .start()
+            } else {
+                filterPanel.visibility = View.GONE
+            }
             btnFilterToggle.text = "筛选"
             btnFilterToggle.setTextColor(textSecondary)
             btnFilterToggle.iconTint = ColorStateList.valueOf(textSecondary)
-            rotateDrawable.fromDegrees = 0f
-            rotateDrawable.toDegrees = 0f
-            rotateDrawable.level = 0
         }
-        btnFilterToggle.icon = rotateDrawable
     }
 
     private fun buildFilterPanel() {
         buildFilterRow(
-            filterTypeGroup, typeFilters, selectedTypeIndex,
+            filterTypeGroup, typeFilters,
             typeButtons,
             onSelect = { index ->
                 selectedTypeIndex = index
@@ -243,7 +261,7 @@ class AlertHistoryActivity : AppCompatActivity() {
             }
         )
         buildFilterRow(
-            filterReadGroup, readFilters, selectedReadIndex,
+            filterReadGroup, readFilters,
             readButtons,
             onSelect = { index ->
                 selectedReadIndex = index
@@ -252,26 +270,38 @@ class AlertHistoryActivity : AppCompatActivity() {
                 adapter.refresh()
             }
         )
+        // 初始选中态
+        updateFilterButtonStyles()
     }
 
     private fun buildFilterRow(
         container: LinearLayout,
         options: List<FilterOption>,
-        selectedIndex: Int,
         buttonList: MutableList<MaterialButton>,
         onSelect: (Int) -> Unit
     ) {
         container.removeAllViews()
         buttonList.clear()
         for ((index, opt) in options.withIndex()) {
-            val btn = createFilterChip(opt.label, index == selectedIndex)
+            val btn = createFilterChip(opt.label, false)
             btn.setOnClickListener {
-                if (buttonList.indexOfFirst { it == btn } != selectedIndex) {
+                // 使用 buttonList.indexOf 实时获取当前索引，而非闭包捕获的值
+                val currentIndex = buttonList.indexOf(btn)
+                if (currentIndex != -1 && currentIndex != getSelectedIndex(buttonList)) {
                     onSelect(index)
                 }
             }
             buttonList.add(btn)
             container.addView(btn)
+        }
+    }
+
+    /** 获取当前选中的按钮索引（通过背景色判断） */
+    private fun getSelectedIndex(buttonList: List<MaterialButton>): Int {
+        val accent = ThemeColors.accent(this)
+        return buttonList.indexOfFirst { btn ->
+            val tint = btn.backgroundTintList?.defaultColor
+            tint == accent
         }
     }
 
@@ -535,10 +565,9 @@ class AlertHistoryActivity : AppCompatActivity() {
                     }
                 }
                 launch {
-                    viewModel.unreadCount.collect { count ->
-                        val total = adapter.itemCount
-                        tvSubtitle.text = if (count > 0) {
-                            "共 ${total} 条，${count} 条未读"
+                    viewModel.subtitleInfo.collect { (total, unread) ->
+                        tvSubtitle.text = if (unread > 0) {
+                            "共 ${total} 条，${unread} 条未读"
                         } else {
                             "共 ${total} 条"
                         }

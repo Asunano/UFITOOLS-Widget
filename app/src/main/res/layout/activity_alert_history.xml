@@ -56,8 +56,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:layout_marginHorizontal="16dp"
-        android:animateLayoutChanges="true">
+        android:layout_marginHorizontal="16dp">
 
         <!-- Action buttons (mark-all-read + clear) — 参考应用标准按钮风格 -->
         <LinearLayout
@@ -134,7 +133,6 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:animateLayoutChanges="true"
             android:visibility="gone">
 
             <TextView
