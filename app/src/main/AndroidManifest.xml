@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
         android:name=".UfiToolsApplication"
@@ -108,6 +110,12 @@
 
 
         <activity
+            android:name=".TrafficHistoryActivity"
+            android:label="流量记录"
+            android:parentActivityName=".SettingsActivity"
+            android:theme="@style/Theme.UFITOOLSWidget" />
+
+        <activity
             android:name=".DebugLogActivity"
             android:label="调试日志"
             android:parentActivityName=".AboutActivity"
@@ -151,6 +159,22 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_4x2_info" />
+        </receiver>
+
+        <!-- 隐藏名称影子组件：与 4x2 完全相同，仅标签不可见 -->
+        <receiver
+            android:name=".widget.WifiWidget4x2NoLabel"
+            android:exported="true"
+            android:enabled="false"
+            android:label="&#x200B;">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="com.ufi_toolswidget.ACTION_WIDGET_REFRESH" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_4x2_nolabel_info" />
         </receiver>
 
         <!-- 2×1 迷你版暂时禁用 -->
@@ -227,6 +251,15 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!-- Doze 穿透闹钟接收器：CPU 休眠期间仍能触发通知检查 -->
+        <receiver
+            android:name=".service.AlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.ufi_toolswidget.ACTION_ALARM_CHECK" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

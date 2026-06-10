@@ -48,7 +48,7 @@ class NotificationSettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_notification_settings)
-        BackgroundUtil.applyWindowBackground(this)
+        // ThemeUtil.applyTheme 内部已调用 BackgroundUtil.initActivity → applyWindowBackground
         ThemeUtil.applyTheme(this, ThemeUtil.PageType.APP_SETTINGS)
 
         AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_back)) { finish() }
@@ -74,16 +74,25 @@ class NotificationSettingsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        BackgroundUtil.applyWindowBackground(this)
+        // ThemeUtil.applyTheme 内部已调用 BackgroundUtil.initActivity → applyWindowBackground
         ThemeUtil.applyTheme(this, ThemeUtil.PageType.APP_SETTINGS)
         updateAllSubtitles()
         initSettingsContainerVisibility()
+        // 每次回到页面时检测通知渠道是否被国产 ROM 降级
+        checkChannelImportanceAndGuide()
     }
 
     override fun onPause() {
         super.onPause()
         // 离开页面时将内存日志落盘，防止进程被杀丢失日志
         DebugLogger.flushToFile()
+    }
+
+    override fun onDestroy() {
+        // 防止 Activity 销毁时弹窗未关闭导致 WindowLeaked 异常
+        try { activeDialog?.dismiss() } catch (_: Exception) {}
+        activeDialog = null
+        super.onDestroy()
     }
 
     private fun updateAllSubtitles() {
@@ -124,6 +133,12 @@ class NotificationSettingsActivity : AppCompatActivity() {
                     updateKeepAliveEntrySubtitle()
                     animateSettingsContainer(checked)
                     BackgroundMonitorService.syncState(this)
+                    // 同步刷新 Doze 穿透闹钟
+                    if (checked) {
+                        com.ufi_toolswidget.service.AlarmReceiver.scheduleNext(this)
+                    } else {
+                        com.ufi_toolswidget.service.AlarmReceiver.cancel(this)
+                    }
                     // 开关打开时提示用户配置后台保活
                     if (checked) {
                         showKeepAlivePrompt()
@@ -149,11 +164,12 @@ class NotificationSettingsActivity : AppCompatActivity() {
         updateKeepAliveEntrySubtitle()
         animateSettingsContainer(false)
         BackgroundMonitorService.syncState(this)
+        com.ufi_toolswidget.service.AlarmReceiver.cancel(this)
     }
 
     /** 未授权时弹出引导对话框 */
     private fun showPermissionRequiredDialog() {
-        CommonDialogHelper.showCommonDialog(
+        activeDialog = CommonDialogHelper.showCommonDialog(
             context = this,
             title = "需要通知权限",
             iconRes = R.drawable.ic_notification,
@@ -189,12 +205,51 @@ class NotificationSettingsActivity : AppCompatActivity() {
                 updateKeepAliveEntrySubtitle()
                 animateSettingsContainer(true)
                 BackgroundMonitorService.syncState(this)
+                com.ufi_toolswidget.service.AlarmReceiver.scheduleNext(this)
                 showKeepAlivePrompt()
             }
             // 重新初始化 master item，使 ThemeUtil.setupSwitch 内部的 isChecked 状态
             // 与 SP 值和视觉状态保持同步，避免因 revertMasterSwitch 导致的内部状态不一致
             initMasterItem()
         }
+    }
+
+    // ─── 国产 ROM 通知渠道降级检测 ───
+
+    /**
+     * 检测通知渠道是否被系统降级为静默通知，并弹窗引导用户修复。
+     *
+     * 国产 ROM（ColorOS / MIUI / EMUI / OriginOS 等）常在用户不知情的情况下
+     * 将通知渠道降级为"静默通知"，导致无横幅、无铃声。
+     * 此方法检测到降级后弹窗引导用户跳转系统设置手动开启。
+     */
+    private fun checkChannelImportanceAndGuide() {
+        if (!notifEnabled) return // 通知未开启，无需检测
+        if (NotificationHelper.isChannelImportanceSufficient(this)) return // 渠道正常
+
+        // 避免重复弹窗：用 SP 记录是否已提示过
+        val sp = SPUtil.getSp(this)
+        val alreadyGuided = sp.getBoolean("channel_importance_guided", false)
+        if (alreadyGuided) return
+
+        sp.edit().putBoolean("channel_importance_guided", true).apply()
+
+        activeDialog = PopupViewUtil.showConfirmDialog(
+            this,
+            title = "通知权限不完整",
+            message = "检测到系统已将通知渠道降级为\"静默通知\"。\n\n" +
+                    "这通常发生在国产 ROM（ColorOS / MIUI / EMUI 等）上，" +
+                    "系统默认关闭了横幅弹出和铃声提醒。\n\n" +
+                    "点击\"去设置\"后，请确保开启以下选项：\n" +
+                    "· 允许通知 / 横幅通知\n" +
+                    "· 铃声和震动\n" +
+                    "· 锁屏通知",
+            primaryBtnText = "去设置",
+            secondaryBtnText = "稍后",
+            onConfirm = {
+                NotificationHelper.openChannelSettings(this)
+            }
+        )
     }
 
     companion object {
@@ -850,7 +905,7 @@ class NotificationSettingsActivity : AppCompatActivity() {
             val entryView = findViewById<ViewGroup>(R.id.item_background_keep_alive) ?: return
             CommonSettingsItemHelper.setupSettingItem(
                 itemView = entryView,
-                iconRes = R.drawable.ic_rocket,
+                iconRes = R.drawable.ic_heartbeat,
                 title = "后台保活配置",
                 subtitle = getKeepAliveEntrySubtitle(),
                 onClick = {
@@ -882,9 +937,7 @@ class NotificationSettingsActivity : AppCompatActivity() {
         val bgEnabled = SPUtil.getBackgroundServiceEnabled(this)
         val msgText = buildString {
             appendLine("通知功能已开启。")
-            appendLine()
             appendLine("由于系统后台限制，通知可能存在 1~5 分钟的延迟。为获得最佳体验，建议：")
-            appendLine()
             appendLine("• 开启前台保活服务，防止进程被系统回收")
             appendLine("• 加入电池优化白名单，避免被省电策略终止")
             appendLine("• 允许自启动权限，确保开机后自动恢复")
@@ -894,7 +947,7 @@ class NotificationSettingsActivity : AppCompatActivity() {
             }
         }
 
-        CommonDialogHelper.showCommonDialog(
+        activeDialog = CommonDialogHelper.showCommonDialog(
             context = this,
             title = "后台保活建议",
             iconRes = R.drawable.ic_rocket,

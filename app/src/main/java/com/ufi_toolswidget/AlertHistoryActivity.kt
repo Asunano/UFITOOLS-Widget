@@ -48,9 +48,14 @@ class AlertHistoryActivity : AppCompatActivity() {
     private lateinit var tvEmptyText: TextView
     private lateinit var actionBar: LinearLayout
     private lateinit var filterRow: FrameLayout
+    private lateinit var contentLayout: View
+    private lateinit var rootLayout: FrameLayout
     private lateinit var paginationBar: LinearLayout
     private lateinit var btnFilterToggle: MaterialButton
     private lateinit var tvSubtitle: TextView
+
+    /** 导航栏高度（px），由 insets listener 记录，用于内容底部 padding 和分页栏偏移 */
+    private var navBarBottom = 0
 
     private lateinit var viewModel: AlertHistoryViewModel
     private lateinit var adapter: AlertItemAdapter
@@ -97,6 +102,42 @@ class AlertHistoryActivity : AppCompatActivity() {
         filterRow = findViewById(R.id.filter_row)
         btnFilterToggle = findViewById(R.id.btn_filter_toggle)
         tvSubtitle = findViewById(R.id.tv_alert_subtitle)
+        contentLayout = findViewById(R.id.content_layout)
+        rootLayout = findViewById(R.id.root_layout)
+
+        // 手动处理系统栏内边距
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { v, insets ->
+            val statusBar = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+            val navBar = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars())
+            navBarBottom = navBar.bottom
+            // 状态栏高度应用到 header 顶部
+            val contentLl = contentLayout as? LinearLayout
+            val headerFrame = contentLl?.getChildAt(0) as? FrameLayout
+            headerFrame?.setPadding(
+                headerFrame.paddingLeft,
+                statusBar.top,
+                headerFrame.paddingRight,
+                headerFrame.paddingBottom
+            )
+            // 导航栏高度应用到内容区域底部，阻止列表数据被遮挡
+            if (navBarBottom > 0) {
+                contentLayout.setPadding(
+                    contentLayout.paddingLeft,
+                    contentLayout.paddingTop,
+                    contentLayout.paddingRight,
+                    navBarBottom
+                )
+                // 分页栏贴导航栏上缘悬浮（不再额外留 16dp 空白）
+                if (::paginationBar.isInitialized) {
+                    val lp = paginationBar.layoutParams as? FrameLayout.LayoutParams
+                    val d = resources.displayMetrics.density
+                    val minMargin = (8 * d).toInt()
+                    lp?.bottomMargin = if (navBarBottom > 0) navBarBottom else minMargin
+                    paginationBar.layoutParams = lp
+                }
+            }
+            insets
+        }
 
         AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_back)) { finish() }
         AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_settings)) { showSettingsDialog() }
@@ -116,10 +157,11 @@ class AlertHistoryActivity : AppCompatActivity() {
     }
 
     private fun registerRefreshReceiver() {
+        val filter = IntentFilter(AlertHistoryManager.ACTION_DATA_CHANGED)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(refreshReceiver, IntentFilter(AlertHistoryManager.ACTION_DATA_CHANGED), Context.RECEIVER_NOT_EXPORTED)
+            registerReceiver(refreshReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
-            registerReceiver(refreshReceiver, IntentFilter(AlertHistoryManager.ACTION_DATA_CHANGED))
+            registerReceiver(refreshReceiver, filter)
         }
     }
 
@@ -134,7 +176,12 @@ class AlertHistoryActivity : AppCompatActivity() {
         val btnMarkAllRead = findViewById<MaterialButton>(R.id.btn_mark_all_read)
         btnMarkAllRead.backgroundTintList = ColorStateList.valueOf(accent)
         btnMarkAllRead.strokeWidth = 0; btnMarkAllRead.strokeColor = ColorStateList.valueOf(accent)
-        AnimationUtil.applyScaleClickAnimation(btnMarkAllRead) { AlertHistoryManager.markAllRead(this); viewModel.refresh() }
+        AnimationUtil.applyScaleClickAnimation(btnMarkAllRead) {
+            lifecycleScope.launch {
+                AlertHistoryManager.markAllRead(this@AlertHistoryActivity)
+                viewModel.refresh()
+            }
+        }
         btnMarkAllRead.setTextColor(Color.WHITE); btnMarkAllRead.iconTint = ColorStateList.valueOf(Color.WHITE)
 
         val btnClearAll = findViewById<MaterialButton>(R.id.btn_clear_all)
@@ -216,7 +263,6 @@ class AlertHistoryActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════
 
     private fun setupPaginationBar() {
-        val container = findViewById<LinearLayout>(R.id.pagination_bar_container)
         paginationBar = PaginationBarHelper.create(this) { action ->
             when (action) {
                 PaginationBarHelper.Action.FIRST -> viewModel.firstPage()
@@ -226,7 +272,20 @@ class AlertHistoryActivity : AppCompatActivity() {
                 is PaginationBarHelper.Action.Jump -> viewModel.goToPage(action.page)
             }
         }
-        container.addView(paginationBar)
+        // 独立挂载到根 FrameLayout 底部，居中
+        val d = resources.displayMetrics.density
+        rootLayout.addView(paginationBar, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            val minMargin = (8 * d).toInt()
+            bottomMargin = if (navBarBottom > 0) navBarBottom else minMargin
+            leftMargin = (16 * d).toInt()
+            rightMargin = (16 * d).toInt()
+        })
+        paginationBar.visibility = View.GONE
+        paginationBar.alpha = 0f
     }
 
     // ═══════════════════════════════════════════
@@ -243,7 +302,7 @@ class AlertHistoryActivity : AppCompatActivity() {
         val maxLabels = mapOf(100 to "100", 500 to "500", 1000 to "1000", 0 to "不限")
 
         CommonDialogHelper.showCommonDialog(
-            context = ctx, title = "警报设置", iconRes = R.drawable.ic_settings,
+            context = ctx, title = "通知历史记录设置", iconRes = R.drawable.ic_settings,
             onFill = { content ->
                 content.addView(sectionLabel("每页显示条数"))
                 var pageUpdate: ((Int) -> Unit)? = null
@@ -269,10 +328,12 @@ class AlertHistoryActivity : AppCompatActivity() {
             },
             primaryBtnText = "保存",
             onPrimaryClick = { d ->
-                AlertHistoryManager.saveSettings(ctx, curPageSize, curMaxCount)
-                viewModel.pageSize.value = curPageSize
-                viewModel.currentPage.value = 1
-                viewModel.refresh()
+                lifecycleScope.launch {
+                    AlertHistoryManager.saveSettings(ctx, curPageSize, curMaxCount)
+                    viewModel.pageSize.value = curPageSize
+                    viewModel.currentPage.value = 1
+                    viewModel.refresh()
+                }
                 d.dismiss()
             },
             secondaryBtnText = "取消",
@@ -305,11 +366,15 @@ class AlertHistoryActivity : AppCompatActivity() {
         alertList.setOnTouchListener { _, event ->
             if (velocityTracker == null) velocityTracker = VelocityTracker.obtain()
             velocityTracker?.addMovement(event)
-            if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
-                velocityTracker?.let { vt ->
-                    vt.computeCurrentVelocity(1000)
-                    lastSwipeVelocityDpPerSec = Math.abs(vt.xVelocity) / resources.displayMetrics.density
+            when (event.action) {
+                MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    velocityTracker?.let { vt ->
+                        vt.computeCurrentVelocity(1000)
+                        lastSwipeVelocityDpPerSec = Math.abs(vt.xVelocity) / resources.displayMetrics.density
+                    }
                 }
+            }
+            if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
                 velocityTracker?.recycle(); velocityTracker = null
             }
             false
@@ -327,7 +392,9 @@ class AlertHistoryActivity : AppCompatActivity() {
      * 视觉反馈（与阈值同步）：
      *   - 背景色透明度随 ratio 线性增长（0 → 180 alpha）
      *   - ratio >= 0.20 时显示文字提示（"已读 ✓" / "✕ 删除"）
-     *   - ratio >= 0.35 时文字提示变为高亮（alpha 1.0）
+     *   - 文字高亮与实际触发阈值同步：
+     *       · 慢拖（velocity < 600 dp/s）→ ratio >= 0.35 时高亮
+     *       · 快扫（velocity >= 600 dp/s）→ ratio >= 0.20 时即高亮
      *   - 卡片微缩放（最大 3%）增强触感
      */
     private inner class SwipeCallback : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
@@ -361,8 +428,12 @@ class AlertHistoryActivity : AppCompatActivity() {
             val ratio = abs / w
             val cr = dpF(14f)
 
-            // 背景色 alpha 随 ratio 线性增长
-            val bgAlpha = (ratio * 300f).toInt().coerceIn(0, 200)
+            // 回落动画期间使用峰值渲染，避免视觉反馈在触发前消退
+            val renderAbs = if (!isCurrentlyActive && abs > 0f) Math.abs(peakTranslationX) else abs
+            val renderRatio = renderAbs / w
+
+            // 背景色 alpha（触发阈值附近更高饱和度）
+            val bgAlpha = (renderRatio * 500f).toInt().coerceIn(0, 220)
             val bp = Paint().apply { isAntiAlias = true }
 
             if (dX > 0) {
@@ -375,9 +446,11 @@ class AlertHistoryActivity : AppCompatActivity() {
                 c.drawRoundRect(RectF(iv.right + dX, iv.top.toFloat(), iv.right.toFloat(), iv.bottom.toFloat()), cr, cr, bp)
             }
 
-            // 文字提示（ratio >= 0.20 显示）
-            if (ratio >= FAST_RATIO) {
-                val highlight = ratio >= SLOW_RATIO
+            // 文字提示（renderRatio >= 0.20 显示）
+            if (renderRatio >= FAST_RATIO) {
+                // 高亮与实际触发阈值同步：慢拖需达到 35%，快扫（velocity >= 600 dp/s）在 20% 即触发
+                val velocity = lastSwipeVelocityDpPerSec
+                val highlight = renderRatio >= SLOW_RATIO || (renderRatio >= FAST_RATIO && velocity >= FAST_VELOCITY)
                 labelPaint.alpha = if (highlight) 255 else 160
                 val text = if (dX > 0) "已读  ✓" else "✕  删除"
                 val tw = labelPaint.measureText(text)
@@ -410,12 +483,19 @@ class AlertHistoryActivity : AppCompatActivity() {
             val triggered = ratio >= SLOW_RATIO || (ratio >= FAST_RATIO && velocity >= FAST_VELOCITY)
             if (triggered) {
                 if (peak > 0) {
-                    applyReadVisuals(vh)
-                    AlertHistoryManager.markRead(this@AlertHistoryActivity, rec.id)
+                    val readId = rec.id
+                    lifecycleScope.launch {
+                        applyReadVisuals(vh)
+                        AlertHistoryManager.markRead(this@AlertHistoryActivity, readId)
+                        viewModel.refresh()
+                    }
                 } else if (peak < 0) {
-                    AlertHistoryManager.remove(this@AlertHistoryActivity, rec.id)
+                    val removeId = rec.id
+                    lifecycleScope.launch {
+                        AlertHistoryManager.remove(this@AlertHistoryActivity, removeId)
+                        viewModel.refresh()
+                    }
                 }
-                viewModel.refresh()
             }
         }
 
@@ -456,6 +536,11 @@ class AlertHistoryActivity : AppCompatActivity() {
                             tvEmptyText.text = "暂无警报记录"
                         }
                         if (result.data.isNotEmpty()) alertList.scrollToPosition(0)
+
+                        // 翻页栏渐入渐出：多页时显示，单页/无数据时隐藏
+                        val showPagination = result.totalPages > 1
+                        PaginationBarHelper.fadeVisibility(paginationBar, showPagination)
+                        updateContentMargin(showPagination)
                     }
                 }
                 launch {
@@ -495,11 +580,24 @@ class AlertHistoryActivity : AppCompatActivity() {
             },
             primaryBtnText = if (record.isRead) "关闭" else "标记已读",
             onPrimaryClick = { d ->
-                if (!record.isRead) AlertHistoryManager.markRead(ctx, record.id)
-                viewModel.refresh(); d.dismiss()
+                val act = this@AlertHistoryActivity
+                val id = record.id
+                lifecycleScope.launch {
+                    if (!record.isRead) AlertHistoryManager.markRead(act, id)
+                    viewModel.refresh()
+                }
+                d.dismiss()
             },
             secondaryBtnText = "删除",
-            onSecondaryClick = { d -> AlertHistoryManager.remove(ctx, record.id); viewModel.refresh(); d.dismiss() }
+            onSecondaryClick = { d ->
+                val act = this@AlertHistoryActivity
+                val id = record.id
+                lifecycleScope.launch {
+                    AlertHistoryManager.remove(act, id)
+                    viewModel.refresh()
+                }
+                d.dismiss()
+            }
         )
     }
 
@@ -508,7 +606,14 @@ class AlertHistoryActivity : AppCompatActivity() {
         CommonDialogHelper.showCommonDialog(
             context = ctx, title = "清空警报历史", iconRes = R.drawable.ic_trash,
             onFill = { c -> c.addView(TextView(ctx).apply { text = "确定要清空所有警报记录吗？此操作不可撤销。"; textSize = 14f; setTextColor(ThemeColors.textSecondary(ctx)) }) },
-            primaryBtnText = "清空", onPrimaryClick = { d -> AlertHistoryManager.clearAll(ctx); viewModel.refresh(); d.dismiss() },
+            primaryBtnText = "清空", onPrimaryClick = { d ->
+                val act = this@AlertHistoryActivity
+                lifecycleScope.launch {
+                    AlertHistoryManager.clearAll(act)
+                    viewModel.refresh()
+                }
+                d.dismiss()
+            },
             secondaryBtnText = "取消", onSecondaryClick = { d -> d.dismiss() }
         )
     }
@@ -518,10 +623,28 @@ class AlertHistoryActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════
 
     private fun typeToIconRes(t: String) = when (t) {
-        "daily_flow", "monthly_flow" -> R.drawable.ic_rocket
+        "daily_flow", "monthly_flow" -> R.drawable.ic_clock_bolt
         "temp" -> R.drawable.ic_temp; "cpu" -> R.drawable.ic_cpu
         "memory" -> R.drawable.ic_chip; "battery" -> R.drawable.ic_battery_2
         "device_online" -> R.drawable.ic_router; else -> R.drawable.ic_notification
+    }
+
+    /** 动态调整内容区域底部边距，翻页栏悬浮于列表之上无需额外空间 */
+    private fun updateContentMargin(paginationVisible: Boolean) {
+        // 分页栏是悬浮在 FrameLayout 上的，不需要为它预留 margin
+        val targetBottom = 0
+        val lp = contentLayout.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        if (lp.bottomMargin != targetBottom) {
+            contentLayout.animate().cancel()
+            android.animation.ValueAnimator.ofInt(lp.bottomMargin, targetBottom).apply {
+                duration = 200
+                addUpdateListener { anim ->
+                    lp.bottomMargin = anim.animatedValue as Int
+                    contentLayout.layoutParams = lp
+                }
+                start()
+            }
+        }
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

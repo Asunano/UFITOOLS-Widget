@@ -34,6 +34,10 @@ import com.ufi_toolswidget.util.ToastStyle
 import com.ufi_toolswidget.view.ThemeSlider
 import com.ufi_toolswidget.util.DebugLogger
 import com.ufi_toolswidget.widget.BaseWifiWidget
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class AppSettingsActivity : AppCompatActivity() {
 
@@ -106,7 +110,7 @@ class AppSettingsActivity : AppCompatActivity() {
         BackgroundUtil.clearCache() // 强制清理，确保加载新图
         SPUtil.setBgImageUri(this, uri.toString())
         updateBgImageSubtitle()
-        BackgroundUtil.applyWindowBackground(this)
+        BackgroundUtil.applyWindowBackgroundAsync(this)
         ToastUtil.showDropToast(this, ToastStyle.SUCCESS, "背景图片已更新")
     }
 
@@ -132,6 +136,16 @@ class AppSettingsActivity : AppCompatActivity() {
         updateThemeColorSubtitle()
         updateRefreshIntervalSubtitle()
         // updateBgImageSubtitle() // 暂时隐藏入口
+    }
+
+    override fun onDestroy() {
+        try { activeThemeDialog?.dismiss() } catch (_: Exception) {}
+        try { activeColorDialog?.dismiss() } catch (_: Exception) {}
+        try { activeIntervalDialog?.dismiss() } catch (_: Exception) {}
+        activeThemeDialog = null
+        activeColorDialog = null
+        activeIntervalDialog = null
+        super.onDestroy()
     }
 
     // ==================== 显示模式（弹窗选择） ====================
@@ -265,7 +279,8 @@ class AppSettingsActivity : AppCompatActivity() {
             updateThemeColorSubtitle()
             updateRefreshIntervalSubtitle()
             updateBgImageSubtitle()
-            BaseWifiWidget.renderAllWidgets(this, force = true)
+            // 异步渲染小组件，避免阻塞动画回调
+            lifecycleScope.launch { withContext(Dispatchers.IO) { BaseWifiWidget.renderAllWidgets(this@AppSettingsActivity, force = true) } }
             ThemeChangeNotifier.notifyThemeChanged(this)
         }
     }
@@ -491,7 +506,8 @@ class AppSettingsActivity : AppCompatActivity() {
 
             updateDisplayModeSubtitle()
             updateRefreshIntervalSubtitle()
-            BaseWifiWidget.renderAllWidgets(this, force = true)
+            // 异步渲染小组件，避免阻塞动画回调
+            lifecycleScope.launch { withContext(Dispatchers.IO) { BaseWifiWidget.renderAllWidgets(this@AppSettingsActivity, force = true) } }
             ThemeChangeNotifier.notifyThemeChanged(this)
         }
     }
@@ -689,13 +705,8 @@ class AppSettingsActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp2px(44)
             ).apply { topMargin = dp2px(8) }
-            onValueChange = { value ->
-                mainIntervalSeconds = value.toInt()
-                valueLabel.text = "${value.toInt()} 秒"
-                SPUtil.setMainRefreshSeconds(this@AppSettingsActivity, value.toInt())
-                updateRefreshIntervalSubtitle()
-            }
         }
+        // 注意：onValueChange 在下方 createPresetRow 之后统一设置，此处不重复赋值
         ThemedSliderUtil.setupSliderTickMarks(slider, 30f) { "${it}秒" }
 
         // 实时更新数值（拖动时不受抑制）
@@ -716,6 +727,7 @@ class AppSettingsActivity : AppCompatActivity() {
             onSelect = { slider.currentValue = it.toFloat() }
         )
         content.addView(presetRow)
+        // 统一设置 onValueChange（包含 updatePresets），避免覆盖
         slider.onValueChange = { value ->
             mainIntervalSeconds = value.toInt()
             valueLabel.text = "${value.toInt()} 秒"

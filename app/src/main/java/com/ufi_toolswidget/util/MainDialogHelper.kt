@@ -466,6 +466,14 @@ object MainDialogHelper {
         }
     }
 
+    fun LinearLayout.fillTrafficDetail(context: Context, data: WifiEntity) {
+        addView(sectionTitleView(context, "当日流量"))
+        addView(keyValueView(context, "已使用", data.dailyFlow.ifEmpty { "--" }))
+        addView(dividerView(context))
+        addView(sectionTitleView(context, "月度流量"))
+        addView(keyValueView(context, "已使用", data.flow.ifEmpty { "--" }))
+    }
+
     /** 解析电流字符串返回数值 mA，解析失败返回 -1 */
     fun parseCurrentMa(curStr: String): Int {
         return try {

@@ -23,6 +23,7 @@ import com.ufi_toolswidget.util.NotificationHelper
 import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.WidgetBitmapCache
+import com.ufi_toolswidget.util.WidgetLabelToggle
 import com.ufi_toolswidget.worker.WifiWorker
 import java.util.Date
 import java.util.Locale
@@ -81,15 +82,17 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
         private val logTimeFormat = java.text.SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
         fun appendLog(context: Context, msg: String) {
-            try {
-                val sp = context.getSharedPreferences("widget_debug", Context.MODE_PRIVATE)
-                val old = sp.getString("error_log", "") ?: ""
-                val timestamp = synchronized(logTimeFormat) { logTimeFormat.format(Date()) }
-                val newLog = "[$timestamp] $msg\n$old"
-                sp.edit().putString("error_log", newLog.lines().take(50).joinToString("\n")).apply()
-                Log.d(TAG, msg)
-            } catch (e: Exception) {
-                DebugLogger.w(TAG, "appendLog failed: ${e.message}")
+            synchronized(logTimeFormat) {
+                try {
+                    val sp = context.getSharedPreferences("widget_debug", Context.MODE_PRIVATE)
+                    val old = sp.getString("error_log", "") ?: ""
+                    val timestamp = logTimeFormat.format(Date())
+                    val newLog = "[$timestamp] $msg\n$old"
+                    sp.edit().putString("error_log", newLog.lines().take(50).joinToString("\n")).apply()
+                    Log.d(TAG, msg)
+                } catch (e: Exception) {
+                    DebugLogger.w(TAG, "appendLog failed: ${e.message}")
+                }
             }
         }
 
@@ -97,7 +100,8 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
         private val renderLock = Any()
 
         fun renderAllWidgets(context: Context, force: Boolean = false) {
-            synchronized(renderLock) {
+            // ── 阶段1：synchronized 仅保护去重检查和时间戳更新 ──
+            val shouldRender = synchronized(renderLock) {
                 val now = System.currentTimeMillis()
                 if (now - lastRenderTime < RENDER_DEDUP_MS && !force) {
                     return // 短时间内已渲染过（Worker 和 MainActivity 双重触发去重）
@@ -133,21 +137,28 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
                     batteryPercent = sp.getInt("battery_percent", 0),
                     isDeviceOnline = !WifiWorker.isWorkerStopped(context)
                 )
-            lastDataHash = currentHash
-            hasCachedHash = true
-            lastRenderTime = now
+                lastDataHash = currentHash
+                hasCachedHash = true
+                lastRenderTime = now
+                true // 通过去重检查，需要渲染
+            }
 
+            if (!shouldRender) return
+
+            // ── 阶段2：实际渲染操作在锁外执行，减少锁持有时间 ──
             val appWidgetManager = AppWidgetManager.getInstance(context)
 
-            // ── 4×2 小组件 ──
-            val ids = appWidgetManager.getAppWidgetIds(ComponentName(context, WifiWidget4x2::class.java))
-            if (ids.isNotEmpty()) {
-                val rv = RemoteViews(context.packageName, R.layout.widget_4x2)
-                performRender(context, rv)
-                applyWidgetTheme(context, rv)
-                setupClick(context, rv, WifiWidget4x2::class.java)
-                appWidgetManager.updateAppWidget(ids, rv)
-                applyWidgetLabel(context, appWidgetManager, ids)
+            // ── 4×2 小组件（同时渲染原始 + 影子组件） ──
+            // 切换标签后，旧组件下可能仍有已放置的实例，需要全部渲染
+            for (widgetClass in listOf(WifiWidget4x2::class.java, WifiWidget4x2NoLabel::class.java)) {
+                val ids = appWidgetManager.getAppWidgetIds(ComponentName(context, widgetClass))
+                if (ids.isNotEmpty()) {
+                    val rv = RemoteViews(context.packageName, R.layout.widget_4x2)
+                    performRender(context, rv)
+                    applyWidgetTheme(context, rv)
+                    setupClick(context, rv, widgetClass)
+                    appWidgetManager.updateAppWidget(ids, rv)
+                }
             }
 
             // ── 2×1 迷你小组件（已禁用）──
@@ -179,7 +190,6 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             //     setupClick(context, rv4x4, WifiWidget4x4::class.java)
             //     appWidgetManager.updateAppWidget(ids4x4, rv4x4)
             // }
-            } // end synchronized(renderLock)
         }
 
         /**
@@ -238,6 +248,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             h = 31 * h + sp.getInt("font_size_4x1", 9)
             // Worker 状态（影响 error overlay 显隐）
             h = 31 * h + com.ufi_toolswidget.worker.WifiWorker.isWorkerStopped(context).hashCode()
+            // 重试状态不再独立影响 UI，仅与 stopped 组合使用
             return h
         }
 
@@ -254,6 +265,17 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
         private fun performRender(context: Context, rv: RemoteViews) {
             val sp = context.getSharedPreferences("wifi_data", Context.MODE_PRIVATE)
             val stopped = com.ufi_toolswidget.worker.WifiWorker.isWorkerStopped(context)
+            val reconnecting = SPUtil.isReconnecting(context)
+
+            // ===== 加载覆盖层（仅设备断连且用户刚点击刷新时显示）：提示用户并非功能不生效 =====
+            if (reconnecting && stopped) {
+                safeSetVisibility(rv, R.id.widget_content, false)
+                safeSetVisibility(rv, R.id.widget_error_overlay, true)
+                safeSetImageResource(rv, R.id.widget_error_icon, R.drawable.ic_sync)
+                safeSetText(rv, R.id.widget_error_text, "正在重试...")
+                safeSetText(rv, R.id.widget_error_hint, "请稍候")
+                return
+            }
 
             // ===== 错误状态：隐藏数据区，全屏显示连接失败提示 =====
             safeSetVisibility(rv, R.id.widget_content, !stopped)
@@ -274,7 +296,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             val appVerCode = sp.getString("app_ver_code", "") ?: ""
             val cpu = sp.getString("cpu", "--") ?: "--"
             val mem = sp.getString("mem", "--") ?: "--"
-            val netType = sp.getString("net_type", "") ?: ""
+            val netType = sp.getString("at_net_type", "")?.ifEmpty { sp.getString("net_type", "") } ?: ""  // 优先 AT（稳定）→ Goform 回退
             val batteryCurrent = sp.getString("battery_current", "") ?: ""
             val internalStorage = sp.getString("internal_storage", "") ?: ""
             val updateTime = sp.getString("update_time", "--") ?: "--"
@@ -378,6 +400,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             val showCpu = sp.getBoolean("show_cpu", true)
             val showMem = sp.getBoolean("show_mem", true)
             val showTime = sp.getBoolean("show_time", true)
+            val showDivider = sp.getBoolean("show_divider", true)
 
             safeSetVisibility(rv, R.id.tv_model, showModel)
             safeSetVisibility(rv, R.id.tv_flow, showFlow)
@@ -417,6 +440,9 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
 
             // 更新时间
             safeSetVisibility(rv, R.id.tv_update_time, showTime)
+
+            // 分割线
+            safeSetVisibility(rv, R.id.divider_flow, showDivider)
         }
 
         /** 4x1 条形布局数据渲染 */
@@ -437,7 +463,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             val signal = sp.getString("signal", "--") ?: "--"
             val temp = sp.getString("temp", "--") ?: "--"
             val battery = sp.getString("battery", "--") ?: "--"
-            val netType = sp.getString("net_type", "") ?: ""
+            val netType = sp.getString("at_net_type", "")?.ifEmpty { sp.getString("net_type", "") } ?: ""  // 优先 AT（稳定）→ Goform 回退
             val hasNetworkData = netType.isNotEmpty() && signal != "--"
             val batteryCurrent = sp.getString("battery_current", "") ?: ""
             val updateTime = sp.getString("update_time", "--") ?: "--"
@@ -845,8 +871,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             rv.setInt(R.id.widget_bg_stroke, "setColorFilter", divider)
             rv.setInt(R.id.widget_bg_stroke, "setImageAlpha", alpha)
 
-            // ── 文字色：全部使用 dataHighlight 体现动态取色 ──
-            // 标签类文字
+            // ── 文字色：标签类使用 dataColor 与图标保持同色（参考图标写法）──
             for (id in listOf(
                 R.id.tv_model, R.id.tv_version, R.id.tv_app_ver_code,
                 R.id.tv_charging, R.id.tv_no_network,
@@ -865,8 +890,8 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
                 safeSetTextColor(rv, id, dataColor)
             }
 
-            // ── 分割线 ──
-            rv.setInt(R.id.divider_flow, "setBackgroundColor", divider)
+            // ── 分割线（使用 dataColor 与图标同色，参考图标写法修复）──
+            rv.setInt(R.id.divider_flow, "setBackgroundColor", dataColor)
 
             // ── 图标着色（使用 dataHighlight 与数据值保持一致，体现动态取色）──
             for (id in listOf(
@@ -915,7 +940,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
 
             val signal = sp.getString("signal", "--") ?: "--"
             val battery = sp.getString("battery", "--") ?: "--"
-            val netType = sp.getString("net_type", "") ?: ""
+            val netType = sp.getString("at_net_type", "")?.ifEmpty { sp.getString("net_type", "") } ?: ""  // 优先 AT（稳定）→ Goform 回退
             val hasNetworkData = netType.isNotEmpty() && signal != "--"
             val batteryCurrent = sp.getString("battery_current", "") ?: ""
 
@@ -1101,7 +1126,7 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             val appVerCode = sp.getString("app_ver_code", "") ?: ""
             val cpu = sp.getString("cpu", "--") ?: "--"
             val mem = sp.getString("mem", "--") ?: "--"
-            val netType = sp.getString("net_type", "") ?: ""
+            val netType = sp.getString("at_net_type", "")?.ifEmpty { sp.getString("net_type", "") } ?: ""  // 优先 AT（稳定）→ Goform 回退
             val hasNetworkData = netType.isNotEmpty() && signal != "--"
             val batteryCurrent = sp.getString("battery_current", "") ?: ""
             val updateTime = sp.getString("update_time", "--") ?: "--"
@@ -1354,38 +1379,12 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
             }
         }
 
-        /**
-         * 应用小组件标签隐藏设置（API 31+）。
-         * 将桌面显示的 widget 名称替换为空格，实现视觉上的隐藏效果。
-         */
-        fun applyWidgetLabel(context: Context, manager: AppWidgetManager, ids: IntArray) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-            val hideLabel = SPUtil.getWidgetHideLabel(context)
-            val label = if (hideLabel) " " else "UFI 状态"
-            for (id in ids) {
-                try {
-                    val options = Bundle()
-                    options.putString("android.appwidget.label", label)
-                    manager.updateAppWidgetOptions(id, options)
-                } catch (_: Exception) {
-                    // 部分桌面可能不支持 OPTION_APPWIDGET_LABEL
-                }
-            }
-        }
-
     }
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        for (id in ids) {
-            val rv = RemoteViews(context.packageName, layoutId)
-            performRender(context, rv)
-            applyWidgetTheme(context, rv)
-            setupClick(context, rv, this::class.java)
-            manager.updateAppWidget(id, rv)
-        }
-        // 应用标签隐藏（API 31+ 替换名称显示为空格）
+        // 通过 renderAllWidgets 统一走 renderLock，避免与 Worker 并发的 Bitmap 竞态
+        renderAllWidgets(context, force = true)
         ensurePeriodicWorker(context)
-        applyWidgetLabel(context, manager, ids)
         triggerWorker(context)
     }
 
@@ -1405,11 +1404,8 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
         super.onAppWidgetOptionsChanged(context, manager, appWidgetId, newOptions)
         val newWidth = newOptions.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 248)
         appendLog(context, "尺寸变化 → ${newWidth}dp，重新渲染")
-        val rv = RemoteViews(context.packageName, layoutId)
-        performRender(context, rv)
-        applyWidgetTheme(context, rv)
-        setupClick(context, rv, this::class.java)
-        manager.updateAppWidget(appWidgetId, rv)
+        // 通过 renderAllWidgets 统一走 renderLock，避免 Bitmap 竞态
+        renderAllWidgets(context, force = true)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -1422,8 +1418,11 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
 
     protected fun triggerWorker(context: Context) {
         try {
-            // 手动刷新 → 重置失败状态，允许 Worker 重新尝试
-            WifiWorker.resetFailureState(context)
+            // 设置重试状态标记，立即刷新小组件显示加载覆盖层，提示用户刷新已触发
+            SPUtil.setReconnecting(context, true)
+            renderAllWidgets(context, force = true)
+            // 不在此处重置失败状态，否则若后续渲染被触发会显示旧缓存数据后再变回断联。
+            // Worker 内部有独立的自恢复逻辑 + 清除 reconnecting 标记。
             WorkManager.getInstance(context).enqueue(OneTimeWorkRequestBuilder<WifiWorker>().build())
         } catch (_: Exception) {
             // WorkManager: 在小组件 onUpdate/onReceive 中调用，捕获如未初始化等异常
@@ -1433,7 +1432,16 @@ abstract class BaseWifiWidget(val layoutId: Int) : AppWidgetProvider() {
 
 }
 
-class WifiWidget4x2 : BaseWifiWidget(R.layout.widget_4x2)
+open class WifiWidget4x2 : BaseWifiWidget(R.layout.widget_4x2)
+
+/**
+ * 影子组件：与 [WifiWidget4x2] 功能完全相同，但在桌面选择器中不显示名称。
+ *
+ * 通过 [WidgetLabelToggle] 切换原始/影子组件的 enabled 状态，
+ * 强制桌面启动器重新读取组件元数据（android:label），实现标签隐藏/显示。
+ * 继承自 [WifiWidget4x2]，所有渲染、更新、点击逻辑完全复用。
+ */
+class WifiWidget4x2NoLabel : WifiWidget4x2()
 
 class WifiWidget2x1 : BaseWifiWidget(R.layout.widget_2x1) {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {

@@ -36,15 +36,46 @@ import com.ufi_toolswidget.util.ThemeUtil
 import com.ufi_toolswidget.util.ThemedSliderUtil
 import com.ufi_toolswidget.util.ToastStyle
 import com.ufi_toolswidget.util.ToastUtil
+import com.ufi_toolswidget.util.WidgetLabelToggle
 import com.ufi_toolswidget.view.ThemeSlider
 import com.ufi_toolswidget.widget.BaseWifiWidget
 import com.ufi_toolswidget.worker.WifiWorker
 import com.ufi_toolswidget.util.DebugLogger
 import java.util.concurrent.TimeUnit
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class WidgetSettingsActivity : AppCompatActivity() {
 
     private var widgetIntervalMinutes: Int = 15
+
+    // ── renderAllWidgets 防抖机制：停止操作 300ms 后才执行渲染，避免滑块拖动时每帧触发 ──
+    private var renderDebounceJob: Job? = null
+
+    /** 防抖渲染小组件：取消之前的定时器，300ms 后在 IO 线程执行渲染 */
+    private fun debouncedRenderWidgets() {
+        renderDebounceJob?.cancel()
+        renderDebounceJob = lifecycleScope.launch {
+            delay(300)
+            withContext(Dispatchers.IO) {
+                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+            }
+        }
+    }
+
+    /** 立即渲染（用于确认按钮等需要即时生效的场景），仍在 IO 线程避免阻塞主线程 */
+    private fun renderWidgetsNow() {
+        renderDebounceJob?.cancel()
+        renderDebounceJob = lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+            }
+        }
+    }
 
     // 小组件主题
     private var widgetTheme: String = "follow_app"
@@ -58,6 +89,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
     private var showCpu = true
     private var showMem = true
     private var showTime = true
+    private var showDivider = true
 
     // 活跃弹窗引用
     private var activeWidgetThemeDialog: Dialog? = null
@@ -156,6 +188,20 @@ class WidgetSettingsActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        renderDebounceJob?.cancel()
+        // 防止 Activity 销毁时弹窗未关闭导致 WindowLeaked 异常
+        try { activeWidgetThemeDialog?.dismiss() } catch (_: Exception) {}
+        try { activeDisplayInfoDialog?.dismiss() } catch (_: Exception) {}
+        try { activeWidgetIntervalDialog?.dismiss() } catch (_: Exception) {}
+        try { activeBgImageDialog?.dismiss() } catch (_: Exception) {}
+        try { activeBgOpacityDialog?.dismiss() } catch (_: Exception) {}
+        try { activeWidgetColorDialog?.dismiss() } catch (_: Exception) {}
+        activeWidgetThemeDialog = null
+        activeDisplayInfoDialog = null
+        activeWidgetIntervalDialog = null
+        activeBgImageDialog = null
+        activeBgOpacityDialog = null
+        activeWidgetColorDialog = null
         ThemeChangeNotifier.unregister(this, themeChangeReceiver)
         super.onDestroy()
     }
@@ -181,7 +227,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                         SPUtil.setWidgetDynamicColor(this, false)
                         SPUtil.setWidgetFollowAppTheme(this, true)
                         updateFollowAppThemeSubtitle()
-                        BaseWifiWidget.renderAllWidgets(this, force = true)
+                        renderWidgetsNow()
                         updateWidgetThemeItemState(true, animate = true)
                         applyDynamicColorLockState()
                         // 静默恢复开关视觉为 ON（不触发回调，避免重复弹窗）
@@ -194,7 +240,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
             }
             SPUtil.setWidgetFollowAppTheme(this, isChecked)
             updateFollowAppThemeSubtitle()
-            BaseWifiWidget.renderAllWidgets(this, force = true)
+            renderWidgetsNow()
             updateWidgetThemeItemState(isChecked, animate = true)
             applyDynamicColorLockState()
         }
@@ -225,7 +271,6 @@ class WidgetSettingsActivity : AppCompatActivity() {
         val themeItem = findViewById<View>(R.id.item_widget_theme)
         val colorThemeItem = findViewById<View>(R.id.item_widget_color_theme)
         val themeContentContainer = findViewById<View>(R.id.layout_widget_theme_content)
-        val lockHint = "需关闭动态配色后修改"
 
         if (isDynamicActive) {
             // SP 层面也确保互斥：动态配色开启时跟随主题必须关闭
@@ -240,27 +285,8 @@ class WidgetSettingsActivity : AppCompatActivity() {
             track?.isEnabled = false
             track?.alpha = 0.4f
 
-            // ── 小组件主题 / 小组件配色：变灰 + 显示锁定提示 ──
-            themeContentContainer.visibility = View.VISIBLE
-            themeContentContainer.alpha = 1f
-
-            // 小组件主题变灰
-            themeItem.alpha = 0.4f
-            themeItem.isClickable = false
-            themeItem.findViewById<TextView>(R.id.common_item_subtitle)?.apply {
-                text = lockHint
-                visibility = View.VISIBLE
-                alpha = 0.8f
-            }
-
-            // 小组件配色变灰
-            colorThemeItem.alpha = 0.4f
-            colorThemeItem.isClickable = false
-            colorThemeItem.findViewById<TextView>(R.id.common_item_subtitle)?.apply {
-                text = lockHint
-                visibility = View.VISIBLE
-                alpha = 0.8f
-            }
+            // ── 动态配色激活时，完全隐藏主题设置区域（它们对用户无意义） ──
+            themeContentContainer.visibility = View.GONE
         } else {
             // ── 跟随应用主题：恢复 ──
             subtitle?.visibility = View.GONE
@@ -406,7 +432,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                             SPUtil.setWidgetTheme(this, key)
                             SPUtil.setWidgetDynamicColor(this, false)
                             updateWidgetThemeSubtitle()
-                            BaseWifiWidget.renderAllWidgets(this, force = true)
+                            renderWidgetsNow()
                             applyDynamicColorLockState()
                         }
                     )
@@ -414,7 +440,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                     widgetTheme = key
                     SPUtil.setWidgetTheme(this, key)
                     updateWidgetThemeSubtitle()
-                    BaseWifiWidget.renderAllWidgets(this, force = true)
+                    renderWidgetsNow()
                     dialog.dismiss()
                 }
             }.apply {
@@ -559,7 +585,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                         SPUtil.setWidgetColorThemeIndex(this, index)
                         SPUtil.setWidgetDynamicColor(this, false)
                         updateWidgetColorThemeSubtitle()
-                        BaseWifiWidget.renderAllWidgets(this, force = true)
+                        renderWidgetsNow()
                         applyDynamicColorLockState()
                     }
                 )
@@ -567,7 +593,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 widgetColorThemeIndex = index
                 SPUtil.setWidgetColorThemeIndex(this, index)
                 updateWidgetColorThemeSubtitle()
-                BaseWifiWidget.renderAllWidgets(this, force = true)
+                renderWidgetsNow()
                 dialog.dismiss()
             }
         }
@@ -690,7 +716,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                         SPUtil.setWidgetColorThemeIndex(this@WidgetSettingsActivity, -1)
                         SPUtil.setWidgetDynamicColor(this@WidgetSettingsActivity, false)
                         updateWidgetColorThemeSubtitle()
-                        BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                        renderWidgetsNow()
                         applyDynamicColorLockState()
                         ToastUtil.showDropToast(this@WidgetSettingsActivity, ToastStyle.SUCCESS, "自定义配色已应用")
                     }
@@ -713,7 +739,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                         widgetColorThemeIndex = -1
                         SPUtil.setWidgetColorThemeIndex(this@WidgetSettingsActivity, -1)
                         updateWidgetColorThemeSubtitle()
-                        BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                        renderWidgetsNow()
                         dialog.dismiss()
                         ToastUtil.showDropToast(this@WidgetSettingsActivity, ToastStyle.SUCCESS, "自定义配色已应用")
                     }
@@ -753,6 +779,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
         showCpu = SPUtil.getShowCpu(this)
         showMem = SPUtil.getShowMem(this)
         showTime = SPUtil.getShowTime(this)
+        showDivider = SPUtil.getShowDivider(this)
 
         CommonSettingsItemHelper.setupSettingItem(
             findViewById(R.id.item_display_info),
@@ -766,8 +793,8 @@ class WidgetSettingsActivity : AppCompatActivity() {
     }
 
     private fun updateDisplayInfoSubtitle() {
-        val enabled = listOf(showTemp, showModel, showSignal, showBattery, showCpu, showMem, showTime).count { it }
-        val total = 7
+        val enabled = listOf(showTemp, showModel, showSignal, showBattery, showCpu, showMem, showTime, showDivider).count { it }
+        val total = 8
         val label = if (enabled == 0) "全部关闭" else "已开启 $enabled/$total 项"
         try {
             findInItem<TextView>(R.id.item_display_info, R.id.common_item_subtitle)?.text = label
@@ -796,7 +823,8 @@ class WidgetSettingsActivity : AppCompatActivity() {
             "battery" to "电池状态",
             "cpu" to "CPU 占用",
             "mem" to "内存占用",
-            "time" to "更新时间"
+            "time" to "更新时间",
+            "divider" to "分割线"
         )
 
         // 临时状态存储
@@ -807,7 +835,8 @@ class WidgetSettingsActivity : AppCompatActivity() {
             "battery" to showBattery,
             "cpu" to showCpu,
             "mem" to showMem,
-            "time" to showTime
+            "time" to showTime,
+            "divider" to showDivider
         )
 
         // 使用双栏网格布局
@@ -875,6 +904,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 showCpu = tempStates["cpu"]!!
                 showMem = tempStates["mem"]!!
                 showTime = tempStates["time"]!!
+                showDivider = tempStates["divider"]!!
 
                 SPUtil.setShowTemp(this@WidgetSettingsActivity, showTemp)
                 SPUtil.setShowModel(this@WidgetSettingsActivity, showModel)
@@ -883,9 +913,10 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 SPUtil.setShowCpu(this@WidgetSettingsActivity, showCpu)
                 SPUtil.setShowMem(this@WidgetSettingsActivity, showMem)
                 SPUtil.setShowTime(this@WidgetSettingsActivity, showTime)
+                SPUtil.setShowDivider(this@WidgetSettingsActivity, showDivider)
 
                 updateDisplayInfoSubtitle()
-                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                renderWidgetsNow()
                 dialog.dismiss()
             }
         }
@@ -997,7 +1028,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 SPUtil.setShowNetwork2x1(this@WidgetSettingsActivity, tempStates["network"]!!)
                 SPUtil.setFontSize2x1(this@WidgetSettingsActivity, currentFontSize.toInt())
                 updateDisplayInfo2x1Subtitle()
-                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                renderWidgetsNow()
                 dialog.dismiss()
             }
         }
@@ -1127,7 +1158,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 SPUtil.setShowTime4x1(this@WidgetSettingsActivity, tempStates["time"]!!)
                 SPUtil.setFontSize4x1(this@WidgetSettingsActivity, currentFontSize.toInt())
                 updateDisplayInfo4x1Subtitle()
-                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                renderWidgetsNow()
                 dialog.dismiss()
             }
         }
@@ -1188,12 +1219,6 @@ class WidgetSettingsActivity : AppCompatActivity() {
             stepSize = 1f
             currentValue = if (widgetIntervalMinutes > 0) widgetIntervalMinutes.toFloat().coerceIn(1f, 120f) else 15f
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(44))
-            onValueChange = { value ->
-                widgetIntervalMinutes = value.toInt()
-                valueLabel.text = "${value.toInt()} 分钟"
-                SPUtil.setRefreshInterval(this@WidgetSettingsActivity, value.toInt())
-                updateWidgetIntervalSubtitle()
-            }
         }
         ThemedSliderUtil.setupSliderTickMarks(slider, 30f) { "${it}分" }
 
@@ -1252,7 +1277,10 @@ class WidgetSettingsActivity : AppCompatActivity() {
         // 公共弹窗按钮
         val btnPrimary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary)
         btnPrimary.text = "确定"
-        btnPrimary.setOnClickListener { dialog.dismiss() }
+        btnPrimary.setOnClickListener {
+            updateWidgetWorker()
+            dialog.dismiss()
+        }
 
         val btnSecondary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_secondary)
         btnSecondary.visibility = android.view.View.VISIBLE
@@ -1302,54 +1330,57 @@ class WidgetSettingsActivity : AppCompatActivity() {
     /**
      * 处理用户选择的图片：先拷贝到内部存储（解决 Widget 跨进程 content:// 权限问题），
      * 再检测尺寸比例，不匹配则打开裁切界面。
+     * 文件拷贝和尺寸检测在 IO 线程异步执行，避免阻塞主线程。
      */
     private fun handlePickedWidgetBgImage(uri: Uri) {
         // 获取持久化 URI 权限（兜底，确保拷贝时能读取流）
         try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: SecurityException) {}
 
-        // 先拷贝到内部存储，确保 Widget 进程可访问
-        val internalPath = SPUtil.saveWidgetBgImageToInternal(this, uri)
-        if (internalPath == null) {
-            ToastUtil.showDropToast(this, ToastStyle.WARNING, "图片拷贝失败，请重试")
-            return
-        }
-
         val density = resources.displayMetrics.density
         val widgetW = (625f * density).toInt()
         val widgetH = (275f * density).toInt()
-        val widgetRatio = widgetW.toFloat() / widgetH.toFloat()
 
-        try {
-            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(internalPath, options)
-            val imgW = options.outWidth
-            val imgH = options.outHeight
+        lifecycleScope.launch {
+            // IO 线程：拷贝文件 + 读取图片尺寸
+            val result = withContext(Dispatchers.IO) {
+                val internalPath = SPUtil.saveWidgetBgImageToInternal(this@WidgetSettingsActivity, uri)
+                if (internalPath == null) return@withContext null
+
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(internalPath, options)
+                Triple(internalPath, options.outWidth, options.outHeight)
+            }
+
+            if (result == null) {
+                ToastUtil.showDropToast(this@WidgetSettingsActivity, ToastStyle.WARNING, "图片拷贝失败，请重试")
+                return@launch
+            }
+
+            val (internalPath, imgW, imgH) = result
             if (imgW <= 0 || imgH <= 0) {
                 pendingBgUri = internalPath
                 pendingBgEnabled = true
-                return
+                return@launch
             }
+
+            val widgetRatio = widgetW.toFloat() / widgetH.toFloat()
             val imgRatio = imgW.toFloat() / imgH.toFloat()
 
             // 比例差异超过 3% 或图片尺寸小于小组件推荐尺寸 → 进入裁切
             if (Math.abs(imgRatio - widgetRatio) > 0.03f || imgW < widgetW || imgH < widgetH) {
                 val cropFile = java.io.File(internalPath)
-                val intent = Intent(this, ImageCropActivity::class.java).apply {
+                val intent = Intent(this@WidgetSettingsActivity, ImageCropActivity::class.java).apply {
                     data = Uri.fromFile(cropFile)
                     putExtra("targetW", widgetW)
                     putExtra("targetH", widgetH)
                     putExtra("saveSubDir", "widget_bg")
-                    putExtra("saveFileName", cropFile.name)  // 使用同一文件名
+                    putExtra("saveFileName", cropFile.name)
                 }
                 cropLauncher.launch(intent)
             } else {
                 pendingBgUri = internalPath
                 pendingBgEnabled = true
             }
-        } catch (e: Exception) {
-            DebugLogger.w("WidgetSettingsActivity", "handlePickedWidgetBgImage: ${e.message}")
-            pendingBgUri = internalPath
-            pendingBgEnabled = true
         }
     }
 
@@ -1396,8 +1427,22 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 SPUtil.setWidgetBgImageEnabled(this, pendingBgEnabled && pendingBgUri.isNotBlank())
                 widgetBgImageUri = pendingBgUri
                 widgetBgImageEnabled = pendingBgEnabled && pendingBgUri.isNotBlank()
+
+                // ── 背景 URI 变化时清除动态取色缓存，确保下次渲染重新提取颜色 ──
+                if (uriChanged) {
+                    ThemeColors.invalidateWallpaperColorCache()
+                }
+
+                // ── 动态配色依赖背景存在，背景被清除/关闭时自动关闭动态配色 ──
+                val bgEffectivelyAvailable = pendingBgUri.isNotBlank() && pendingBgEnabled
+                if (!bgEffectivelyAvailable && isWidgetDynamicActive()) {
+                    SPUtil.setWidgetDynamicColor(this, false)
+                }
+                // ── 刷新动态配色锁定状态 ──
+                applyDynamicColorLockState()
+
                 updateWidgetBgImageSubtitle()
-                BaseWifiWidget.renderAllWidgets(this, force = true)
+                renderWidgetsNow()
                 if (pendingBgUri.isBlank()) {
                     ToastUtil.showDropToast(this, ToastStyle.INFO, "小组件背景已清除")
                 } else if (!uriChanged && enabledChanged) {
@@ -1472,18 +1517,24 @@ class WidgetSettingsActivity : AppCompatActivity() {
                     )
                 }
                 try {
-                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
-                    if (pendingBgUri.startsWith("/") && java.io.File(pendingBgUri).exists()) {
-                        java.io.FileInputStream(java.io.File(pendingBgUri)).use { stream ->
-                            val bmp = BitmapFactory.decodeStream(stream, null, opts)
-                            if (bmp != null) setImageBitmap(bmp)
+                    // 异步加载预览图，避免阻塞主线程
+                    val uriStr = pendingBgUri
+                    val previewView = this@apply
+                    this@WidgetSettingsActivity.lifecycleScope.launch {
+                        val bmp = withContext(Dispatchers.IO) {
+                            val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                            if (uriStr.startsWith("/") && java.io.File(uriStr).exists()) {
+                                java.io.FileInputStream(java.io.File(uriStr)).use { stream ->
+                                    BitmapFactory.decodeStream(stream, null, opts)
+                                }
+                            } else {
+                                val uri = Uri.parse(uriStr)
+                                this@WidgetSettingsActivity.contentResolver.openInputStream(uri)?.use { stream ->
+                                    BitmapFactory.decodeStream(stream, null, opts)
+                                }
+                            }
                         }
-                    } else {
-                        val uri = Uri.parse(pendingBgUri)
-                        contentResolver.openInputStream(uri)?.use { stream ->
-                            val bmp = BitmapFactory.decodeStream(stream, null, opts)
-                            if (bmp != null) setImageBitmap(bmp)
-                        }
+                        if (bmp != null) previewView.setImageBitmap(bmp)
                     }
                 } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "rebuildBgDialogContent: loading preview failed: ${e.message}") }
                 clipToOutline = true
@@ -1583,18 +1634,24 @@ class WidgetSettingsActivity : AppCompatActivity() {
                         setCornerRadius(6f * resources.displayMetrics.density)
                     }
                     try {
-                        val opts = BitmapFactory.Options().apply { inSampleSize = 6 }
-                        if (histUri.startsWith("/") && java.io.File(histUri).exists()) {
-                            java.io.FileInputStream(java.io.File(histUri)).use { stream ->
-                                val bmp = BitmapFactory.decodeStream(stream, null, opts)
-                                if (bmp != null) setImageBitmap(bmp)
+                        // 异步加载历史缩略图，避免多张图串行解码阻塞主线程
+                        val thumbUri = histUri
+                        val thumbView = this@apply
+                        this@WidgetSettingsActivity.lifecycleScope.launch {
+                            val bmp = withContext(Dispatchers.IO) {
+                                val opts = BitmapFactory.Options().apply { inSampleSize = 6 }
+                                if (thumbUri.startsWith("/") && java.io.File(thumbUri).exists()) {
+                                    java.io.FileInputStream(java.io.File(thumbUri)).use { stream ->
+                                        BitmapFactory.decodeStream(stream, null, opts)
+                                    }
+                                } else {
+                                    val uri = Uri.parse(thumbUri)
+                                    this@WidgetSettingsActivity.contentResolver.openInputStream(uri)?.use { stream ->
+                                        BitmapFactory.decodeStream(stream, null, opts)
+                                    }
+                                }
                             }
-                        } else {
-                            val uri = Uri.parse(histUri)
-                            contentResolver.openInputStream(uri)?.use { stream ->
-                                val bmp = BitmapFactory.decodeStream(stream, null, opts)
-                                if (bmp != null) setImageBitmap(bmp)
-                            }
+                            if (bmp != null) thumbView.setImageBitmap(bmp)
                         }
                     } catch (e: Exception) { DebugLogger.w("WidgetSettingsActivity", "rebuildBgDialogContent: loading history thumb failed: ${e.message}") }
                     clipToOutline = true
@@ -1686,7 +1743,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 valueLabel.text = "${value.toInt()}%"
                 SPUtil.setWidgetBgOpacity(this@WidgetSettingsActivity, value.toInt())
                 updateWidgetBgOpacitySubtitle()
-                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                debouncedRenderWidgets()
             }
         }
         ThemedSliderUtil.setupSliderTickMarks(slider, 20f) { "${it}%" }
@@ -1715,7 +1772,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
             updatePresets(value.toInt())
             SPUtil.setWidgetBgOpacity(this@WidgetSettingsActivity, value.toInt())
             updateWidgetBgOpacitySubtitle()
-            BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+            debouncedRenderWidgets()
         }
 
         // 自定义输入面板
@@ -1734,7 +1791,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
                 widgetBgOpacity = text.toInt()
                 SPUtil.setWidgetBgOpacity(this@WidgetSettingsActivity, text.toInt())
                 updateWidgetBgOpacitySubtitle()
-                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                renderWidgetsNow()
                 dialog.dismiss()
             }
         )
@@ -1780,7 +1837,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
     private fun updateCompatibilitySubtitle() {
         val parts = mutableListOf<String>()
         if (SPUtil.getWidgetClipToOutline(this)) parts.add("圆角")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SPUtil.getWidgetHideLabel(this)) parts.add("隐藏名称")
+        if (SPUtil.getWidgetHideLabel(this)) parts.add("隐藏名称")
         val subtitle = if (parts.isEmpty()) "圆角裁剪、隐藏名称等" else parts.joinToString("、")
         try {
             findViewById<TextView>(R.id.item_widget_compatibility)?.findViewById<TextView>(R.id.common_item_subtitle)?.text = subtitle
@@ -1800,7 +1857,7 @@ class WidgetSettingsActivity : AppCompatActivity() {
 
         // 临时状态
         var tempClipToOutline = SPUtil.getWidgetClipToOutline(this)
-        var tempHideLabel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) SPUtil.getWidgetHideLabel(this) else false
+        var tempHideLabel = SPUtil.getWidgetHideLabel(this)
 
         // ── 圆角裁剪兜底 ──
         val clipRow = layoutInflater.inflate(R.layout.layout_common_switch, content, false)
@@ -1811,32 +1868,14 @@ class WidgetSettingsActivity : AppCompatActivity() {
         ThemeUtil.setupSwitch(clipRow, tempClipToOutline) { tempClipToOutline = it }
         content.addView(clipRow)
 
-        // ── 隐藏小组件名称 ──
-        val hideLabelRow = layoutInflater.inflate(R.layout.layout_common_switch, content, false)
-        hideLabelRow.findViewById<TextView>(R.id.common_switch_label).apply {
-            text = "隐藏小组件名称"
-            setTextColor(ThemeColors.textPrimary(this@WidgetSettingsActivity))
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ThemeUtil.setupSwitch(hideLabelRow, tempHideLabel) { tempHideLabel = it }
-        } else {
-            hideLabelRow.alpha = 0.5f
-            val track = hideLabelRow.findViewById<View>(R.id.common_switch_track)
-            track.isClickable = false
-            track.isEnabled = false
-            track.setOnClickListener(null)
-            // 显示为关闭状态
-            val subtitle = TextView(this).apply {
-                text = "需要 Android 12+ 支持"
-                setTextColor(ThemeColors.textSecondary(this@WidgetSettingsActivity))
-                textSize = 11f
-                alpha = 0.7f
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(dp2px(4), 0, 0, 0) }
-            }
-            (hideLabelRow as ViewGroup).addView(subtitle)
-        }
+        // ── 隐藏小组件名称（影子组件切换） ──
+        val hideLabelRow = CommonSettingsItemHelper.createSwitchRow(
+            context = this,
+            label = "隐藏小组件名称",
+            subtitle = "修改后需重新添加到桌面",
+            initialChecked = tempHideLabel,
+            onToggle = { tempHideLabel = it }
+        )
         content.addView(hideLabelRow)
 
         // 对 content 内动态添加的视图递归着色
@@ -1849,12 +1888,17 @@ class WidgetSettingsActivity : AppCompatActivity() {
         dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary).apply {
             text = "确定"
             setOnClickListener {
+                val oldHideLabel = SPUtil.getWidgetHideLabel(this@WidgetSettingsActivity)
                 SPUtil.setWidgetClipToOutline(this@WidgetSettingsActivity, tempClipToOutline)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    SPUtil.setWidgetHideLabel(this@WidgetSettingsActivity, tempHideLabel)
+                SPUtil.setWidgetHideLabel(this@WidgetSettingsActivity, tempHideLabel)
+
+                // 标签状态变化时切换组件（影子组件方案）
+                if (tempHideLabel != oldHideLabel) {
+                    WidgetLabelToggle.apply(this@WidgetSettingsActivity, tempHideLabel)
                 }
+
                 updateCompatibilitySubtitle()
-                BaseWifiWidget.renderAllWidgets(this@WidgetSettingsActivity, force = true)
+                renderWidgetsNow()
                 dialog.dismiss()
             }
         }

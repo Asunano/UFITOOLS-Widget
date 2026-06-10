@@ -12,6 +12,10 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.util.Log
 import android.view.Gravity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
@@ -189,7 +193,7 @@ object CommonDialogHelper {
         }
     }
 
-    /** API 26-30：截屏 + 多级缩放模拟毛玻璃效果 */
+    /** API 26-30：截屏 + 多级缩放模拟毛玻璃效果（异步版本，避免主线程阻塞） */
     private fun applyLegacyBlur(context: Context, dialog: Dialog) {
         try {
             val decorView = dialog.window?.decorView?.rootView ?: return
@@ -197,18 +201,30 @@ object CommonDialogHelper {
             val vh = decorView.height
             if (vw <= 0 || vh <= 0) return
 
+            // 步骤 1-2（必须主线程）：截取 decorView 当前画面
             val capture = Bitmap.createBitmap(vw, vh, Bitmap.Config.ARGB_8888)
             decorView.draw(Canvas(capture))
 
             val smallW = (vw * 0.06f).toInt().coerceAtLeast(4)
             val smallH = (vh * 0.06f).toInt().coerceAtLeast(4)
-            val small = Bitmap.createScaledBitmap(capture, smallW, smallH, true)
-            capture.recycle()
+            val windowRef = java.lang.ref.WeakReference(dialog.window)
+            val res = context.resources
 
-            val blurred = Bitmap.createScaledBitmap(small, vw, vh, true)
-            small.recycle()
-
-            dialog.window?.setBackgroundDrawable(BitmapDrawable(context.resources, blurred))
+            // 步骤 3-5（CPU 密集）：缩放模糊在后台线程完成，结果回主线程设置
+            CoroutineScope(Dispatchers.Default).launch {
+                try {
+                    val small = Bitmap.createScaledBitmap(capture, smallW, smallH, true)
+                    capture.recycle()
+                    val blurred = Bitmap.createScaledBitmap(small, vw, vh, true)
+                    small.recycle()
+                    withContext(Dispatchers.Main) {
+                        windowRef.get()?.setBackgroundDrawable(BitmapDrawable(res, blurred))
+                    }
+                } catch (e: Exception) {
+                    capture.recycle()
+                    Log.w(TAG, "Legacy blur async failed: ${e.message}")
+                }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Legacy blur failed: ${e.message}")
             DebugLogger.w(TAG, "Legacy blur failed: ${e.message}")
@@ -288,6 +304,11 @@ object CommonDialogHelper {
         onSecondaryClick: ((Dialog) -> Unit)? = null,
         widthRatio: Float = 0.88f
     ): Dialog {
+        // 防御性检查：Activity 已销毁或正在销毁时不显示弹窗，避免 BadTokenException
+        val activity = context as? android.app.Activity
+        if (activity != null && (activity.isFinishing || activity.isDestroyed)) {
+            return createAnimatedDialog(context) // 返回一个不会 show 的空 Dialog
+        }
         val dialog = createAnimatedDialog(context)
         dialog.setContentView(R.layout.layout_common_dialog)
         applyThemeToDialogRoot(context, dialog)

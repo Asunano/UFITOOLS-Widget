@@ -1,7 +1,6 @@
 package com.ufi_toolswidget.util
 
 import android.content.Context
-import com.ufi_toolswidget.worker.WifiWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -77,6 +76,27 @@ object NotificationMonitor {
     }
 
     /**
+     * 执行一次性通知检查（供 AlarmReceiver 调用）。
+     *
+     * 在 IO 调度器上启动协程，执行与常规轮询相同的通知检查逻辑。
+     * 检查完成后回调 [onComplete]，典型用法是释放 WakeLock 并调度下一次闹钟。
+     *
+     * @param context 上下文（建议传 ApplicationContext）
+     * @param onComplete 检查完成后的回调（无论成功或失败）
+     */
+    fun performOneShotCheck(context: Context, onComplete: () -> Unit) {
+        scope.launch {
+            try {
+                performCheck(context)
+            } catch (e: Exception) {
+                DebugLogger.e(TAG, "OneShot check failed: ${e.message}")
+            } finally {
+                onComplete()
+            }
+        }
+    }
+
+    /**
      * 执行一次完整的通知检查。
      * 轻量级获取设备数据并调用 [NotificationHelper.checkAndNotify]。
      */
@@ -84,6 +104,7 @@ object NotificationMonitor {
         try {
             val info = WifiCrawl.fetchNotificationBaseInfo(context)
             if (info != null) {
+                // 数据获取成功 → 设备在线
                 NotificationHelper.checkAndNotify(
                     context = context,
                     dailyFlowStr = info.dailyFlowStr,
@@ -92,12 +113,17 @@ object NotificationMonitor {
                     cpuStr = info.cpuStr,
                     memStr = info.memStr,
                     batteryPercent = info.batteryPercent,
-                    isDeviceOnline = !WifiWorker.isWorkerStopped(context),
+                    isDeviceOnline = true,
                     activity = null
                 )
+            } else {
+                // 数据获取失败 → 设备可能离线，仍需检查上下线状态以发送下线通知
+                NotificationHelper.checkDeviceOnlineStatus(context, isOnline = false)
             }
         } catch (e: Exception) {
             DebugLogger.e(TAG, "performCheck failed: ${e.message}")
+            // 异常也视为设备不可达，确保下线通知能触发
+            NotificationHelper.checkDeviceOnlineStatus(context, isOnline = false)
         }
     }
 }

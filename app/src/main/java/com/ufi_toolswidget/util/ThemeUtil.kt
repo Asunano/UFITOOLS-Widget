@@ -54,7 +54,9 @@ object ThemeUtil {
      */
     fun applyTheme(activity: Activity, type: PageType) {
         try {
-            BackgroundUtil.initActivity(activity)
+            // 窗口 edge-to-edge 设置需同步，背景图加载改异步避免首帧卡顿
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(activity.window, false)
+            BackgroundUtil.applyWindowBackgroundAsync(activity)
             activity.window.decorView.post {
                 try {
                     if (activity.isFinishing || activity.isDestroyed) return@post
@@ -92,9 +94,11 @@ object ThemeUtil {
         // ── 版本副标题（注释灰字）──
         activity.findViewById<TextView>(R.id.main_tv_subtitle)?.setTextColor(textSecondary)
 
-        // ── 设置入口：图标强调色 + 标签主色 ──
+        // ── 设置入口 / 通知按钮：图标强调色 + 标签主色 ──
         activity.findViewById<ImageView>(R.id.btn_settings_icon)?.setColorFilter(ThemeColors.iconTint(ctx))
+        activity.findViewById<ImageView>(R.id.btn_alert_icon)?.setColorFilter(ThemeColors.iconTint(ctx))
         activity.findViewById<TextView>(R.id.btn_settings_label)?.setTextColor(textPrimary)
+        activity.findViewById<TextView>(R.id.btn_alert_label)?.setTextColor(textPrimary)
 
         // ── 板块标题 → 主色 ──
         activity.findViewById<TextView>(R.id.tv_section_network)?.setTextColor(textPrimary)
@@ -250,6 +254,7 @@ object ThemeUtil {
         val btnBg = ThemeColors.btnBg(ctx)
         val cardBg = ThemeColors.cardBg(ctx)
         val dividerColor = ThemeColors.divider(ctx)
+        val pageBg = ThemeColors.pageBg(ctx)
         val isDark = ThemeColors.isDark(ctx)
 
         val root = activity.findViewById<ViewGroup>(android.R.id.content)
@@ -289,6 +294,22 @@ object ThemeUtil {
             
         // 查找并处理分隔线
         findAndThemeDividers(root, dividerColor)
+
+        // ── 裁切页面（ImageCropActivity）公共组件 ──
+        // 根布局背景色跟随主题
+        activity.findViewById<View>(R.id.crop_root)?.setBackgroundColor(pageBg)
+        // 标题 → 主色，副标题 → 辅色
+        activity.findViewById<TextView>(R.id.crop_title)?.setTextColor(textPrimary)
+        activity.findViewById<TextView>(R.id.crop_subtitle)?.setTextColor(textSecondary)
+        // 返回按钮：图标跟随主题配色
+        activity.findViewById<MaterialButton>(R.id.btn_cancel)?.let { btn ->
+            btn.iconTint = ColorStateList.valueOf(iconTint)
+        }
+        // 确认按钮：公共按钮背景色 + 白色文字（与 MainActivity 检查更新按钮同色）
+        activity.findViewById<MaterialButton>(R.id.btn_done)?.let { btn ->
+            btn.backgroundTintList = ColorStateList.valueOf(btnBg)
+            btn.setTextColor(0xFFFFFFFF.toInt())
+        }
     }
 
     /** 递归查找具有特定 ID 的所有视图 */
@@ -375,13 +396,18 @@ object ThemeUtil {
             
             if (animate) {
                 thumb.animate().translationX(targetX).setDuration(200).start()
-                // 背景颜色渐变
+                // 背景颜色渐变（复用同一个 GradientDrawable，避免每帧创建新对象）
+                val reusableDrawable = track.background as? GradientDrawable ?: GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = 100f
+                }
+                track.background = reusableDrawable
                 val anim = android.animation.ValueAnimator.ofArgb(
-                    (track.background as? GradientDrawable)?.color?.defaultColor ?: offColor, 
+                    reusableDrawable.color?.defaultColor ?: offColor, 
                     targetBg
                 )
                 anim.duration = 200
-                anim.addUpdateListener { track.background = makeCardBg(it.animatedValue as Int, 100f) }
+                anim.addUpdateListener { reusableDrawable.setColor(it.animatedValue as Int) }
                 anim.start()
             } else {
                 track.post {
@@ -429,19 +455,18 @@ object ThemeUtil {
         val margin = (thumb.layoutParams as ViewGroup.MarginLayoutParams).marginStart
         val targetX = if (checked) (track.width - thumb.width - margin * 2).toFloat() else 0f
         thumb.animate().translationX(targetX).setDuration(200).start()
+        // 复用同一个 GradientDrawable，避免动画每帧创建新对象
+        val reusableDrawable = track.background as? GradientDrawable ?: GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 100f
+        }
+        track.background = reusableDrawable
         val anim = android.animation.ValueAnimator.ofArgb(
-            (track.background as? GradientDrawable)?.color?.defaultColor ?: offColor,
+            reusableDrawable.color?.defaultColor ?: offColor,
             targetColor
         )
         anim.duration = 200
-        anim.addUpdateListener {
-            val c = it.animatedValue as Int
-            track.background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                setColor(c)
-                cornerRadius = 100f
-            }
-        }
+        anim.addUpdateListener { reusableDrawable.setColor(it.animatedValue as Int) }
         anim.start()
     }
 
@@ -514,6 +539,8 @@ object ThemeUtil {
             if (child is TextView) {
                 // 跳过警报历史操作按钮（强制白字，不被主题覆盖）
                 if (child.id == R.id.btn_mark_all_read || child.id == R.id.btn_clear_all || child.id == R.id.btn_filter_toggle) continue
+                // 跳过赞赏按钮文字（固定粉色，不跟随主题）
+                if (child.id == R.id.tv_donate_label) continue
                 // 统一阈值逻辑：标题(>20sp) → 主色，正文(14-20sp) → 主色，注释(≤13.5sp) → 副色
                 when {
                     child.textSize > 20f * density -> child.setTextColor(textPrimary)
@@ -523,6 +550,8 @@ object ThemeUtil {
             }
             // 图标 ImageView 着色
             if (child is ImageView) {
+                // 跳过赞赏按钮图标（固定粉色，不跟随主题）
+                if (child.id == R.id.iv_donate_icon) continue
                 // 跳过大图标（如关于页的应用图标，通常 > 48dp）
                 val isLargeIcon = child.width > 150 || child.height > 150 || child.id == R.id.iv_app_icon
                 if (!isLargeIcon) {
@@ -620,6 +649,8 @@ object ThemeUtil {
             }
             if (child is TextView && child !is android.widget.Button && child.id != android.R.id.text1 && child.id != R.id.common_btn_text) {
                 // 跳过系统下拉列表项和通用动作按钮文字（这些由具体页面或 applyTheme 逻辑单独处理）
+                // 跳过赞赏按钮文字（固定粉色，不跟随主题）
+                if (child.id == R.id.tv_donate_label) continue
                 when {
                     child.textSize > 20f * density -> child.setTextColor(textPrimary)
                     child.textSize <= 13.6f * density -> child.setTextColor(textSecondary)
@@ -627,6 +658,8 @@ object ThemeUtil {
                 }
             }
             if (child is ImageView) {
+                // 跳过赞赏按钮图标（固定粉色，不跟随主题）
+                if (child.id == R.id.iv_donate_icon) continue
                 // 跳过大图标（如关于页的应用图标，通常 > 48dp）
                 val isLargeIcon = child.width > 150 || child.height > 150 || child.id == R.id.iv_app_icon
                 if (!isLargeIcon) {
@@ -713,12 +746,24 @@ object ThemeUtil {
         }
     }
 
-    /** 创建圆角卡片背景 */
+    /** 创建圆角卡片背景（缓存模板，通过 constantState.newDrawable 快速克隆） */
+    private var cachedCardBgColor: Int = 0
+    private var cachedCardBgTemplate: GradientDrawable? = null
+
     private fun makeCardBg(color: Int, radius: Float = 16f): GradientDrawable {
-        return GradientDrawable().apply {
+        val template = cachedCardBgTemplate?.takeIf { cachedCardBgColor == color }
+        if (template != null) {
+            return (template.constantState?.newDrawable() as? GradientDrawable)?.also {
+                it.cornerRadius = radius
+            } ?: template
+        }
+        val d = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             setColor(color)
             cornerRadius = radius
         }
+        cachedCardBgColor = color
+        cachedCardBgTemplate = d
+        return d.constantState?.newDrawable() as? GradientDrawable ?: d
     }
 }

@@ -69,9 +69,12 @@ class CrashHandler private constructor(val context: Context) : Thread.UncaughtEx
         isCrashHandling = true
         try {
             // 1. 记录崩溃摘要到 SP (供主界面检测)
+            // 使用 commit() 而非 apply()：进程即将被杀，apply() 的异步写入可能丢失数据
             val summary = "${ex::class.java.simpleName}: ${ex.message}"
-            SPUtil.setLastCrashSummary(context, summary)
-            SPUtil.setLastCrashTime(context, System.currentTimeMillis())
+            SPUtil.getSp(context).edit()
+                .putString("last_crash_summary", summary)
+                .putLong("last_crash_time", System.currentTimeMillis())
+                .commit()
 
             // 2. 将完整堆栈写入私有缓存文件
             val sw = StringWriter()
@@ -109,7 +112,10 @@ class CrashHandler private constructor(val context: Context) : Thread.UncaughtEx
         } catch (e: Exception) {
             Log.e(TAG, "Error in crash handler", e)
         } finally {
-            // 5. 彻底杀死进程防止僵死
+            // 5. 委托给系统默认处理器（显示系统崩溃对话框），然后杀死进程
+            try {
+                defaultHandler?.uncaughtException(thread, ex)
+            } catch (_: Exception) {}
             Process.killProcess(Process.myPid())
             exitProcess(10)
         }

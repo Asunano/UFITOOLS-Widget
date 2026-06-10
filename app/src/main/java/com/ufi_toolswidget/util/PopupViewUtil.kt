@@ -153,7 +153,7 @@ object PopupViewUtil {
         secondaryBtnText: String = "取消",
         isWarning: Boolean = false,
         onConfirm: () -> Unit
-    ) {
+    ): Dialog {
         val dialog = CommonDialogHelper.createAnimatedDialog(context)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.setContentView(R.layout.layout_common_dialog)
@@ -200,6 +200,7 @@ object PopupViewUtil {
 
         setupDialogWindow(context, dialog)
         dialog.show()
+        return dialog
     }
 
     fun setupDialogWindow(context: Context, dialog: Dialog) {

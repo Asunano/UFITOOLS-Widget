@@ -4,11 +4,13 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import com.google.android.material.button.MaterialButton
+import com.ufi_toolswidget.util.AnimationUtil
 import com.ufi_toolswidget.util.SimpleCropView
 import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.ThemeUtil
@@ -51,13 +53,19 @@ class ImageCropActivity : AppCompatActivity() {
 
         loadSourceImage()
 
-        findViewById<View>(R.id.btn_cancel).setOnClickListener { finish() }
+        // 返回按钮（参照 AppSettingsActivity 使用公共缩放动画组件）
+        AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_cancel)) { finish() }
 
-        // 设置确定按钮主题色
-        findViewById<MaterialButton>(R.id.btn_done).apply {
-            backgroundTintList = android.content.res.ColorStateList.valueOf(ThemeColors.accent(this@ImageCropActivity))
-            setOnClickListener { performCrop() }
+        // 确定按钮（使用 layout_common_action_button 公共组件，参照 AboutActivity 检查更新按钮样式）
+        val btnDoneRoot = findViewById<View>(R.id.btn_done)
+        val btnDoneText = btnDoneRoot.findViewById<TextView>(R.id.common_btn_text)
+        btnDoneText.text = "确定并裁切"
+        btnDoneText.textSize = 15f
+        btnDoneText.background = GradientDrawable().apply {
+            setColor(ThemeColors.btnBg(this@ImageCropActivity))
+            cornerRadius = 12f * resources.displayMetrics.density
         }
+        AnimationUtil.applyScaleClickAnimation(btnDoneRoot) { performCrop() }
     }
 
     private fun loadSourceImage() {

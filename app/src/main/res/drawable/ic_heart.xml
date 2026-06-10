@@ -4,9 +4,9 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- chevron-right: next page (stroke style, matching Tabler) -->
+    <!-- Tabler heart-outline (stroke-based) -->
     <path
-        android:pathData="M9,6 L15,12 L9,18"
+        android:pathData="M19.5,12.572 L12,20 L4.5,12.572 A5,5,0,1,1,12,6.006 A5,5,0,1,1,19.5,12.572 Z"
         android:strokeWidth="2"
         android:strokeColor="#FFFFFF"
         android:strokeLineCap="round"

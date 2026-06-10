@@ -2,12 +2,15 @@ package com.ufi_toolswidget.util
 
 import android.Manifest
 import android.app.Activity
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -16,6 +19,9 @@ import androidx.core.content.ContextCompat
 import com.ufi_toolswidget.MainActivity
 import com.ufi_toolswidget.R
 import com.ufi_toolswidget.util.ToastUtil
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -68,9 +74,20 @@ object NotificationHelper {
     private fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             val channel = NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "流量使用、设备状态异常提醒"
+                // 横幅 + 铃声 + 震动 + LED —— 确保国产 ROM 上不被降级为静默通知
                 enableVibration(true)
+                vibrationPattern = longArrayOf(0, 300, 200, 300)
+                setSound(alarmSound, AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build())
+                enableLights(true)
+                lightColor = 0xFFFF6B35.toInt() // 橙色 LED
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                setShowBadge(true)
             }
             nm.createNotificationChannel(channel)
         }
@@ -99,18 +116,66 @@ object NotificationHelper {
         }
     }
 
+    // ─── 国产 ROM 通知渠道检测 ───
+
+    /**
+     * 检查通知渠道是否被系统降级为静默通知。
+     * 国产 ROM（ColorOS / MIUI / EMUI 等）常在用户不知情的情况下
+     * 将渠道 importance 降为 LOW 或关闭横幅/铃声权限。
+     *
+     * @return true = 渠道正常（IMPORTANCE_HIGH），false = 被降级需要引导
+     */
+    fun isChannelImportanceSufficient(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = nm.getNotificationChannel(CHANNEL_ID) ?: return true
+        return channel.importance >= NotificationManager.IMPORTANCE_HIGH
+    }
+
+    /**
+     * 打开系统通知渠道设置页面。
+     * 用户可在此页面手动开启横幅、铃声、震动等权限。
+     * 国产 ROM 上这是解决静默通知问题的最直接方式。
+     */
+    fun openChannelSettings(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                    putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, CHANNEL_ID)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+                return
+            } catch (_: Exception) { /* fallback below */ }
+        }
+        // 降级：打开应用通知设置总页
+        try {
+            val intent = Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            DebugLogger.w(TAG, "openChannelSettings failed: ${e.message}")
+        }
+    }
+
     // ─── 通知发送 ───
 
     /**
      * 获取下一个通知 ID（自增，持久化）。
      * 每次通知使用唯一 ID，避免覆盖之前的通知。
+     * 使用 synchronized 保证读-改-写的原子性。
      */
     private fun nextNotifyId(context: Context): Int {
-        val sp = SPUtil.getSp(context)
-        val current = sp.getInt("notify_id_counter", NOTIFY_ID_BASE)
-        val next = if (current > NOTIFY_ID_BASE + 5000) NOTIFY_ID_BASE else current + 1
-        sp.edit().putInt("notify_id_counter", next).apply()
-        return next
+        synchronized(debounceLock) {
+            val sp = SPUtil.getSp(context)
+            val current = sp.getInt("notify_id_counter", NOTIFY_ID_BASE)
+            val next = if (current > NOTIFY_ID_BASE + 5000) NOTIFY_ID_BASE else current + 1
+            sp.edit().putInt("notify_id_counter", next).apply()
+            return next
+        }
     }
 
     /**
@@ -120,8 +185,8 @@ object NotificationHelper {
     private fun showNotification(context: Context, type: String, title: String, message: String) {
         if (!hasPermission(context)) {
             DebugLogger.logApi(TAG, "showNotification: no permission, skipping type=$type title=$title")
-            // 无通知权限时仍然记录到警报历史
-            AlertHistoryManager.addAlert(context, type, title, message)
+            // 无通知权限时仍然记录到警报历史（异步）
+            addAlertAsync(context, type, title, message)
             return
         }
 
@@ -136,23 +201,54 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // fullScreenIntent：国产 ROM 横幅通知的可靠保障
+        // 即使系统压制 IMPORTANCE_HIGH，fullScreenIntent 仍强制弹出横幅
+        val fullScreenPending = PendingIntent.getActivity(
+            context, notifyId + 10000, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
             .setContentText(message)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)  // 最高优先级，确保横幅弹出
+            .setDefaults(NotificationCompat.DEFAULT_ALL) // 声音+震动+LED 全部启用
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .setFullScreenIntent(fullScreenPending, true) // 强制横幅，确保 OEM ROM 不被降级
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // 锁屏可见
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .build()
 
         NotificationManagerCompat.from(context).notify(notifyId, notification)
 
-        // 写入警报历史
-        AlertHistoryManager.addAlert(context, type, title, message)
+        // 写入警报历史（异步）
+        addAlertAsync(context, type, title, message)
+    }
+
+    /** 异步写入警报历史（fire-and-forget，不阻塞调用线程） */
+    private fun addAlertAsync(context: Context, type: String, title: String, message: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            AlertHistoryManager.addAlert(context, type, title, message)
+        }
     }
 
     // ─── 主检查入口 ───
+
+    /**
+     * 单独检查设备上下线状态并发送通知。
+     *
+     * 当数据获取失败（设备离线）时，[checkAndNotify] 不会被调用，
+     * 需要由调用方（如 [NotificationMonitor]、[WifiWorker]）单独调用此方法，
+     * 确保设备下线通知能及时发出。
+     *
+     * @param context  上下文
+     * @param isOnline 设备是否在线（数据获取成功 = true，失败 = false）
+     */
+    fun checkDeviceOnlineStatus(context: Context, isOnline: Boolean) {
+        checkDeviceOnline(context, isOnline, activity = null)
+    }
 
     /**
      * 主检查入口。在每次数据刷新成功后调用。
@@ -423,9 +519,17 @@ object NotificationHelper {
         }
     }
 
+    /**
+     * 原子更新防抖时间戳。与 [debouncePass] 使用同一把锁，消除 TOCTOU 竞态。
+     */
     private fun updateLastNotifyTime(context: Context, key: String) {
         synchronized(debounceLock) {
-            SPUtil.setNotifyLastTime(context, key, System.currentTimeMillis())
+            // 二次校验：防止在 debouncePass 和 updateLastNotifyTime 之间另一线程已更新
+            val lastTime = SPUtil.getNotifyLastTime(context, key)
+            val debounceMs = getDebounceMs(context)
+            if (System.currentTimeMillis() - lastTime >= debounceMs) {
+                SPUtil.setNotifyLastTime(context, key, System.currentTimeMillis())
+            }
         }
     }
 

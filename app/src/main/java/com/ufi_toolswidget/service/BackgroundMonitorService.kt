@@ -85,6 +85,12 @@ class BackgroundMonitorService : Service() {
         private const val ACTION_REFRESH_NOTIFICATION = "com.ufi_toolswidget.ACTION_REFRESH_NOTIFICATION"
     }
 
+    /**
+     * 前台服务本身通过 IMPORTANCE_DEFAULT 通知保持可见性，防止国产 ROM 静默降级。
+     * 不再持有长时间 WakeLock：CPU 休眠时由 AlarmReceiver.setAlarmClock 定期唤醒执行检查。
+     * 长时间 PARTIAL_WAKE_LOCK 会阻止 CPU 进入深度睡眠，每天额外消耗 12-30% 电池。
+     */
+
     override fun onCreate() {
         super.onCreate()
         try {
@@ -117,10 +123,12 @@ class BackgroundMonitorService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID, CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_LOW  // 静默通知，不打扰用户
+                NotificationManager.IMPORTANCE_DEFAULT  // 默认可见性，防止国产 ROM 静默降级
             ).apply {
                 description = "保持后台监控运行，确保通知功能正常工作"
                 setShowBadge(false)  // 不在应用图标上显示角标
+                setSound(null, null) // 不播放声音，但仍然可见
+                enableVibration(false)
             }
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
@@ -144,7 +152,7 @@ class BackgroundMonitorService : Service() {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setShowWhen(false)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
     }

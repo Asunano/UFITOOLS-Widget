@@ -1,25 +1,5 @@
 # 更新日志
 
-## v0.1 (2026-06-04)
-
-- fix: detached HEAD push & CHANGELOG rewrite
-- Merge branch 'main' of https://github.com/Asunano/UFITOOLS-Widget
-- chore: prepare v0.1 release
-- Update README with feature image and description
-- Add files via upload
-- Merge branch 'main' of https://github.com/Asunano/UFITOOLS-Widget
-- refactor: UI overhaul, CI pipeline, cleanup unused deps
-- Add files via upload
-- fix: add contents:write permission for GitHub Release creation
-- feat: 添加应用内更新检查、调试日志、主题联动、版本管理
-- 重构: 统一4x2小组件、主题背景联动、三级导航、快捷方式权限
-- fix
-- fix
-- fix
-- Initial commit：UFI随身WiFi小组件源码
-- Initial commit
-
-
 ## v0.1 (2026-06-05)
 
 ### ✨ 新功能

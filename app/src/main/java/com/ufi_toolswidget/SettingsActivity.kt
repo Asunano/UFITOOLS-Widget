@@ -6,15 +6,17 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import com.ufi_toolswidget.util.AnimationUtil
 import com.ufi_toolswidget.util.BackgroundUtil
+import com.ufi_toolswidget.util.CommonSettingsItemHelper
+import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.ThemeUtil
-
 class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_settings)
-        BackgroundUtil.applyWindowBackground(this)
+        // ThemeUtil.applyTheme 内部已调用 BackgroundUtil.initActivity → applyWindowBackground
+        // 此处不再重复调用，避免背景位图被解码两次
         ThemeUtil.applyTheme(this, ThemeUtil.PageType.SETTINGS_LIST)
 
         // 返回
@@ -49,11 +51,18 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<android.view.View>(R.id.card_about).setOnClickListener {
             startActivity(Intent(this, AboutActivity::class.java))
         }
+
+        // ===== 流量记录 → TrafficHistoryActivity =====
+        findViewById<android.view.View>(R.id.card_traffic_history).setOnClickListener {
+            startActivity(Intent(this, TrafficHistoryActivity::class.java))
+        }
+
+
     }
 
     override fun onResume() {
         super.onResume()
-        BackgroundUtil.applyWindowBackground(this)
+        // ThemeUtil.applyTheme 内部已调用 BackgroundUtil.initActivity → applyWindowBackground
         ThemeUtil.applyTheme(this, ThemeUtil.PageType.SETTINGS_LIST)
     }
 }

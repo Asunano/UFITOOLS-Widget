@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipToPadding="false"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:id="@+id/content_layout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+    <!-- Header -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:paddingTop="24dp"
+            android:paddingBottom="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="流量记录"
+                android:textColor="@color/text_main"
+                android:textSize="28sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.02" />
+
+            <TextView
+                android:id="@+id/tv_traffic_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="每日流量使用历史"
+                android:textColor="@color/text_main"
+                android:alpha="0.45"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_back"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_gravity="start|top"
+            android:layout_marginTop="6dp"
+            app:icon="@drawable/ic_arrow_back"
+            app:iconTint="@color/text_main" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_traffic_settings"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_gravity="end|top"
+            android:layout_marginTop="6dp"
+            app:icon="@drawable/ic_settings"
+            app:iconTint="@color/text_main" />
+    </FrameLayout>
+
+    <!-- 总开关（使用公共组件） -->
+    <include
+        android:id="@+id/item_traffic_master_switch"
+        layout="@layout/layout_common_switch_item"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="20dp"
+        android:layout_marginBottom="8dp" />
+
+    <!-- Tab bar: Daily / Monthly -->
+    <LinearLayout
+        android:id="@+id/layout_tab_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="20dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/bg_widget_card"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:padding="4dp">
+
+        <TextView
+            android:id="@+id/tab_daily"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="每日"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <TextView
+            android:id="@+id/tab_monthly"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:layout_marginStart="1dp"
+            android:gravity="center"
+            android:text="月度"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+
+    <!-- Empty state -->
+    <TextView
+        android:id="@+id/tv_traffic_empty"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="80dp"
+        android:text="暂无流量记录"
+        android:textColor="@color/text_main"
+        android:alpha="0.4"
+        android:textSize="15sp"
+        android:visibility="gone" />
+
+    <!-- Records list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recycler_traffic_records"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginHorizontal="20dp"
+        android:layout_marginTop="4dp"
+        android:clipToPadding="false"
+        android:paddingBottom="32dp"
+        android:visibility="visible" />
+
+    </LinearLayout>
+
+</FrameLayout>

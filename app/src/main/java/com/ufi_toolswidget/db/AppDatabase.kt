@@ -15,14 +15,34 @@ import org.json.JSONArray
  *
  * 首次创建时自动从旧 SharedPreferences 迁移历史警报数据。
  */
-@Database(entities = [AlertRecord::class], version = 1, exportSchema = false)
+@Database(entities = [AlertRecord::class, TrafficRecord::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun alertDao(): AlertDao
+    abstract fun trafficDao(): TrafficDao
 
     companion object {
         @Volatile
         private var instance: AppDatabase? = null
+
+        private val MIGRATION_1_TO_2 = Migration(1, 2) { db ->
+            db.execSQL("CREATE TABLE IF NOT EXISTS `traffic_records` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `dateKey` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, `dailyRawBytes` INTEGER NOT NULL, `monthlyRawBytes` INTEGER NOT NULL)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_traffic_records_dateKey` ON `traffic_records` (`dateKey`)")
+        }
+
+        private val MIGRATION_2_TO_3 = Migration(2, 3) { db ->
+            // 添加 recordType 列，已有记录默认标记为 "daily"
+            db.execSQL("ALTER TABLE `traffic_records` ADD COLUMN `recordType` TEXT NOT NULL DEFAULT 'daily'")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_traffic_records_recordType` ON `traffic_records` (`recordType`)")
+            // 将已有的每小时格式记录（dateKey 长度 > 10）标记为 "hourly"
+            db.execSQL("UPDATE `traffic_records` SET `recordType` = 'hourly' WHERE length(`dateKey`) > 10")
+        }
+
+        private val MIGRATION_3_TO_4 = Migration(3, 4) { db ->
+            // 为 alerts 表添加索引，优化分页查询和过滤排序性能
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_alerts_timestamp` ON `alerts` (`timestamp`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_alerts_type_isRead_timestamp` ON `alerts` (`type`, `isRead`, `timestamp`)")
+        }
 
         fun getInstance(context: Context): AppDatabase {
             return instance ?: synchronized(this) {
@@ -31,8 +51,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "ufitools.db"
                 )
-                    .allowMainThreadQueries()
                     .addCallback(MigrationCallback(context.applicationContext))
+                    .addMigrations(MIGRATION_1_TO_2, MIGRATION_2_TO_3, MIGRATION_3_TO_4)
                     .build()
                     .also { instance = it }
             }
@@ -42,13 +62,15 @@ abstract class AppDatabase : RoomDatabase() {
     /**
      * 数据库首次创建回调：从旧 SharedPreferences 迁移历史警报。
      */
+
     private class MigrationCallback(private val appContext: Context) : Callback() {
         override fun onCreate(db: SupportSQLiteDatabase) {
             super.onCreate(db)
-            migrateFromSp()
+            // 直接使用传入的 db 实例进行迁移，避免调用 getInstance() 导致递归重入
+            migrateFromSp(db)
         }
 
-        private fun migrateFromSp() {
+        private fun migrateFromSp(db: SupportSQLiteDatabase) {
             try {
                 val sp = SPUtil.getSp(appContext)
                 val json = sp.getString("alert_history_json", "") ?: return
@@ -57,20 +79,17 @@ abstract class AppDatabase : RoomDatabase() {
                 val arr = JSONArray(json)
                 if (arr.length() == 0) return
 
-                val database = getInstance(appContext)
-                val dao = database.alertDao()
-
                 for (i in 0 until arr.length()) {
                     val obj = arr.getJSONObject(i)
-                    dao.insert(
-                        AlertRecord(
-                            type = obj.optString("type", ""),
-                            title = obj.optString("title", ""),
-                            message = obj.optString("message", ""),
-                            timestamp = obj.optLong("timestamp"),
-                            isRead = obj.optBoolean("isRead", false)
-                        )
-                    )
+                    // 直接通过 SupportSQLiteDatabase 插入，绕过 DAO 层（此时 Room 尚未就绪）
+                    val values = android.content.ContentValues().apply {
+                        put("type", obj.optString("type", ""))
+                        put("title", obj.optString("title", ""))
+                        put("message", obj.optString("message", ""))
+                        put("timestamp", obj.optLong("timestamp"))
+                        put("isRead", if (obj.optBoolean("isRead", false)) 1 else 0)
+                    }
+                    db.insert("alerts", android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE, values)
                 }
 
                 sp.edit().putBoolean("alert_history_migrated_to_room", true).apply()

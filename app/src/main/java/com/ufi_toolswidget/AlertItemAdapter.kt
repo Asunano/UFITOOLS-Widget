@@ -35,6 +35,18 @@ class AlertItemAdapter(
             override fun areContentsTheSame(oldItem: AlertRecord, newItem: AlertRecord) =
                 oldItem == newItem
         }
+
+        /** 缓存 SimpleDateFormat，避免每次 onBindViewHolder 都创建新实例 */
+        private val timeFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+    }
+
+    /** 缓存 Palette 和暗色模式，避免每个 item 都触发 current() -> getById() 链 */
+    private var cachedPalette: ThemeColors.Palette? = null
+    private var cachedIsDark: Boolean = false
+
+    /** 主题变更时调用，强制下次 onBindViewHolder 重新获取 Palette */
+    fun invalidateThemeCache() {
+        cachedPalette = null
     }
 
     inner class AlertViewHolder(val card: com.google.android.material.card.MaterialCardView) :
@@ -43,9 +55,13 @@ class AlertItemAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): AlertViewHolder {
         val ctx = parent.context
         val d = ctx.resources.displayMetrics.density
-        val textPrimary = ThemeColors.textPrimary(ctx)
-        val textSecondary = ThemeColors.textSecondary(ctx)
-        val cardBg = ThemeColors.cardBg(ctx)
+        // 缓存 Palette，后续 onBindViewHolder 复用
+        val palette = ThemeColors.current(ctx)
+        cachedPalette = palette
+        cachedIsDark = ThemeColors.isDark(ctx)
+        val textPrimary = if (cachedIsDark) palette.textPrimaryDark else palette.textPrimaryLight
+        val textSecondary = if (cachedIsDark) palette.textSecondaryDark else palette.textSecondaryLight
+        val cardBg = if (cachedIsDark) palette.cardBgDark else palette.cardBgLight
 
         val card = com.google.android.material.card.MaterialCardView(ctx).apply {
             radius = 14 * d
@@ -70,9 +86,11 @@ class AlertItemAdapter(
         }
 
         // 色条（常驻，未读=accent，已读=secondary半透）
+        // 预创建 GradientDrawable，bind 时仅更新颜色避免重复分配
         val bar = View(ctx).apply {
             layoutParams = LinearLayout.LayoutParams((3 * d).toInt(), (40 * d).toInt())
             tag = "bar"
+            background = GradientDrawable().apply { cornerRadius = 2 * d }
         }
         content.addView(bar)
 
@@ -159,28 +177,29 @@ class AlertItemAdapter(
         val record = getItem(position) ?: return
         val ctx = holder.itemView.context
         val d = ctx.resources.displayMetrics.density
-        val accent = ThemeColors.accent(ctx)
-        val textPrimary = ThemeColors.textPrimary(ctx)
-        val textSecondary = ThemeColors.textSecondary(ctx)
+        // 使用缓存的 Palette，避免每个 item 都触发 current() -> getById() 链
+        val palette = cachedPalette ?: ThemeColors.current(ctx).also {
+            cachedPalette = it
+            cachedIsDark = ThemeColors.isDark(ctx)
+        }
+        val isDark = cachedIsDark
+        val accent = if (isDark) palette.accentDark else palette.accentLight
+        val textPrimary = if (isDark) palette.textPrimaryDark else palette.textPrimaryLight
+        val textSecondary = if (isDark) palette.textSecondaryDark else palette.textSecondaryLight
 
         val content = holder.card.getChildAt(0) as LinearLayout
 
-        // 色条 — 常驻显示
+        // 色条 — 复用预创建的 GradientDrawable，仅更新颜色
         val bar = content.findViewWithTag<View>("bar")
         val barGap = content.findViewWithTag<View>("barGap")
+        val barBg = bar.background as? GradientDrawable
         if (!record.isRead) {
             bar.visibility = View.VISIBLE
-            bar.background = GradientDrawable().apply {
-                cornerRadius = 2 * d
-                setColor(accent)
-            }
+            barBg?.setColor(accent)
             barGap.visibility = View.VISIBLE
         } else {
             bar.visibility = View.VISIBLE
-            bar.background = GradientDrawable().apply {
-                cornerRadius = 2 * d
-                setColor((textSecondary and 0x00FFFFFF) or 0x30000000)
-            }
+            barBg?.setColor((textSecondary and 0x00FFFFFF) or 0x30000000)
             barGap.visibility = View.VISIBLE
         }
 
@@ -198,10 +217,9 @@ class AlertItemAdapter(
         title.setTypeface(null, if (!record.isRead) Typeface.BOLD else Typeface.NORMAL)
         title.alpha = if (record.isRead) 0.75f else 1f
 
-        // 时间（标题行右侧）
+        // 时间（标题行右侧）— 使用 companion 缓存的 SimpleDateFormat
         val time = content.findViewWithTag<TextView>("time")
-        time.text = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
-            .format(Date(record.timestamp))
+        time.text = timeFormat.format(Date(record.timestamp))
 
         // 消息
         val message = content.findViewWithTag<TextView>("message")
@@ -213,7 +231,7 @@ class AlertItemAdapter(
     }
 
     private fun typeToIconRes(type: String): Int = when (type) {
-        "daily_flow", "monthly_flow" -> R.drawable.ic_rocket
+        "daily_flow", "monthly_flow" -> R.drawable.ic_clock_bolt
         "temp" -> R.drawable.ic_temp
         "cpu" -> R.drawable.ic_cpu
         "memory" -> R.drawable.ic_chip

@@ -58,19 +58,25 @@
                 app:iconTint="@color/text_main" />
         </FrameLayout>
 
-        <!-- ========== 服务开关 ========== -->
+        <!-- ========== 核心保活 ========== -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="20dp"
             android:layout_marginTop="8dp"
             android:layout_marginBottom="6dp"
-            android:text="服务开关"
+            android:text="核心保活"
             android:textColor="@color/text_main"
             android:alpha="0.6"
             android:textSize="13sp"
             android:textStyle="bold" />
 
+        <!-- 无障碍服务（最有效，置于首位） -->
+        <include
+            layout="@layout/layout_common_setting_item"
+            android:id="@+id/item_accessibility_service" />
+
+        <!-- 前台保活服务开关 -->
         <include
             layout="@layout/layout_common_switch_item"
             android:id="@+id/item_background_service" />
@@ -82,18 +88,6 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:visibility="gone">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginHorizontal="20dp"
-                android:layout_marginTop="20dp"
-                android:layout_marginBottom="6dp"
-                android:text="通知自定义"
-                android:textColor="@color/text_main"
-                android:alpha="0.6"
-                android:textSize="13sp"
-                android:textStyle="bold" />
 
             <include
                 layout="@layout/layout_common_setting_item"
@@ -120,6 +114,36 @@
         <include
             layout="@layout/layout_common_setting_item"
             android:id="@+id/item_auto_start" />
+
+        <!-- ========== 自动恢复 ========== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="6dp"
+            android:text="自动恢复"
+            android:textColor="@color/text_main"
+            android:alpha="0.6"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <include
+            layout="@layout/layout_common_switch_item"
+            android:id="@+id/item_auto_recover" />
+
+        <!-- ========== 保活增强 ========== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="6dp"
+            android:text="保活增强"
+            android:textColor="@color/text_main"
+            android:alpha="0.6"
+            android:textSize="13sp"
+            android:textStyle="bold" />
 
         <LinearLayout
             style="@style/AppCard"
@@ -148,34 +172,9 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <!-- ========== 保活增强 ========== -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginHorizontal="20dp"
-            android:layout_marginTop="20dp"
-            android:layout_marginBottom="6dp"
-            android:text="保活增强"
-            android:textColor="@color/text_main"
-            android:alpha="0.6"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
         <include
             layout="@layout/layout_common_switch_item"
             android:id="@+id/item_hide_recents" />
-
-        <include
-            layout="@layout/layout_common_switch_item"
-            android:id="@+id/item_periodic_worker" />
-
-        <include
-            layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_periodic_worker_interval" />
-
-        <include
-            layout="@layout/layout_common_setting_item"
-            android:id="@+id/item_accessibility_service" />
 
     </LinearLayout>
 </ScrollView>

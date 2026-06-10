@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ufi_toolswidget.util.DebugLogger
 import com.ufi_toolswidget.util.SPUtil
+import com.ufi_toolswidget.util.TrafficRecordManager
 import com.ufi_toolswidget.util.WifiCrawl
 import com.ufi_toolswidget.util.WifiEntity
 import com.ufi_toolswidget.worker.WifiWorker
@@ -129,23 +130,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _activeDialogType.value = null
                     }
                     WifiWorker.resetFailureState(appCtx)
-                    // SPUtil.saveData 涉及磁盘 I/O，在 IO 线程异步执行避免阻塞主线程
+                    // SPUtil.saveData 和 TrafficRecordManager.saveRecord 涉及 I/O，合并在单个 IO 块中执行
                     kotlinx.coroutines.withContext(Dispatchers.IO) {
                         SPUtil.saveData(appCtx, data)
+                        TrafficRecordManager.saveRecord(appCtx, data.dailyRawBytes, data.monthlyRawBytes)
                     }
                     BaseWifiWidget.renderAllWidgets(appCtx)
                     onSuccess(data)
                 } else {
                     _isLoading.value = false
-                    val error = WifiCrawl.lastError
+                    val error = WifiCrawl.lastError.ifEmpty { "未知错误" }
                     _lastError.value = error
 
                     // 前台使用独立的内存计数器，不递增 Worker 的 SP 计数器
                     // 避免用户手动刷新几次失败后误停后台 Worker
-                    val isNetworkError = error.contains("Network error", ignoreCase = true) ||
-                        error.contains("timeout", ignoreCase = true) ||
-                        error.contains("connect", ignoreCase = true) ||
-                        error.contains("refused", ignoreCase = true)
+                    val errorLower = error.lowercase()
+                    val isNetworkError = errorLower.contains("network error") ||
+                        errorLower.contains("timeout") ||
+                        errorLower.contains("connect") ||
+                        errorLower.contains("refused")
 
                     if (isNetworkError) {
                         foregroundNetworkFailures++
@@ -170,7 +173,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     // 未达阈值：Toast 提示
-                    if (error.contains("401") || error.contains("Unauthorized")) {
+                    if (error.contains("401") || error.contains("Unauthorized", ignoreCase = true)) {
                         onToast("访问受限，请在设置中检查管理口令", true)
                     } else {
                         onToast("同步失败: ${error.ifEmpty { "网络超时" }}", false)
@@ -250,6 +253,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             pinStatusCode = -1,
             monthlyUploadBytes = 0L,
             monthlyDownloadBytes = 0L,
+            dailyRawBytes = 0L,
+            monthlyRawBytes = 0L,
         )
     }
 }

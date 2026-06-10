@@ -146,7 +146,7 @@
                     android:textSize="13sp" />
             </LinearLayout>
 
-            <!-- 左上角：警报历史按钮 -->
+            <!-- 左上角：通知历史按钮 -->
             <LinearLayout
                 android:id="@+id/btn_alert_history"
                 android:layout_width="wrap_content"
@@ -183,7 +183,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
-                    android:text="警报"
+                    android:text="通知"
                     android:textSize="13sp"
                     android:textColor="@color/text_main"
                     android:duplicateParentState="true" />
@@ -454,8 +454,12 @@
                     android:alpha="0.1" />
 
                 <LinearLayout
+                    android:id="@+id/main_item_traffic"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackground"
                     android:orientation="horizontal">
 
                     <LinearLayout

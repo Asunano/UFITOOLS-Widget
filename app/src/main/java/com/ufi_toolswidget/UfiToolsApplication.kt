@@ -3,12 +3,15 @@ package com.ufi_toolswidget
 import android.app.Application
 import android.os.Build
 import com.google.android.material.color.DynamicColors
+import com.ufi_toolswidget.service.AlarmReceiver
 import com.ufi_toolswidget.service.BackgroundMonitorService
 import com.ufi_toolswidget.util.AlertHistoryManager
 import com.ufi_toolswidget.util.CrashHandler
 import com.ufi_toolswidget.util.DebugLogger
 import com.ufi_toolswidget.util.NotificationHelper
 import com.ufi_toolswidget.util.NotificationMonitor
+import com.ufi_toolswidget.util.TrafficRecordManager
+import com.ufi_toolswidget.util.WidgetBitmapCache
 
 /**
  * 全局 Application 入口。
@@ -45,6 +48,9 @@ class UfiToolsApplication : Application() {
         // 初始化警报历史 Room 数据库（首次启动时自动从旧 SP 迁移）
         AlertHistoryManager.initDatabase(this)
 
+        // 初始化流量记录 Room 数据库
+        TrafficRecordManager.initDatabase(this)
+
         // 启动后台通知监控器：独立协程定时轻量检查阈值，
         // 不依赖任何 Activity，应用存活期间持续运行
         NotificationMonitor.start(this)
@@ -55,5 +61,15 @@ class UfiToolsApplication : Application() {
         } catch (e: Exception) {
             DebugLogger.w("UfiToolsApp", "BackgroundMonitorService syncState failed: ${e.message}")
         }
+
+        // 调度 Doze 穿透闹钟：确保 CPU 休眠后仍能执行通知检查
+        try {
+            AlarmReceiver.scheduleNext(this)
+        } catch (e: Exception) {
+            DebugLogger.w("UfiToolsApp", "AlarmReceiver scheduleNext failed: ${e.message}")
+        }
+
+        // 注册 WidgetBitmapCache 内存压力回调，系统内存不足时自动清理 Bitmap 缓存
+        WidgetBitmapCache.register(this)
     }
 }

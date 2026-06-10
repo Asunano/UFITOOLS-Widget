@@ -233,8 +233,8 @@ jobs:
 
           PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           PUBLISHED_DATE="$(date -u +%Y-%m-%d)"
-          # versionCode 使用 Unix 时间戳，保证严格递增（避免 tag 数量回退问题）
-          VERSION_CODE=$(date -u +%s)
+          # versionCode 从 build.gradle.kts 读取，与 APK 实际 versionCode 保持一致
+          VERSION_CODE=$(grep 'versionCode' app/build.gradle.kts | head -1 | grep -oP '\d+')
 
           # ===== 1. 生成 version.json =====
           jq -n \

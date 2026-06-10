@@ -60,6 +60,8 @@ object SPUtil {
             .putBoolean("need_token", data.needToken)
             .putString("update_time", time)
             .putInt("sp_cached_data_hash", dataHash)
+            // 同时保存 AT 命令解析的网络制式，供小组件优先使用（AT 比 Goform 稳定）
+            .putString("at_net_type", data.atNetworkInfo?.networkType ?: "")
             .apply()
     }
 
@@ -93,6 +95,9 @@ object SPUtil {
 
     /** 读取缓存的 widget 数据哈希（由 [saveData] 写入），0 表示尚未缓存 */
     fun getCachedDataHash(ctx: Context): Int = getSp(ctx).getInt("sp_cached_data_hash", 0)
+
+    /** 获取 AT 命令解析的网络制式（小组件优先使用，比 Goform 稳定） */
+    fun getAtNetType(ctx: Context): String = getSp(ctx).getString("at_net_type", "") ?: ""
 
     // 认证与配置
     fun saveRawToken(ctx: Context, token: String) = getSp(ctx).edit().putString("raw_token", token).apply()
@@ -167,6 +172,9 @@ object SPUtil {
     fun setShowBattery(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_battery", show).apply()
     fun setShowMem(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_mem", show).apply()
 
+    fun getShowDivider(ctx: Context) = getSp(ctx).getBoolean("show_divider", true)
+    fun setShowDivider(ctx: Context, show: Boolean) = getSp(ctx).edit().putBoolean("show_divider", show).apply()
+
     /** 统计已启用的显示项数量 */
     fun getEnabledCount(ctx: Context): Int {
         var count = 0
@@ -178,6 +186,7 @@ object SPUtil {
         if (getShowTime(ctx)) count++
         if (getShowBattery(ctx)) count++
         if (getShowMem(ctx)) count++
+        if (getShowDivider(ctx)) count++
         return count
     }
 
@@ -188,6 +197,7 @@ object SPUtil {
         val showFlow: Boolean, val showSignal: Boolean, val showTemp: Boolean,
         val showCpu: Boolean, val showModel: Boolean, val showTime: Boolean,
         val showBattery: Boolean, val showMem: Boolean,
+        val showDivider: Boolean,
         val isDark: Boolean, val shouldClip: Boolean,
         val bgOpacity: Int, val bgImageUri: String
     )
@@ -204,6 +214,7 @@ object SPUtil {
             showTime = sp.getBoolean("show_time", true),
             showBattery = sp.getBoolean("show_battery", true),
             showMem = sp.getBoolean("show_mem", true),
+            showDivider = sp.getBoolean("show_divider", true),
             isDark = isWidgetDark(ctx),
             shouldClip = sp.getBoolean("widget_clip_to_outline", false),
             bgOpacity = sp.getInt("widget_bg_opacity", 100),
@@ -234,6 +245,15 @@ object SPUtil {
     fun getWorkerFailureSummary(ctx: Context): String {
         if (!isWorkerStopped(ctx)) return ""
         return getWorkerStopReason(ctx).ifEmpty { "unknown" }
+    }
+
+    /** 小组件是否处于「正在重试」状态（用户点击刷新后、Worker 执行完毕前） */
+    fun isReconnecting(ctx: Context) = getSp(ctx).getBoolean("widget_reconnecting", false)
+
+    /** 设置小组件「正在重试」状态 */
+    fun setReconnecting(ctx: Context, value: Boolean) {
+        getSp(ctx).edit().putBoolean("widget_reconnecting", value).apply()
+        DebugLogger.d("SPUtil", "setReconnecting=$value")
     }
 
     /** 原子递增网络失败计数，返回递增后的值 */
@@ -623,7 +643,11 @@ object SPUtil {
                 java.io.FileOutputStream(file).use { output ->
                     input.copyTo(output)
                 }
-            } ?: return null
+            } ?: run {
+                // openInputStream 返回 null 时清理已创建的空文件
+                if (file.exists()) file.delete()
+                return null
+            }
             file.absolutePath
         } catch (e: Exception) {
             DebugLogger.w("SPUtil", "saveWidgetBgImageToInternal failed: ${e.message}")
@@ -907,5 +931,53 @@ object SPUtil {
     /** 无障碍保活服务开关（记录用户意图，实际状态由系统控制） */
     fun getAccessibilityKeepAlive(ctx: Context): Boolean = getSp(ctx).getBoolean("accessibility_keep_alive", false)
     fun setAccessibilityKeepAlive(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("accessibility_keep_alive", enabled).apply()
+
+    /** 进程死亡自动恢复开关：当进程被杀死后通过 AlarmReceiver 自动恢复服务和监控 */
+    fun getAutoRecoverEnabled(ctx: Context): Boolean = getSp(ctx).getBoolean("auto_recover_enabled", false)
+    fun setAutoRecoverEnabled(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("auto_recover_enabled", enabled).apply()
+
+    // ══════════════════════════════════════════════
+    // 流量每小时记录设置
+    // ══════════════════════════════════════════════
+
+    /** 是否开启每小时流量记录 */
+    fun getTrafficHourlyRecordEnabled(ctx: Context): Boolean = getSp(ctx).getBoolean("traffic_hourly_record", false)
+    fun setTrafficHourlyRecordEnabled(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("traffic_hourly_record", enabled).apply()
+
+    // ══════════════════════════════════════════════
+    // 月流量重置日（1~28，默认 1 表示每月 1 日重置）
+    // ══════════════════════════════════════════════
+
+    /** 获取月流量重置日（1~28） */
+    fun getTrafficMonthlyResetDay(ctx: Context): Int = getSp(ctx).getInt("traffic_monthly_reset_day", 1)
+    /** 设置月流量重置日（1~28） */
+    fun setTrafficMonthlyResetDay(ctx: Context, day: Int) = getSp(ctx).edit().putInt("traffic_monthly_reset_day", day.coerceIn(1, 28)).apply()
+
+    // ══════════════════════════════════════════════
+    // 流量记录总开关
+    // ══════════════════════════════════════════════
+
+    /** 是否开启流量记录功能 */
+    fun getTrafficRecordEnabled(ctx: Context): Boolean = getSp(ctx).getBoolean("traffic_record_enabled", false)
+    /** 设置流量记录功能开关 */
+    fun setTrafficRecordEnabled(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("traffic_record_enabled", enabled).apply()
+
+    // ══════════════════════════════════════════════
+    // 流量记录快捷入口
+    // ══════════════════════════════════════════════
+
+    /** 是否开启流量快捷入口（主界面点击流量信息跳转） */
+    fun getTrafficQuickEntryEnabled(ctx: Context): Boolean = getSp(ctx).getBoolean("traffic_quick_entry", false)
+    /** 设置流量快捷入口开关 */
+    fun setTrafficQuickEntryEnabled(ctx: Context, enabled: Boolean) = getSp(ctx).edit().putBoolean("traffic_quick_entry", enabled).apply()
+
+    // ══════════════════════════════════════════════
+    // 流量历史分页设置
+    // ══════════════════════════════════════════════
+
+    /** 获取流量记录每页显示条数（默认 30） */
+    fun getTrafficPageSize(ctx: Context): Int = getSp(ctx).getInt("traffic_page_size", 30)
+    /** 设置流量记录每页显示条数 */
+    fun setTrafficPageSize(ctx: Context, size: Int) = getSp(ctx).edit().putInt("traffic_page_size", size).apply()
 
 }

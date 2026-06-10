@@ -1,36 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/crop_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bg_window_scrim_dark">
+    android:fitsSystemWindows="true">
 
-    <!-- 顶部栏 -->
+    <!-- 顶部栏（参照 AppSettingsActivity 的 Header 样式：paddingTop=24dp, paddingBottom=24dp） -->
     <FrameLayout
         android:id="@+id/crop_top_bar"
         android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:background="#22000000"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
         app:layout_constraintTop_toTopOf="parent">
 
-        <ImageView
-            android:id="@+id/btn_cancel"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="start|center_vertical"
-            android:layout_marginStart="8dp"
-            android:padding="12dp"
-            android:src="@drawable/ic_arrow_back"
-            app:tint="#FFFFFF" />
-
-        <TextView
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:text="调整背景图片"
-            android:textColor="#FFFFFF"
-            android:textSize="17sp"
-            android:textStyle="bold" />
+            android:gravity="center"
+            android:orientation="vertical"
+            android:paddingTop="24dp"
+            android:paddingBottom="24dp">
+
+            <TextView
+                android:id="@+id/crop_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="调整背景图片"
+                android:textSize="28sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.02" />
+
+            <TextView
+                android:id="@+id/crop_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="裁切并调整背景图片"
+                android:alpha="0.45"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_cancel"
+            style="@style/Widget.Material3.Button.IconButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_gravity="start|top"
+            android:layout_marginTop="6dp"
+            android:background="@android:color/transparent"
+            app:icon="@drawable/ic_arrow_back" />
     </FrameLayout>
 
     <!-- 主展示区 -->
@@ -51,18 +70,12 @@
         android:paddingHorizontal="20dp"
         app:layout_constraintBottom_toBottomOf="parent">
 
-        <com.google.android.material.button.MaterialButton
+        <include
+            layout="@layout/layout_common_action_button"
             android:id="@+id/btn_done"
-            style="@style/Widget.Material3.Button"
             android:layout_width="match_parent"
             android:layout_height="52dp"
-            android:layout_gravity="center"
-            android:text="确定并裁切"
-            android:textColor="#FFFFFF"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            app:backgroundTint="@color/transparent"
-            app:cornerRadius="26dp" />
+            android:layout_gravity="center" />
     </FrameLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

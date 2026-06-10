@@ -1,35 +1,30 @@
 package com.ufi_toolswidget.util
 
-import android.app.Dialog
+import android.animation.AnimatorListenerAdapter
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import com.google.android.material.button.MaterialButton
 import com.ufi_toolswidget.R
 
 /**
- * 翻页栏公共组件 — 固定页面底部，支持首页/上一页/页码/下一页/末页 + 点击跳转。
+ * 翻页栏公共组件 — 胶囊形式，固定页面底部，支持首页/上一页/页码/下一页/末页 + 点击跳转。
  *
  * 使用方式：
  * ```kotlin
- * val bar = PaginationBarHelper.create(context) { action ->
- *     when (action) {
- *         PaginationBarHelper.Action.FIRST -> viewModel.firstPage()
- *         PaginationBarHelper.Action.PREV  -> viewModel.prevPage()
- *         PaginationBarHelper.Action.NEXT  -> viewModel.nextPage()
- *         PaginationBarHelper.Action.LAST  -> viewModel.lastPage()
- *         is PaginationBarHelper.Action.Jump -> viewModel.goToPage(action.page)
- *     }
- * }
- * rootLayout.addView(bar)
- * PaginationBarHelper.update(bar, currentPage = 2, totalPages = 5)
+ * val bar = PaginationBarHelper.create(context) { action -> ... }
+ * rootLayout.addView(bar, FrameLayout.LayoutParams(...))
+ * PaginationBarHelper.update(bar, currentPage, totalPages)
+ * PaginationBarHelper.fadeVisibility(bar, totalPages > 1)
  * ```
  */
 object PaginationBarHelper {
@@ -41,6 +36,20 @@ object PaginationBarHelper {
         object LAST : Action()
         data class Jump(val page: Int) : Action()
     }
+
+    // ── 尺寸常量 ──
+    private const val BTN_SIZE_DP      = 28f
+    private const val ICON_SIZE_DP     = 16f
+    private const val PAGE_TEXT_SP     = 11f
+    private const val BAR_HPAD_DP      = 6f       // 缩小水平内边距，首末页按钮更贴近边框
+    private const val BAR_VPAD_DP      = 5f
+    private const val BTN_MARGIN_DP    = 0.5f
+    private const val PAGE_MARGIN_DP   = 6f
+    private const val PAGE_HPAD_DP     = 10f
+    private const val PAGE_VPAD_DP     = 3f
+    private const val BAR_CORNER_DP    = 30f      // 胶囊圆角加强
+    private const val PAGE_CORNER_DP   = 7f
+    private const val STROKE_WIDTH_DP  = 1.5f
 
     /**
      * 创建翻页栏（返回 LinearLayout，添加到布局即可）。
@@ -54,68 +63,71 @@ object PaginationBarHelper {
         val bar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            val hPad = (16 * d).toInt()
-            setPadding(hPad, (6 * d).toInt(), hPad, (10 * d).toInt())
+            setPadding(
+                (BAR_HPAD_DP * d).toInt(), (BAR_VPAD_DP * d).toInt(),
+                (BAR_HPAD_DP * d).toInt(), (BAR_VPAD_DP * d).toInt()
+            )
             tag = "pagination_bar"
 
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { gravity = Gravity.CENTER_HORIZONTAL }
+
+            val strokeColor = if (ThemeColors.isDark(context)) 0x30FFFFFF.toInt() else 0x28000000
             background = GradientDrawable().apply {
                 setColor(cardBg)
-                setStroke((1 * d).toInt(), (textSec and 0x00FFFFFF) or 0x20000000)
-                cornerRadius = 16 * d
+                setStroke((STROKE_WIDTH_DP * d).toInt(), strokeColor)
+                cornerRadius = BAR_CORNER_DP * d
             }
         }
 
-        // 首页
-        val btnFirst = iconBtn(context, "⟨⟨", textSec).apply { tag = "btn_first" }
-        btnFirst.setOnClickListener { onAction(Action.FIRST) }
-        bar.addView(btnFirst, btnLp(d))
-
-        // 上一页
-        val btnPrev = iconBtn(context, "⟨", textSec).apply { tag = "btn_prev" }
-        btnPrev.setOnClickListener { onAction(Action.PREV) }
-        bar.addView(btnPrev, btnLp(d))
+        // 首页 (|<)
+        bar.addView(iconBtn(context, R.drawable.ic_chevron_left_pipe, textSec) { onAction(Action.FIRST) }.apply { tag = "btn_first" }, btnLp(d))
+        // 上一页 (<)
+        bar.addView(iconBtn(context, R.drawable.ic_chevron_left, textSec) { onAction(Action.PREV) }.apply { tag = "btn_prev" }, btnLp(d))
 
         // 页码信息（可点击跳转）
         val tvPage = TextView(context).apply {
             text = "1 / 1"
-            textSize = 14f
+            textSize = PAGE_TEXT_SP
             setTextColor(ThemeColors.textPrimary(context))
             gravity = Gravity.CENTER
             tag = "tv_page_info"
-            val lp = LinearLayout.LayoutParams(
+            layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                marginStart = (12 * d).toInt()
-                marginEnd = (12 * d).toInt()
+                marginStart = (PAGE_MARGIN_DP * d).toInt()
+                marginEnd = (PAGE_MARGIN_DP * d).toInt()
             }
-            layoutParams = lp
-            setPadding((10 * d).toInt(), (4 * d).toInt(), (10 * d).toInt(), (4 * d).toInt())
+            setPadding(
+                (PAGE_HPAD_DP * d).toInt(), (PAGE_VPAD_DP * d).toInt(),
+                (PAGE_HPAD_DP * d).toInt(), (PAGE_VPAD_DP * d).toInt()
+            )
             background = GradientDrawable().apply {
                 setColor((accent and 0x00FFFFFF) or 0x15000000)
-                cornerRadius = 8 * d
+                cornerRadius = PAGE_CORNER_DP * d
             }
             isClickable = true
             isFocusable = true
         }
+        applyPressEffect(tvPage, scale = 0.9f) { bg ->
+            bg.setColor((accent and 0x00FFFFFF) or 0x25000000)
+        }
         tvPage.setOnClickListener { showJumpDialog(context, onAction) }
         bar.addView(tvPage)
 
-        // 下一页
-        val btnNext = iconBtn(context, "⟩", textSec).apply { tag = "btn_next" }
-        btnNext.setOnClickListener { onAction(Action.NEXT) }
-        bar.addView(btnNext, btnLp(d))
-
-        // 末页
-        val btnLast = iconBtn(context, "⟩⟩", textSec).apply { tag = "btn_last" }
-        btnLast.setOnClickListener { onAction(Action.LAST) }
-        bar.addView(btnLast, btnLp(d))
+        // 下一页 (>)
+        bar.addView(iconBtn(context, R.drawable.ic_chevron_right, textSec) { onAction(Action.NEXT) }.apply { tag = "btn_next" }, btnLp(d))
+        // 末页 (>|)
+        bar.addView(iconBtn(context, R.drawable.ic_chevron_right_pipe, textSec) { onAction(Action.LAST) }.apply { tag = "btn_last" }, btnLp(d))
 
         return bar
     }
 
     /**
-     * 更新翻页栏状态（页码 + 按钮可用性）。
+     * 更新翻页栏状态（页码 + 按钮可用性 + 动画过渡）。
      */
     fun update(bar: LinearLayout, currentPage: Int, totalPages: Int) {
         val tvPage = bar.findViewWithTag<TextView>("tv_page_info")
@@ -129,13 +141,43 @@ object PaginationBarHelper {
         bar.findViewWithTag<View>("btn_next")?.isEnabled = canNext
         bar.findViewWithTag<View>("btn_last")?.isEnabled = canNext
 
-        // 禁用态半透明
+        // 禁用态动画过渡（平滑 alpha 变化）
         listOf("btn_first", "btn_prev").forEach { t ->
-            bar.findViewWithTag<View>(t)?.alpha = if (canPrev) 1f else 0.35f
+            bar.findViewWithTag<View>(t)?.animate()
+                ?.alpha(if (canPrev) 1f else 0.25f)
+                ?.setDuration(150)?.start()
         }
         listOf("btn_next", "btn_last").forEach { t ->
-            bar.findViewWithTag<View>(t)?.alpha = if (canNext) 1f else 0.35f
+            bar.findViewWithTag<View>(t)?.animate()
+                ?.alpha(if (canNext) 1f else 0.25f)
+                ?.setDuration(150)?.start()
         }
+    }
+
+    /**
+     * 渐入渐出控制翻页栏可见性。
+     */
+    fun fadeVisibility(bar: View, visible: Boolean) {
+        val targetAlpha = if (visible) 1f else 0f
+        if (bar.alpha == targetAlpha && (visible == (bar.visibility == View.VISIBLE))) return
+
+        bar.animate().cancel()
+
+        if (visible && bar.visibility != View.VISIBLE) {
+            bar.alpha = 0f
+            bar.visibility = View.VISIBLE
+        }
+
+        bar.animate()
+            .alpha(targetAlpha)
+            .setDuration(200)
+            .setInterpolator(AccelerateDecelerateInterpolator())
+            .setListener(if (!visible) object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    bar.visibility = View.GONE
+                }
+            } else null)
+            .start()
     }
 
     /**
@@ -143,7 +185,6 @@ object PaginationBarHelper {
      */
     private fun showJumpDialog(context: Context, onAction: (Action) -> Unit) {
         val d = context.resources.displayMetrics.density
-        val accent = ThemeColors.accent(context)
         val cardBg = ThemeColors.cardBg(context)
         val textPrimary = ThemeColors.textPrimary(context)
 
@@ -198,40 +239,80 @@ object PaginationBarHelper {
 
     // ── 内部工具 ──
 
-    private fun iconBtn(context: Context, text: String, color: Int): TextView {
+    /**
+     * 创建带按压动画反馈的图标按钮（ImageView + 缩放 + 背景色变化）。
+     */
+    private fun iconBtn(context: Context, iconRes: Int, color: Int, onClick: () -> Unit): ImageView {
         val d = context.resources.displayMetrics.density
-        return TextView(context).apply {
-            this.text = text
-            textSize = 18f
-            setTextColor(color)
-            gravity = Gravity.CENTER
-            val size = (36 * d).toInt()
+        val size = (BTN_SIZE_DP * d).toInt()
+        val iconSize = (ICON_SIZE_DP * d).toInt()
+
+        val iv = ImageView(context).apply {
+            setImageResource(iconRes)
+            imageTintList = ColorStateList.valueOf(color)
+            // 图标居中
+            setPadding(
+                (size - iconSize) / 2, (size - iconSize) / 2,
+                (size - iconSize) / 2, (size - iconSize) / 2
+            )
             layoutParams = LinearLayout.LayoutParams(size, size)
             isClickable = true
             isFocusable = true
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(Color.TRANSPARENT)
             }
-            // 点击反馈
-            setOnTouchListener { v, event ->
-                when (event.action) {
-                    android.view.MotionEvent.ACTION_DOWN -> {
-                        (v.background as? GradientDrawable)?.setColor((color and 0x00FFFFFF) or 0x15000000)
-                    }
-                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
-                        (v.background as? GradientDrawable)?.setColor(Color.TRANSPARENT)
+        }
+
+        val pressColor = (color and 0x00FFFFFF) or 0x18000000
+
+        iv.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.animate().scaleX(0.85f).scaleY(0.85f).setDuration(50).start()
+                    (v.background as? GradientDrawable)?.setColor(pressColor)
+                }
+                MotionEvent.ACTION_UP -> {
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                    (v.background as? GradientDrawable)?.setColor(Color.TRANSPARENT)
+                    if (event.x >= 0 && event.x <= v.width && event.y >= 0 && event.y <= v.height) {
+                        v.playSoundEffect(android.view.SoundEffectConstants.CLICK)
+                        onClick()
                     }
                 }
-                false
+                MotionEvent.ACTION_CANCEL -> {
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                    (v.background as? GradientDrawable)?.setColor(Color.TRANSPARENT)
+                }
             }
+            true
+        }
+        return iv
+    }
+
+    /**
+     * 为 View 添加通用按压效果（缩放 + 自定义背景回调）。
+     */
+    private fun applyPressEffect(view: View, scale: Float = 0.88f, onDown: ((GradientDrawable) -> Unit)? = null) {
+        view.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.animate().scaleX(scale).scaleY(scale).setDuration(50).start()
+                    (v.background as? GradientDrawable)?.let { onDown?.invoke(it) }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                }
+            }
+            false
         }
     }
 
     private fun btnLp(d: Float) = LinearLayout.LayoutParams(
-        (36 * d).toInt(), (36 * d).toInt()
+        (BTN_SIZE_DP * d).toInt(), (BTN_SIZE_DP * d).toInt()
     ).apply {
-        marginStart = (2 * d).toInt()
-        marginEnd = (2 * d).toInt()
+        marginStart = (BTN_MARGIN_DP * d).toInt()
+        marginEnd = (BTN_MARGIN_DP * d).toInt()
     }
 }

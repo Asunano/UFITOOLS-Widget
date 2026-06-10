@@ -52,11 +52,11 @@ enum class ToastStyle(val iconRes: Int) {
 object ToastUtil {
 
     /** 当前显示的装饰视图 Toast（用于自动移除） */
-    private var activeToast: View? = null
+    @Volatile private var activeToast: View? = null
     /** 待执行的自动移除任务 */
-    private var pendingRemoveRunnable: Runnable? = null
+    @Volatile private var pendingRemoveRunnable: Runnable? = null
     /** 加载中 Toast 的视图（仍使用 decorView 方式） */
-    private var activeLoadingView: View? = null
+    @Volatile private var activeLoadingView: View? = null
 
     // ── 警告色（与 CommonDialogHelper 保持一致）──
     private const val WARN_COLOR_LIGHT = 0xFFE53935.toInt()

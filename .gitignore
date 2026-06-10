@@ -1,28 +1,20 @@
+# ─── IDE & Editor ───
+.idea/
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-/.idea/gradle.xml
-/.idea/misc.xml
-/.idea/vcs.xml
-/.idea/deploymentTargetSelector.xml
-/.idea/deviceManager.xml
-/.idea/AndroidProjectSystem.xml
 .DS_Store
-/build
-/icon
+Thumbs.db
+*.swp
+
+# ─── Gradle ───
+.gradle/
+/build/
 /app/build/
 /captures
-.externalNativeBuild
-.cxx
+.externalNativeBuild/
+.cxx/
 local.properties
-/.codebuddy
-# Android
+
+# ─── Android Build ───
 /app/release/
 *.apk
 *.aab
@@ -30,21 +22,24 @@ local.properties
 *.keystore
 !gradle/wrapper/gradle-wrapper.jar
 
-# Logs / Temp / Debug
+# ─── Logs / Temp / Debug ───
 *.log
 build_log.*
 build_output.txt
+full_build.log
 stderr.txt
 stdout.txt
 logs/
 *.hprof
 *.tmp
 
-# IDE personal files
-.idea/compiler.xml
-.idea/runConfigurations.xml
-.idea/codeStyles/
+# ─── Third-party Tool Artifacts ───
+.codegraph/
+.codebuddy/
+.reasonix/
+.icon/
 
-# Dev helpers (not source)
+# ─── Non-source Folders ───
 /scripts/
 /docs/
+/icon/

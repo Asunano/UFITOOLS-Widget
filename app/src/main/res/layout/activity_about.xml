@@ -94,6 +94,36 @@
                 android:paddingHorizontal="8dp"
                 android:paddingVertical="2dp" />
 
+            <!-- 赞赏按钮 -->
+            <LinearLayout
+                android:id="@+id/btn_donate"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:layout_marginTop="10dp"
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:paddingHorizontal="14dp">
+
+                <ImageView
+                    android:id="@+id/iv_donate_icon"
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:layout_marginEnd="5dp"
+                    android:contentDescription="赞赏"
+                    android:src="@drawable/ic_heart" />
+
+                <TextView
+                    android:id="@+id/tv_donate_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="赞赏"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"

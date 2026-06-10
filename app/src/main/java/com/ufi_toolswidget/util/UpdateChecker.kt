@@ -14,6 +14,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.lifecycleScope
 import okhttp3.CacheControl
 import okhttp3.Call
 import okhttp3.Callback
@@ -26,6 +27,10 @@ import java.io.IOException
 import java.security.MessageDigest
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import com.ufi_toolswidget.util.ToastUtil
 
@@ -138,11 +143,18 @@ object UpdateChecker {
      *   第1段 1 == 1 → 继续
      *   第2段 2 > 1  → 返回正数（remote 更新）
      *
+     * 支持 v-prefix（如 "v1.2.0"）和 pre-release 后缀（如 "1.2.0-beta"）：
+     * - v-prefix 会被自动剥离
+     * - pre-release 后缀在数字比较时被忽略（"1.2.0-beta" 等同于 "1.2.0"）
+     *
      * @return > 0 表示本地更新, 0 相同, < 0 表示远程有新版本
      */
     fun compareVersions(local: String, remote: String): Int {
-        val l = local.split(".").map { it.toIntOrNull() ?: 0 }
-        val r = remote.split(".").map { it.toIntOrNull() ?: 0 }
+        fun normalize(v: String): String = v.trim()
+            .removePrefix("v").removePrefix("V")
+            .substringBefore("-")  // 剥离 pre-release 后缀
+        val l = normalize(local).split(".").map { it.toIntOrNull() ?: 0 }
+        val r = normalize(remote).split(".").map { it.toIntOrNull() ?: 0 }
         val maxLen = maxOf(l.size, r.size)
         for (i in 0 until maxLen) {
             val lv = l.getOrElse(i) { 0 }
@@ -295,11 +307,38 @@ object UpdateChecker {
         }
     }
 
+    /**
+     * 通过 Content URI 校验 SHA256（适配 Android 10+ Scoped Storage）。
+     *
+     * @param context Context
+     * @param uri 下载文件的 Content URI 或 File URI
+     * @param expectedSha256 version.json 中记录的 SHA256（小写十六进制）
+     * @return true 表示校验通过
+     */
+    fun verifySha256(context: Context, uri: Uri, expectedSha256: String): Boolean {
+        if (expectedSha256.isBlank()) return true
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                val buffer = ByteArray(8192)
+                var bytesRead: Int
+                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                    digest.update(buffer, 0, bytesRead)
+                }
+            }
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            actual.equals(expectedSha256, ignoreCase = true)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     // ==================== APK 下载与安装 ====================
 
     /**
      * 启动 APK 下载（通过 DownloadManager）。
      *
+     * @param scope 协程作用域，用于在 BroadcastReceiver 中启动安装流程（避免阻塞主线程）
      * @return 注册的 BroadcastReceiver（调用方需在 onDestroy 中注销）
      */
     fun startDownload(
@@ -307,7 +346,8 @@ object UpdateChecker {
         url: String,
         tag: String,
         sha256: String,
-        downloadIdHolder: (Long) -> Unit
+        downloadIdHolder: (Long) -> Unit,
+        scope: CoroutineScope
     ): BroadcastReceiver {
         val fileName = "UFITOOLS-Widget-$tag.apk"
         val request = DownloadManager.Request(Uri.parse(url))
@@ -325,7 +365,10 @@ object UpdateChecker {
             override fun onReceive(ctx: Context, intent: Intent) {
                 val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
                 if (id == downloadId) {
-                    installApk(context, fileName, sha256)
+                    // 切换到 scope 对应的协程上下文执行安装（含 IO 线程的 SHA256 校验）
+                    scope.launch {
+                        installApk(context, fileName, sha256, downloadId)
+                    }
                     try { context.unregisterReceiver(this) } catch (_: Exception) { }
                 }
             }
@@ -342,27 +385,56 @@ object UpdateChecker {
 
     /**
      * 安装已下载的 APK 文件（含 SHA256 校验）。
+     * 通过 DownloadManager.Query 获取文件 URI，适配 Android 10+ Scoped Storage。
      */
-    fun installApk(context: Context, fileName: String, sha256: String) {
-        val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName)
-        if (!file.exists()) {
+    suspend fun installApk(context: Context, fileName: String, sha256: String, downloadId: Long) {
+        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val query = DownloadManager.Query().setFilterById(downloadId)
+        val uri = dm.query(query).use { cursor ->
+            if (cursor.moveToFirst()) {
+                val statusCol = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                if (statusCol >= 0) {
+                    val status = cursor.getInt(statusCol)
+                    if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                        val uriCol = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
+                        if (uriCol >= 0) {
+                            val uriStr = cursor.getString(uriCol)
+                            if (!uriStr.isNullOrBlank()) Uri.parse(uriStr) else null
+                        } else null
+                    } else null
+                } else null
+            } else null
+        }
+
+        if (uri == null) {
             ToastUtil.showDropToast(context, ToastStyle.WARNING, "下载文件不存在")
             return
         }
+
+        // SHA256 校验（移至 IO 线程，避免阻塞主线程）
         if (sha256.isNotBlank()) {
-            if (!verifySha256(file, sha256)) {
-                file.delete()
+            val verified = withContext(Dispatchers.IO) {
+                verifySha256(context, uri, sha256)
+            }
+            if (!verified) {
+                dm.remove(downloadId)
                 ToastUtil.showDropToast(context, ToastStyle.WARNING, "文件校验失败", "已删除损坏文件，请重新下载")
                 return
             }
         }
-        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+
+        // 构建安装 Intent
+        val installUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && uri.scheme == "file") {
+            // file:// URI 需要通过 FileProvider 分享给安装器
+            val file = File(uri.path!!)
             FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         } else {
-            Uri.fromFile(file)
+            // content:// URI 可直接使用（Android 10+ Scoped Storage）
+            uri
         }
+
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
+            setDataAndType(installUri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
@@ -392,7 +464,7 @@ object UpdateChecker {
                 return null
             }
         }
-        return startDownload(activity, finalUrl, tag, sha256, downloadIdHolder)
+        return startDownload(activity, finalUrl, tag, sha256, downloadIdHolder, activity.lifecycleScope)
     }
 
     /** 下载权限请求码，供 Activity 的 onRequestPermissionsResult 判断 */

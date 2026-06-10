@@ -8,8 +8,10 @@ import com.ufi_toolswidget.util.DebugLogger
 import com.ufi_toolswidget.util.MainDialogHelper
 import com.ufi_toolswidget.util.NotificationHelper
 import com.ufi_toolswidget.util.SPUtil
+import com.ufi_toolswidget.util.TrafficRecordManager
 import com.ufi_toolswidget.util.WifiCrawl
 import com.ufi_toolswidget.widget.BaseWifiWidget
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
@@ -87,7 +89,9 @@ class WifiWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         DebugLogger.d(TAG, "doWork: ping $host:$port = $pingOk")
 
         if (!pingOk) {
-            // 网络不通（原子递增，避免与前台竞态）
+            // 网络不通 → 设备离线，通知检查上下线状态
+            NotificationHelper.checkDeviceOnlineStatus(ctx, isOnline = false)
+            // （原子递增，避免与前台竞态）
             val networkFails = incrementNetworkFailureCount(ctx)
             DebugLogger.w(TAG, "doWork: network unreachable ($networkFails/$NETWORK_MAX_FAILURES)")
 
@@ -98,6 +102,7 @@ class WifiWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                 // 使用 retry 而非 failure：failure 会导致 PeriodicWorkRequest 永久停止，
                 // 用户不开 App 就无法恢复；retry 则下一次调度时 ping 逻辑可自动检测设备恢复。
                 markWorkerStoppedNetwork(ctx)
+                SPUtil.setReconnecting(ctx, false)
                 DebugLogger.e(TAG, "doWork: NETWORK threshold reached, setting stopped=true, reason=network (retry)")
                 BaseWifiWidget.renderAllWidgets(ctx)
                 DebugLogger.flushToFile()
@@ -134,8 +139,11 @@ class WifiWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             val data = WifiCrawl.getWifiData(ctx)
             if (data != null) {
                 SPUtil.saveData(ctx, data)
+                // 记录流量数据到 Room（零额外网络开销，数据已在 data 中）
+                TrafficRecordManager.saveRecord(ctx, data.dailyRawBytes, data.monthlyRawBytes)
                 // 全部成功 → 清除所有失败状态
                 resetFailureState(ctx)
+                SPUtil.setReconnecting(ctx, false)
                 // 后台通知检测（仅系统通知栏，不显示应用内 Toast）
                 NotificationHelper.checkAndNotify(
                     context = ctx,
@@ -145,7 +153,7 @@ class WifiWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                     cpuStr = data.cpu,
                     memStr = data.mem,
                     batteryPercent = data.batteryPercent,
-                    isDeviceOnline = !isWorkerStopped(ctx),
+                    isDeviceOnline = true,
                     activity = null
                 )
                 DebugLogger.i(TAG, "doWork: API success, all failure states cleared")
@@ -154,12 +162,16 @@ class WifiWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                 Log.d(TAG, "Data fetch succeeded, all failure states cleared")
                 return@withContext Result.success()
             }
+        } catch (e: CancellationException) {
+            throw e  // 协程取消必须传播，不能被 catch(Exception) 吞掉
         } catch (e: Exception) {
             DebugLogger.e(TAG, "doWork: API exception: ${e.message}")
             Log.e(TAG, "Data fetch exception: ${e.message}", e)
         }
 
         // API 请求失败（data == null 或异常）（原子递增，避免与前台竞态）
+        // API 失败说明设备不可达，通知检查上下线状态
+        NotificationHelper.checkDeviceOnlineStatus(ctx, isOnline = false)
         val newApiFails = incrementApiFailureCount(ctx)
         DebugLogger.w(TAG, "doWork: API failed ($newApiFails/$API_MAX_FAILURES), lastError=${WifiCrawl.lastError}")
         Log.w(TAG, "API fetch failed ($newApiFails/$API_MAX_FAILURES)")
@@ -169,6 +181,7 @@ class WifiWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             // 使用 retry 而非 failure：failure 会导致 PeriodicWorkRequest 永久停止，
             // 用户不开 App 就无法恢复；retry 则下一次调度时 API 请求可自动重试。
             markWorkerStoppedApi(ctx)
+            SPUtil.setReconnecting(ctx, false)
             DebugLogger.e(TAG, "doWork: API threshold reached, setting stopped=true, reason=api (retry)")
             DebugLogger.flushToFile()
             BaseWifiWidget.renderAllWidgets(ctx)

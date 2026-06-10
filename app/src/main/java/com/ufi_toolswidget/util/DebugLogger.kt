@@ -42,6 +42,8 @@ object DebugLogger {
     private val IMEI_MASK_RE = Regex("\\b\\d{15,17}\\b")
     private val TOKEN_MASK_RE = Regex("\"(token|password|auth_token|imei)\"\\s*:\\s*\"[^\"]+\"")
     private val AUTH_MASK_RE = Regex("Authorization: [^\\s]+")
+    private val LOG_TIME_RE = Regex("\\[(\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3})]")
+    private val LOG_TAG_RE = Regex("\\] \\[(\\w+)] \\[([DEIW])]")
 
     /** 日志分类 */
     enum class Category(val label: String, val colorTag: String) {
@@ -91,8 +93,12 @@ object DebugLogger {
         val message: String,
     ) {
         fun formatted(): String {
-            val sdf = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.getDefault())
-            return "[${sdf.format(Date(time))}] [${category.colorTag}] [$level] [$tag] $message"
+            val timeStr = synchronized(entryFormat) { entryFormat.format(Date(time)) }
+            return "[$timeStr] [${category.colorTag}] [$level] [$tag] $message"
+        }
+
+        companion object {
+            private val entryFormat = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.getDefault())
         }
     }
 
@@ -218,8 +224,8 @@ object DebugLogger {
                 if (entries.isNotEmpty()) return
                 lines.takeLast(MAX_ENTRIES).forEach { line ->
                     // 格式: [MM-dd HH:mm:ss.SSS] [TAG] [LEVEL] [srcTag] message
-                    val timeMatch = Regex("\\[(\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d{3})]").find(line)
-                    val tagMatch = Regex("\\] \\[(\\w+)] \\[([DEIW])]").find(line)
+                    val timeMatch = LOG_TIME_RE.find(line)
+                    val tagMatch = LOG_TAG_RE.find(line)
                     if (timeMatch != null && tagMatch != null) {
                         val time = try { sdf.parse(timeMatch.groupValues[1])?.time ?: 0L } catch (_: Exception) { 0L }
                         val category = categoryMap[tagMatch.groupValues[1]] ?: Category.GENERAL
@@ -353,7 +359,7 @@ object DebugLogger {
         val sw = StringWriter()
         ex.printStackTrace(PrintWriter(sw))
         log(Category.EXCEPTION, "CrashHandler", sw.toString(), force = true)
-        flushToFile() // 崩溃日志立即落盘
+        flushToFileBlocking() // 崩溃日志立即落盘
     }
 
     // ==================== 查询方法 ====================
@@ -535,10 +541,24 @@ object DebugLogger {
     /** 文件写入锁，防止并发 flush 导致行交错 */
     private val fileWriteLock = Any()
 
+    /** 异步 flush 执行器：单线程保证顺序写入，daemon 线程不阻止进程退出 */
+    private val flushExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "DebugLogger-Flush").apply { isDaemon = true }
+    }
+
     private var lastLogFile: File? = null
 
-    /** 将队列中所有待写入条目一次性批量写入文件（仅一次 fopen/fclose） */
+    /** 将队列中所有待写入条目异步批量写入文件（不阻塞调用线程） */
     fun flushToFile() {
+        flushExecutor.execute { flushToFileInternal() }
+    }
+
+    /** 同步版本，仅供 CrashHandler 等必须确保立即落盘的场景使用 */
+    fun flushToFileBlocking() {
+        flushToFileInternal()
+    }
+
+    private fun flushToFileInternal() {
         contextRef?.get()?.let { ctx ->
             val batch = mutableListOf<Entry>()
             while (pendingEntries.isNotEmpty()) {

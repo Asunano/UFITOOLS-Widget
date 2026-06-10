@@ -7,6 +7,7 @@ import com.ufi_toolswidget.util.DebugLogger
 import com.ufi_toolswidget.util.NotificationHelper
 import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.WifiCrawl
+import kotlinx.coroutines.CancellationException
 
 /**
  * WorkManager 周期性保活 Worker。
@@ -68,6 +69,8 @@ class KeepAlivePeriodicWorker(
                 )
                 Result.retry()
             }
+        } catch (e: CancellationException) {
+            throw e  // 协程取消必须传播，不能被 catch(Exception) 吞掉
         } catch (e: Exception) {
             DebugLogger.w(TAG, "Periodic worker error: ${e.message}")
             Result.retry()

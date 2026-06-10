@@ -4,9 +4,15 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- chevron-right: next page (stroke style, matching Tabler) -->
+    <!-- chevron-left-pipe: first page (mirrored) -->
     <path
-        android:pathData="M9,6 L15,12 L9,18"
+        android:pathData="M7,5 L7,18"
+        android:strokeWidth="2"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent" />
+    <path
+        android:pathData="M18,6 L12,12 L18,18"
         android:strokeWidth="2"
         android:strokeColor="#FFFFFF"
         android:strokeLineCap="round"

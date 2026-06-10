@@ -54,21 +54,29 @@ class AlertHistoryViewModel(application: Application) : AndroidViewModel(applica
             val page = arr[0] as Int
             val f = arr[1] as AlertFilter
             val ps = arr[2] as Int
-            loadPage(page, f, ps)
+            // 数据库查询移到 IO 线程，避免阻塞主线程
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                loadPage(page, f, ps)
+            }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000),
             PageResult(emptyList(), 1, 1, 0))
 
     fun refresh() { refreshTrigger.value++ }
 
     fun goToPage(p: Int) { currentPage.value = p }
-    fun nextPage() { currentPage.value = currentPage.value + 1 }
-    fun prevPage() { currentPage.value = currentPage.value - 1 }
+    fun nextPage() {
+        val max = pageData.value.totalPages
+        if (currentPage.value < max) currentPage.value = currentPage.value + 1
+    }
+    fun prevPage() {
+        if (currentPage.value > 1) currentPage.value = currentPage.value - 1
+    }
     fun firstPage() { currentPage.value = 1 }
     fun lastPage() { currentPage.value = pageData.value.totalPages }
 
     // ── 加载指定页（在 IO 线程执行）──
 
-    private fun loadPage(page: Int, f: AlertFilter, ps: Int): PageResult {
+    private suspend fun loadPage(page: Int, f: AlertFilter, ps: Int): PageResult {
         val total = when {
             f.type == "all" && f.readStatus == "all" ->
                 AlertHistoryManager.getTotalCount()

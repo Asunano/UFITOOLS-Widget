@@ -13,6 +13,8 @@ import com.ufi_toolswidget.util.SPUtil
 import com.ufi_toolswidget.util.ThemeChangeNotifier
 import com.ufi_toolswidget.util.ThemeColors
 import com.ufi_toolswidget.util.ThemeUtil
+import com.ufi_toolswidget.util.ToastUtil
+import com.ufi_toolswidget.util.ToastStyle
 import com.ufi_toolswidget.util.DebugLogger
 import com.ufi_toolswidget.widget.BaseWifiWidget
 
@@ -436,6 +438,15 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
         val density = resources.displayMetrics.density
         val cornerRadius = 12f * density
 
+        // 先检查能否从小组件背景图提取颜色
+        val availableColors = ThemeColors.getAvailableWallpaperColors(this@WidgetDynamicColorActivity)
+        val hasValidColor = availableColors.any { (_, color) -> color != null }
+        if (!hasValidColor) {
+            DebugLogger.w("WidgetDynamicColorActivity", "无法从小组件背景图提取色源颜色")
+            ToastUtil.showDropToast(this@WidgetDynamicColorActivity, ToastStyle.WARNING, "无法提取背景图颜色，请检查小组件背景图片设置")
+            return
+        }
+
         CommonDialogHelper.showSelectionDialog(
             this,
             title = "动态配色色源",
@@ -445,7 +456,6 @@ class WidgetDynamicColorActivity : AppCompatActivity() {
                 val accent = ThemeColors.accent(this@WidgetDynamicColorActivity)
                 val selectedBg = CommonDialogHelper.createSelectedBg(accent, cornerRadius)
                 val unselectedBg = CommonDialogHelper.createUnselectedBg(this@WidgetDynamicColorActivity, cornerRadius)
-                val availableColors = ThemeColors.getAvailableWallpaperColors(this@WidgetDynamicColorActivity)
 
                 availableColors.forEachIndexed { index, (name, color) ->
                     val isSelected = index == currentSource

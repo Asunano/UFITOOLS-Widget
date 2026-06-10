@@ -267,13 +267,39 @@ object ThemeColors {
         val tertiary: Int?
     )
 
+    /** 缓存从背景图提取的色源，避免每次 render 都重新读取图片文件 */
+    @Volatile private var cachedWallpaperColors: WallpaperColorSet? = null
+    @Volatile private var cachedWallpaperBgUri: String = ""
+
+    /** 缓存最终构建的动态 Palette，避免重复 HSV 转换和 SP 读取 */
+    @Volatile private var cachedDynamicPalette: Palette? = null
+    @Volatile private var cachedDynamicKey: String = ""
+
     /**
      * 公开入口：供 WifiWidget 在独立颜色路径中获取动态调色板。
      * 根据用户选择的色源（primary/secondary/tertiary/neutral/neutral_variant）
      * 从系统壁纸提取对应的主色，再构建完整调色板。
      */
     fun buildDynamicPalette(ctx: Context): Palette {
-        return buildWallpaperBasedPalette(ctx)
+        // 构建缓存 key：涵盖所有影响 Palette 输出的输入参数
+        val bgUri = SPUtil.getWidgetBgImageUri(ctx)
+        val source = SPUtil.getWidgetDynamicColorSource(ctx)
+        val contrast = SPUtil.getWidgetDynamicContrast(ctx)
+        val advanced = SPUtil.getWidgetDynamicAdvanced(ctx)
+        val advKey = if (advanced) {
+            "|${SPUtil.getDynAdvSatBoost(ctx)}|${SPUtil.getDynAdvLightBg(ctx)}|${SPUtil.getDynAdvLightTxt(ctx)}|${SPUtil.getDynAdvDarkBg(ctx)}|${SPUtil.getDynAdvDarkTxt(ctx)}"
+        } else ""
+        val key = "$bgUri|$source|$contrast|$advanced$advKey"
+
+        // 缓存命中：直接返回已构建的 Palette（<1μs vs ~5ms 重建）
+        if (key == cachedDynamicKey && cachedDynamicPalette != null) {
+            return cachedDynamicPalette!!
+        }
+
+        val palette = buildWallpaperBasedPalette(ctx)
+        cachedDynamicPalette = palette
+        cachedDynamicKey = key
+        return palette
     }
 
     /**
@@ -294,15 +320,31 @@ object ThemeColors {
         return selected ?: colors.primary ?: colors.secondary ?: colors.tertiary
     }
 
-    /** 获取所有可用的壁纸色调名称和对应颜色（用于 UI 显示） */
+    /** 获取所有可用的壁纸色调名称和对应颜色（用于 UI 显示）
+     * 仅从小组件自定义背景图提取，不兜底系统壁纸。
+     * 提取失败时返回全 null，由 UI 层提示用户。
+     */
     fun getAvailableWallpaperColors(ctx: Context): List<Pair<String, Int?>> {
         val colors = extractWidgetAwareColors(ctx)
+        val primary = colors.primary
+        val secondary = colors.secondary
+        val tertiary = colors.tertiary
+        // 全部为 null 时直接返回全 null，调用方处理错误提示
+        if (primary == null) {
+            return listOf(
+                "Primary (主色)" to null,
+                "Secondary (次色)" to null,
+                "Tertiary (第三色)" to null,
+                "Neutral (中性色)" to null,
+                "Neutral Variant (中性变体)" to null
+            )
+        }
         return listOf(
-            "Primary (主色)" to colors.primary,
-            "Secondary (次色)" to colors.secondary,
-            "Tertiary (第三色)" to colors.tertiary,
-            "Neutral (中性色)" to colors.primary?.let { deriveNeutral(it) },
-            "Neutral Variant (中性变体)" to colors.primary?.let { deriveNeutralVariant(it) }
+            "Primary (主色)" to primary,
+            "Secondary (次色)" to secondary,
+            "Tertiary (第三色)" to tertiary,
+            "Neutral (中性色)" to deriveNeutral(primary),
+            "Neutral Variant (中性变体)" to deriveNeutralVariant(primary)
         )
     }
 
@@ -394,36 +436,69 @@ object ThemeColors {
     }
 
     /**
-     * 从 URI 加载图片并提取最具有代表性的颜色（频率统计法）。
-     * 将各通道量化到 8 个区间（步长 32），统计像素最多的颜色桶，
-     * 取该桶的平均 RGB 作为最终结果。目标采样尺寸约 40×40。
+     * 从 URI 加载图片并提取最具有代表性的颜色。
+     * 使用单次字节流解码避免 ContentProvider 二次打开问题；
+     * 在频率前 3 的颜色桶中选择饱和度最高的，兼顾主色感知与鲜艳度。
+     * 目标采样尺寸约 40×40。
      */
     private fun sampleDominantColorFromUri(ctx: Context, uriString: String): Int? {
         return try {
             val uri = android.net.Uri.parse(uriString)
 
-            // 1. 获取原图尺寸
-            val boundsOpts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            ctx.contentResolver.openInputStream(uri)?.use { stream ->
-                android.graphics.BitmapFactory.decodeStream(stream, null, boundsOpts)
-            }
-            if (boundsOpts.outWidth <= 0 || boundsOpts.outHeight <= 0) return null
+            // 判断是否为裸文件路径（SPUtil.saveWidgetBgImageToInternal 保存的是绝对路径，非 content://）
+            val isFilePath = !uriString.startsWith("content://") && !uriString.startsWith("file://")
 
-            // 2. 计算采样率（缩放到约 40px）
+            // ===== 获取原图尺寸 + 计算采样率 =====
             val targetSize = 40
             var sampleSize = 1
-            while (boundsOpts.outWidth / (sampleSize * 2) >= targetSize
-                && boundsOpts.outHeight / (sampleSize * 2) >= targetSize) {
-                sampleSize *= 2
+
+            if (isFilePath) {
+                // ★ 文件路径：使用 BitmapFactory.decodeFile 流式解码，避免 readBytes() 全量加载到内存
+                val boundsOpts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                val file = java.io.File(uriString)
+                if (!file.exists()) return null
+                android.graphics.BitmapFactory.decodeFile(uriString, boundsOpts)
+                if (boundsOpts.outWidth <= 0 || boundsOpts.outHeight <= 0) return null
+                while (boundsOpts.outWidth / (sampleSize * 2) >= targetSize
+                    && boundsOpts.outHeight / (sampleSize * 2) >= targetSize) {
+                    sampleSize *= 2
+                }
+                // 直接流式解码采样 Bitmap，无需中间 byte[]
+                val bitmap = android.graphics.BitmapFactory.decodeFile(uriString,
+                    android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize })
+                    ?: return null
+                // 4. 颜色量化统计
+                return extractDominantFromSampledBitmap(bitmap)
+            } else {
+                // ★ URI 路径：ContentResolver 流不支持重开，仍需 readBytes() 但仅解码一次
+                val imageBytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+
+                val boundsOpts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, boundsOpts)
+                if (boundsOpts.outWidth <= 0 || boundsOpts.outHeight <= 0) return null
+
+                while (boundsOpts.outWidth / (sampleSize * 2) >= targetSize
+                    && boundsOpts.outHeight / (sampleSize * 2) >= targetSize) {
+                    sampleSize *= 2
+                }
+
+                val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size,
+                    android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize })
+                    ?: return null
+                return extractDominantFromSampledBitmap(bitmap)
             }
 
-            // 3. 解码采样 Bitmap
-            val bitmap = ctx.contentResolver.openInputStream(uri)?.use { stream ->
-                android.graphics.BitmapFactory.decodeStream(stream, null,
-                    android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize })
-            } ?: return null
+        } catch (_: Exception) { null }
+    }
 
-            // 4. 颜色量化统计（每通道 8 区间，步长 32），找出像素最多的颜色桶
+    /**
+     * 从已缩放的采样 Bitmap 中提取最具有代表性的颜色。
+     * 在频率前 3 的颜色桶中选择饱和度最高的，兼顾主色感知与鲜艳度。
+     */
+    private fun extractDominantFromSampledBitmap(bitmap: android.graphics.Bitmap): Int? {
+        return try {
+
+            // 颜色量化统计（每通道 8 区间，步长 32）
             val quantizeStep = 32
             val colorBuckets = mutableMapOf<Int, MutableList<Int>>()
             var foundAny = false
@@ -446,14 +521,25 @@ object ThemeColors {
 
             if (!foundAny) return null
 
-            // 5. 取像素最多的颜色桶，计算平均色
-            val dominantBucket = colorBuckets.maxByOrNull { it.value.size } ?: return null
-            val pixels = dominantBucket.value
-            val avgR = pixels.sumOf { (it shr 16) and 0xFF } / pixels.size
-            val avgG = pixels.sumOf { (it shr 8) and 0xFF } / pixels.size
-            val avgB = pixels.sumOf { it and 0xFF } / pixels.size
+            // 在频率前 3 的颜色桶中，选择饱和度最高的（兼顾主色感知与鲜艳度）
+            val topBuckets = colorBuckets.entries
+                .sortedByDescending { it.value.size }
+                .take(3)
+                .mapNotNull { entry ->
+                    val pixels = entry.value
+                    val avgR = pixels.sumOf { (it shr 16) and 0xFF } / pixels.size
+                    val avgG = pixels.sumOf { (it shr 8) and 0xFF } / pixels.size
+                    val avgB = pixels.sumOf { it and 0xFF } / pixels.size
+                    val avgColor = 0xFF000000.toInt() or (avgR shl 16) or (avgG shl 8) or avgB
+                    val max = maxOf(avgR, avgG, avgB)
+                    val min = minOf(avgR, avgG, avgB)
+                    val saturation = if (max == 0) 0f else (max - min).toFloat() / max
+                    avgColor to saturation
+                }
 
-            return 0xFF000000.toInt() or (avgR shl 16) or (avgG shl 8) or avgB
+            if (topBuckets.isEmpty()) return null
+            return topBuckets.maxByOrNull { it.second }?.first ?: topBuckets.first().first
+
         } catch (_: Exception) { null }
     }
 
@@ -461,14 +547,30 @@ object ThemeColors {
      * 从小组件自定义背景图提取动态配色色源。
      * 仅从用户设置的小组件背景图片提取颜色，不兜底到系统壁纸。
      */
+    /** 清除壁纸色源缓存及动态 Palette 缓存（供外部在背景图/配色设置变更时调用） */
+    fun invalidateWallpaperColorCache() {
+        cachedWallpaperColors = null
+        cachedWallpaperBgUri = ""
+        cachedDynamicPalette = null
+        cachedDynamicKey = ""
+    }
+
     private fun extractWidgetAwareColors(ctx: Context): WallpaperColorSet {
         val bgUri = SPUtil.getWidgetBgImageUri(ctx)
-        if (bgUri.isBlank()) return WallpaperColorSet(null, null, null)
+        if (bgUri.isBlank()) {
+            cachedWallpaperColors = null
+            cachedWallpaperBgUri = ""
+            return WallpaperColorSet(null, null, null)
+        }
 
-        return try {
+        // URI 未变时使用缓存，避免每次 render 都重新读取图片文件造成卡顿
+        if (bgUri == cachedWallpaperBgUri && cachedWallpaperColors != null) {
+            return cachedWallpaperColors!!
+        }
+
+        val result = try {
             val dominant = sampleDominantColorFromUri(ctx, bgUri)
             if (dominant != null) {
-                // 从主色推导近似 secondary/tertiary（偏移色相，降低饱和度/明度）
                 val hsl = FloatArray(3)
                 android.graphics.Color.RGBToHSV(
                     (dominant shr 16) and 0xFF,
@@ -482,6 +584,11 @@ object ThemeColors {
                 WallpaperColorSet(null, null, null)
             }
         } catch (_: Exception) { WallpaperColorSet(null, null, null) }
+
+        // 缓存结果
+        cachedWallpaperColors = result
+        cachedWallpaperBgUri = bgUri
+        return result
     }
 
     /**
@@ -600,7 +707,7 @@ object ThemeColors {
             cardBgLight         = buildHsvColor(h, baseSat * surfSM * 1.2f, cardL),
             textPrimaryLight    = buildHsvColor(h, baseSat * txtSM, txtPriL),
             textSecondaryLight  = buildHsvColor(h, baseSat * txtSM * 0.9f, txtSecL),
-            dividerLight        = buildHsvColor(h, 0f, divL),  // 中性灰，避免壁纸色相残留
+            dividerLight        = buildHsvColor(h, baseSat * 0.15f, divL),  // 微量饱和度，跟随动态色源
             accentLight         = buildHsvColor(h, baseSat * accSM, accentL),
             accentSecondaryLight = buildHsvColor(h, baseSat * accSecSM, accentSecL),
             btnBgLight          = buildHsvColor(h, baseSat * accSM, accentL),
@@ -610,7 +717,7 @@ object ThemeColors {
             cardBgDark          = buildHsvColor(h, baseSat * darkSurfSM * 1.2f, cardDarkL),
             textPrimaryDark     = buildHsvColor(h, baseSat * darkTxtSM, txtPriDarkL),
             textSecondaryDark   = buildHsvColor(h, baseSat * darkTxtSM * 1.1f, txtSecDarkL),
-            dividerDark         = buildHsvColor(h, 0f, divDarkL),  // 中性灰
+            dividerDark         = buildHsvColor(h, baseSat * 0.15f, divDarkL),  // 微量饱和度，跟随动态色源
             accentDark          = buildHsvColor(h, baseSat * darkAccSM, accentDarkL),
             accentSecondaryDark = buildHsvColor(h, baseSat * accSecSM, accentSecDarkL),
             btnBgDark           = buildHsvColor(h, baseSat * darkAccSM, accentDarkL),

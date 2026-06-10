@@ -10,12 +10,16 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.work.*
 import com.ufi_toolswidget.service.BackgroundMonitorService
 import com.ufi_toolswidget.service.KeepAliveAccessibilityService
 import com.ufi_toolswidget.util.*
-import com.ufi_toolswidget.view.ThemeSlider
 import com.ufi_toolswidget.worker.KeepAlivePeriodicWorker
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 class BackgroundKeepAliveActivity : AppCompatActivity() {
@@ -31,14 +35,14 @@ class BackgroundKeepAliveActivity : AppCompatActivity() {
 
         AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_back)) { finish() }
 
+        initAccessibilityItem()
         initBackgroundServiceItem()
+        initNotifCustomItem()
         initBatteryOptimizationItem()
         initAutoStartItem()
+        initAutoRecoverItem()
         initTaskLockGuide()
-        initNotifCustomItem()
         initHideRecentsItem()
-        initPeriodicWorkerItem()
-        initAccessibilityItem()
     }
 
     override fun onResume() {
@@ -59,12 +63,12 @@ class BackgroundKeepAliveActivity : AppCompatActivity() {
     }
 
     private fun updateAllSubtitles() {
-        updateBackgroundServiceSubtitle()
-        updateBatteryOptimizationSubtitle()
-        updateNotifCustomSubtitle()
-        updateHideRecentsSubtitle()
-        updatePeriodicWorkerSubtitle()
         updateAccessibilitySubtitle()
+        updateBackgroundServiceSubtitle()
+        updateNotifCustomSubtitle()
+        updateBatteryOptimizationSubtitle()
+        updateAutoRecoverSubtitle()
+        updateHideRecentsSubtitle()
     }
 
     // ==================== 1. 前台保活服务开关 ====================
@@ -76,13 +80,19 @@ class BackgroundKeepAliveActivity : AppCompatActivity() {
             bgServiceSwitchView = switchView
             CommonSettingsItemHelper.setupSwitchItem(
                 itemView = switchView,
-                iconRes = R.drawable.ic_rocket,
+                iconRes = R.drawable.ic_heartbeat,
                 label = "前台保活通知",
-                subtitle = if (bgServiceEnabled) "运行中 · 点击可配置通知样式" else "通过前台通知防止进程被系统回收",
+                subtitle = if (bgServiceEnabled) "运行中 · 点击可配置通知样式" else "辅助保活，建议优先开启无障碍服务",
                 initialChecked = bgServiceEnabled,
                 onToggle = { checked ->
                     SPUtil.setBackgroundServiceEnabled(this, checked)
                     BackgroundMonitorService.syncState(this)
+                    // 同步刷新 Doze 穿透闹钟
+                    if (checked) {
+                        com.ufi_toolswidget.service.AlarmReceiver.scheduleNext(this)
+                    } else {
+                        com.ufi_toolswidget.service.AlarmReceiver.cancel(this)
+                    }
                     updateBackgroundServiceSubtitle()
                     updateNotifCustomVisibility()
                 }
@@ -99,7 +109,7 @@ class BackgroundKeepAliveActivity : AppCompatActivity() {
             val enabled = SPUtil.getBackgroundServiceEnabled(this)
             bgServiceSwitchView
                 ?.findViewById<TextView>(R.id.common_switch_subtitle)
-                ?.text = if (enabled) "运行中 · 点击可配置通知样式" else "通过前台通知防止进程被系统回收"
+                ?.text = if (enabled) "运行中 · 点击可配置通知样式" else "辅助保活，建议优先开启无障碍服务"
         } catch (e: Exception) {
             DebugLogger.w(TAG, "update bg service subtitle failed: ${e.message}")
         }
@@ -117,6 +127,17 @@ class BackgroundKeepAliveActivity : AppCompatActivity() {
 
     // ==================== 2. 电池优化白名单 ====================
 
+    /** 电池优化状态检查协程 Job，用于取消过期任务防止竞态 */
+    private var batteryOptCheckJob: Job? = null
+
+    /**
+     * 电池优化白名单缓存。
+     * - `true` = 已确认加入白名单，后续 onResume 跳过 IPC
+     * - `false` = 确认未加入
+     * - `null` = 尚未检查，或用户点击跳转系统设置后重置
+     */
+    private var batteryOptWhitelistedCached: Boolean? = null
+
     private fun initBatteryOptimizationItem() {
         try {
             val itemView = findViewById<ViewGroup>(R.id.item_battery_optimization) ?: return
@@ -126,43 +147,53 @@ class BackgroundKeepAliveActivity : AppCompatActivity() {
                 title = "忽略电池优化",
                 subtitle = "点击检查",
                 onClick = {
+                    // 点击意味着用户要去系统设置操作，清空缓存让返回时重新检查
+                    batteryOptWhitelistedCached = null
                     BatteryOptimizationHelper.requestIgnoreBatteryOptimization(this)
                 }
             )
             // 异步检查白名单状态（部分 ROM 上 PowerManager IPC 可能阻塞主线程）
-            Thread {
-                try {
-                    val ignoring = BatteryOptimizationHelper.isIgnoringBatteryOptimizations(this)
-                    runOnUiThread {
-                        itemView.findViewById<TextView>(R.id.common_item_subtitle)?.text =
-                            if (ignoring) "已加入白名单" else "点击加入白名单"
-                    }
-                } catch (e: Exception) {
-                    DebugLogger.w(TAG, "battery opt check FAILED: ${e::class.java.simpleName}: ${e.message}", force = true)
-                }
-            }.start()
+            checkBatteryOptStatus()
         } catch (e: Exception) {
             DebugLogger.w(TAG, "init battery opt FAILED: ${e::class.java.simpleName}: ${e.message}", force = true)
         }
     }
 
-    private fun updateBatteryOptimizationSubtitle() {
-        try {
-            val subtitleView = findViewById<ViewGroup>(R.id.item_battery_optimization)
-                ?.findViewById<TextView>(R.id.common_item_subtitle) ?: return
-            Thread {
-                try {
-                    val ignoring = BatteryOptimizationHelper.isIgnoringBatteryOptimizations(this)
-                    runOnUiThread {
-                        subtitleView.text = if (ignoring) "已加入白名单" else "点击加入白名单"
-                    }
-                } catch (e: Exception) {
-                    DebugLogger.w(TAG, "battery opt subtitle update FAILED: ${e::class.java.simpleName}: ${e.message}", force = true)
-                }
-            }.start()
-        } catch (e: Exception) {
-            DebugLogger.w(TAG, "update battery opt subtitle FAILED: ${e::class.java.simpleName}: ${e.message}", force = true)
+    /**
+     * 检查电池优化白名单状态并更新副标题。
+     *
+     * 缓存优化：若已确认加入白名单（[batteryOptWhitelistedCached] == true），
+     * 则直接显示"已加入白名单"，跳过 IPC 调用。
+     * 仅当缓存为 null/false 时才发起实际 IPC 查询。
+     */
+    private fun checkBatteryOptStatus() {
+        // 快速路径：已缓存为 whitelisted，直接刷新副标题，无需 IPC
+        if (batteryOptWhitelistedCached == true) {
+            findViewById<ViewGroup>(R.id.item_battery_optimization)
+                ?.findViewById<TextView>(R.id.common_item_subtitle)
+                ?.text = "已加入白名单"
+            return
         }
+        batteryOptCheckJob?.cancel()
+        batteryOptCheckJob = lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val ignoring = BatteryOptimizationHelper.isIgnoringBatteryOptimizations(this@BackgroundKeepAliveActivity)
+                withContext(Dispatchers.Main) {
+                    // 缓存结果
+                    batteryOptWhitelistedCached = ignoring
+                    val subtitleView = findViewById<ViewGroup>(R.id.item_battery_optimization)
+                        ?.findViewById<TextView>(R.id.common_item_subtitle) ?: return@withContext
+                    subtitleView.text = if (ignoring) "已加入白名单" else "点击加入白名单"
+                }
+            } catch (e: Exception) {
+                DebugLogger.w(TAG, "battery opt check FAILED: ${e::class.java.simpleName}: ${e.message}", force = true)
+            }
+        }
+    }
+
+    private fun updateBatteryOptimizationSubtitle() {
+        // onResume 中直接复用统一的检查方法，取消上一次过期检查
+        checkBatteryOptStatus()
     }
 
     // ==================== 3. 自启动权限 ====================
@@ -387,148 +418,39 @@ class BackgroundKeepAliveActivity : AppCompatActivity() {
         }
     }
 
-    // ==================== 7. WorkManager 周期性任务 ====================
+    // ==================== 7. 进程死亡自动恢复 ====================
 
-    private var periodicIntervalMin = 15
-
-    private fun initPeriodicWorkerItem() {
+    private fun initAutoRecoverItem() {
         try {
-            val workerEnabled = SPUtil.getPeriodicWorkerEnabled(this)
-            val switchView = findViewById<ViewGroup>(R.id.item_periodic_worker) ?: return
+            val autoRecoverEnabled = SPUtil.getAutoRecoverEnabled(this)
+            val switchView = findViewById<ViewGroup>(R.id.item_auto_recover) ?: return
             CommonSettingsItemHelper.setupSwitchItem(
                 itemView = switchView,
-                iconRes = R.drawable.ic_rocket,
-                label = "周期性保活任务",
-                subtitle = if (workerEnabled) "已开启 · 间隔 ${formatIntervalMin(periodicIntervalMin)}" else "已关闭",
-                initialChecked = workerEnabled,
+                iconRes = R.drawable.ic_sync,
+                label = "进程死亡自动恢复",
+                subtitle = if (autoRecoverEnabled) "已开启 · 进程被杀死后自动恢复" else "已关闭",
+                initialChecked = autoRecoverEnabled,
                 onToggle = { checked ->
-                    SPUtil.setPeriodicWorkerEnabled(this, checked)
+                    SPUtil.setAutoRecoverEnabled(this, checked)
+                    // 开启时同步建立闹钟链，关闭时如果前台服务也关闭则取消闹钟
                     if (checked) {
-                        schedulePeriodicWorker()
-                    } else {
-                        cancelPeriodicWorker()
+                        com.ufi_toolswidget.service.AlarmReceiver.scheduleNext(this)
                     }
-                    updatePeriodicWorkerSubtitle()
-                    updatePeriodicWorkerIntervalVisibility()
+                    updateAutoRecoverSubtitle()
                 }
             )
-            initPeriodicWorkerIntervalItem()
-            updatePeriodicWorkerIntervalVisibility()
         } catch (e: Exception) {
-            DebugLogger.w(TAG, "init periodic worker FAILED: ${e::class.java.simpleName}: ${e.message}", force = true)
+            DebugLogger.w(TAG, "init auto recover FAILED: ${e::class.java.simpleName}: ${e.message}", force = true)
         }
     }
 
-    private fun getPeriodicWorkerSubtitle(): String {
-        return if (SPUtil.getPeriodicWorkerEnabled(this)) "已开启 · 间隔 ${formatIntervalMin(periodicIntervalMin)}" else "已关闭"
-    }
-
-    private fun updatePeriodicWorkerSubtitle() {
+    private fun updateAutoRecoverSubtitle() {
         try {
-            findViewById<ViewGroup>(R.id.item_periodic_worker)
+            findViewById<ViewGroup>(R.id.item_auto_recover)
                 ?.findViewById<TextView>(R.id.common_switch_subtitle)
-                ?.text = getPeriodicWorkerSubtitle()
+                ?.text = if (SPUtil.getAutoRecoverEnabled(this)) "已开启 · 进程被杀死后自动恢复" else "已关闭"
         } catch (e: Exception) {
-            DebugLogger.w(TAG, "update periodic worker subtitle failed: ${e.message}")
-        }
-    }
-
-    private fun updatePeriodicWorkerIntervalVisibility() {
-        try {
-            val enabled = SPUtil.getPeriodicWorkerEnabled(this)
-            findViewById<View>(R.id.item_periodic_worker_interval)?.visibility =
-                if (enabled) View.VISIBLE else View.GONE
-        } catch (_: Exception) {}
-    }
-
-    private fun initPeriodicWorkerIntervalItem() {
-        try {
-            periodicIntervalMin = SPUtil.getPeriodicWorkerIntervalMin(this)
-            val itemView = findViewById<ViewGroup>(R.id.item_periodic_worker_interval) ?: return
-            CommonSettingsItemHelper.setupSettingItem(
-                itemView = itemView,
-                iconRes = R.drawable.ic_clock_bolt,
-                title = "检查间隔",
-                subtitle = formatIntervalMin(periodicIntervalMin),
-                onClick = { showPeriodicIntervalDialog() }
-            )
-        } catch (e: Exception) {
-            DebugLogger.w(TAG, "init periodic worker interval FAILED: ${e.message}", force = true)
-        }
-    }
-
-    private fun showPeriodicIntervalDialog() {
-        showSliderThresholdDialog(
-            title = "检查间隔",
-            iconRes = R.drawable.ic_clock_bolt,
-            switchChecked = true,
-            currentValue = periodicIntervalMin.toFloat(),
-            unit = "分钟",
-            sliderMin = 15f, sliderMax = 120f, sliderStep = 5f, tickStep = 15f,
-            presets = listOf(15, 30, 60, 120),
-            subtitle = "间隔越小越及时，但更耗电（最小 15 分钟）",
-            showSwitch = false,
-            onToggle = {},
-            onThresholdChange = { v ->
-                periodicIntervalMin = (v / 5).toInt() * 5  // 对齐到 5 的倍数
-                SPUtil.setPeriodicWorkerIntervalMin(this, periodicIntervalMin)
-                updatePeriodicIntervalSubtitle()
-                updatePeriodicWorkerSubtitle()
-                // 重新调度以应用新间隔
-                if (SPUtil.getPeriodicWorkerEnabled(this)) {
-                    schedulePeriodicWorker()
-                }
-            }
-        )
-    }
-
-    private fun updatePeriodicIntervalSubtitle() {
-        try {
-            findViewById<ViewGroup>(R.id.item_periodic_worker_interval)
-                ?.findViewById<TextView>(R.id.common_item_subtitle)
-                ?.text = formatIntervalMin(periodicIntervalMin)
-        } catch (_: Exception) {}
-    }
-
-    private fun formatIntervalMin(minutes: Int): String {
-        return when {
-            minutes < 60 -> "${minutes} 分钟"
-            minutes % 60 == 0 -> "${minutes / 60} 小时"
-            else -> "${minutes / 60} 小时 ${minutes % 60} 分钟"
-        }
-    }
-
-    private fun schedulePeriodicWorker() {
-        try {
-            val intervalMin = SPUtil.getPeriodicWorkerIntervalMin(this)
-            val constraints = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .build()
-
-            val request = PeriodicWorkRequestBuilder<KeepAlivePeriodicWorker>(
-                intervalMin.toLong(), TimeUnit.MINUTES
-            )
-                .setConstraints(constraints)
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.MINUTES)
-                .build()
-
-            WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-                KeepAlivePeriodicWorker.WORK_NAME,
-                ExistingPeriodicWorkPolicy.UPDATE,
-                request
-            )
-            DebugLogger.logSys(TAG, "Periodic worker scheduled (${intervalMin} min interval)")
-        } catch (e: Exception) {
-            DebugLogger.w(TAG, "schedulePeriodicWorker FAILED: ${e.message}", force = true)
-        }
-    }
-
-    private fun cancelPeriodicWorker() {
-        try {
-            WorkManager.getInstance(this).cancelUniqueWork(KeepAlivePeriodicWorker.WORK_NAME)
-            DebugLogger.logSys(TAG, "Periodic worker cancelled")
-        } catch (e: Exception) {
-            DebugLogger.w(TAG, "cancelPeriodicWorker FAILED: ${e.message}", force = true)
+            DebugLogger.w(TAG, "update auto recover subtitle failed: ${e.message}")
         }
     }
 
@@ -570,140 +492,6 @@ class BackgroundKeepAliveActivity : AppCompatActivity() {
             DebugLogger.w(TAG, "update accessibility subtitle failed: ${e.message}")
         }
     }
-
-    // ==================== 9. 通用：滑条弹窗（带预设 + 自定义输入） ====================
-
-    private var activeDialog: android.app.Dialog? = null
-
-    private fun showSliderThresholdDialog(
-        title: String,
-        iconRes: Int,
-        switchChecked: Boolean,
-        currentValue: Float,
-        unit: String,
-        sliderMin: Float,
-        sliderMax: Float,
-        sliderStep: Float,
-        tickStep: Float,
-        presets: List<Int>,
-        subtitle: String? = null,
-        showSwitch: Boolean = true,
-        onToggle: (Boolean) -> Unit,
-        onThresholdChange: (Float) -> Unit
-    ) {
-        val dialog = CommonDialogHelper.createAnimatedDialog(this) { activeDialog = null }
-        dialog.setContentView(R.layout.layout_common_dialog)
-
-        dialog.findViewById<TextView>(R.id.common_dialog_title).text = title
-        dialog.findViewById<android.widget.ImageView>(R.id.common_dialog_icon).setImageResource(iconRes)
-
-        CommonDialogHelper.applyThemeToDialogRoot(this, dialog)
-
-        val content = dialog.findViewById<LinearLayout>(R.id.common_dialog_content)
-
-        // 开关行（部分弹窗如间隔设置不需要开关）
-        if (showSwitch) {
-            content.addView(CommonSettingsItemHelper.createSwitchRow(
-                context = this, label = title, subtitle = subtitle,
-                initialChecked = switchChecked, onToggle = onToggle
-            ))
-        }
-
-        // 当前值标签
-        val valueLabel = TextView(this).apply {
-            text = "${currentValue.toInt()} $unit"
-            textSize = 28f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(ThemeColors.textPrimary(this@BackgroundKeepAliveActivity))
-            gravity = android.view.Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        }
-        content.addView(valueLabel)
-
-        val thresholdCallback = onThresholdChange
-        var updatePresets: (Int) -> Unit = {}
-
-        // 滑条
-        val slider = ThemeSlider(this).also { s ->
-            s.minValue = sliderMin
-            s.maxValue = sliderMax
-            s.stepSize = sliderStep
-            s.currentValue = currentValue.coerceIn(sliderMin, sliderMax)
-            s.layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-            s.onValueChanging = { v -> valueLabel.text = "${v.toInt()} $unit" }
-            s.onValueChange = { v ->
-                valueLabel.text = "${v.toInt()} $unit"
-                thresholdCallback(v)
-                updatePresets(v.toInt())
-            }
-        }
-        ThemedSliderUtil.setupSliderTickMarks(slider, tickStep) { "${it.toInt()}$unit" }
-        content.addView(slider)
-
-        // 预设芯片
-        val (presetRow, updater) = CommonDialogHelper.createPresetRow(
-            context = this,
-            values = presets,
-            formatLabel = { "$it$unit" },
-            currentValue = currentValue.toInt(),
-            onSelect = { value -> slider.currentValue = value.toFloat() }
-        )
-        updatePresets = updater
-        content.addView(presetRow)
-
-        // 自定义输入面板
-        val customPanel = CommonDialogHelper.createInputPanel(
-            context = this,
-            hint = "输入 $sliderMin-$sliderMax $unit",
-            validate = { text ->
-                val v = text.toFloatOrNull()
-                when {
-                    v == null -> "请输入有效数字"
-                    v < sliderMin || v > sliderMax -> "请输入 $sliderMin-$sliderMax 之间的值"
-                    else -> null
-                }
-            },
-            onConfirm = { text -> slider.currentValue = text.toFloat() }
-        )
-        customPanel.layoutParams = (customPanel.layoutParams as ViewGroup.MarginLayoutParams).also {
-            it.topMargin = dp2px(12)
-        }
-        content.addView(customPanel)
-
-        // 按钮
-        val btnPrimary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_primary)
-        btnPrimary.text = "确认"
-        btnPrimary.setOnClickListener { dialog.dismiss() }
-
-        val btnSecondary = dialog.findViewById<com.google.android.material.button.MaterialButton>(R.id.common_dialog_btn_secondary)
-        btnSecondary.visibility = View.VISIBLE
-        btnSecondary.text = "自定义"
-        btnSecondary.setOnClickListener {
-            val showing = customPanel.visibility == View.VISIBLE
-            CommonDialogHelper.animatePanelVisibility(customPanel, !showing) {
-                if (!showing) {
-                    customPanel.findViewWithTag<android.widget.EditText>("custom_input_field")?.let { et ->
-                        if (currentValue > 0 && (currentValue < sliderMin || currentValue > sliderMax)) {
-                            et.setText(currentValue.toInt().toString())
-                        }
-                        et.requestFocus()
-                    }
-                }
-            }
-        }
-
-        CommonDialogHelper.setupDialogWindow(this, dialog)
-        activeDialog = dialog
-        dialog.show()
-    }
-
-    private fun dp2px(dp: Int): Int = (dp * resources.displayMetrics.density).toInt()
 
     companion object {
         private const val TAG = "BgKeepAlive"

@@ -28,9 +28,11 @@ import com.ufi_toolswidget.util.*
 import com.ufi_toolswidget.widget.BaseWifiWidget
 import com.ufi_toolswidget.worker.WifiWorker
 import com.google.android.material.button.MaterialButton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
@@ -100,6 +102,8 @@ class MainActivity : AppCompatActivity() {
         ThemeUtil.applyTheme(this, ThemeUtil.PageType.MAIN)
         DebugLogger.logUi(TAG, "Theme applied in onResume")
         updateAlertUnreadDot()
+        // 同步快捷入口状态（从设置页返回后生效）
+        setupTrafficQuickEntry()
         if (::tvModel.isInitialized) {
             // 先检测 Worker 是否因连续失败被停止
             checkWorkerFailureState()
@@ -125,6 +129,17 @@ class MainActivity : AppCompatActivity() {
                 startAutoRefreshTimer()
             } else {
                 DebugLogger.logLife(TAG, "onResume: error dialog IS visible, skipping refreshData")
+                // 【修复】doze 后卡加载：即使 Worker 已停止（有错误弹窗），
+                // 仍尝试从 SP 恢复缓存数据并隐藏加载页面，避免用户卡死在加载界面
+                viewModel.getWifiEntity()?.let { cachedData ->
+                    DebugLogger.logUi(TAG, "onResume: error dialog, showing cached data from SP")
+                    hideLoadingView(false)
+                    if (!hasShownFirstLoadAnimation) {
+                        hasShownFirstLoadAnimation = true
+                        setupAnimations()
+                    }
+                    applyWifiEntityToUi(cachedData)
+                }
             }
         }
     }
@@ -388,6 +403,9 @@ class MainActivity : AppCompatActivity() {
             viewModel.getWifiEntity()?.let { showBatteryDetailDialog(it) }
         }
 
+        // 流量 点击 → 弹窗显示流量数据（受快捷入口开关控制）
+        setupTrafficQuickEntry()
+
         // 状态视图
         mainContentView = findViewById(R.id.main_content)
         loadingView = findViewById(R.id.loading_view)
@@ -417,6 +435,28 @@ class MainActivity : AppCompatActivity() {
         // 启动载入动画（文字点动画 + 容器脉冲）
         startLoadingDotAnimation()
         startLoadingPulse()
+    }
+
+    /**
+     * 配置流量卡片快捷入口点击行为。
+     * 在 onCreate 和 onResume 中均调用，确保从设置页返回后状态同步。
+     */
+    private fun setupTrafficQuickEntry() {
+        val trafficView = findViewById<View>(R.id.main_item_traffic)
+        if (SPUtil.getTrafficQuickEntryEnabled(this)) {
+            // 先清除旧的 listener，避免重复注册
+            trafficView.setOnTouchListener(null)
+            trafficView.setOnClickListener(null)
+            AnimationUtil.applyScaleClickAnimation(trafficView) {
+                viewModel.getWifiEntity()?.let { showTrafficDetailDialog(it) }
+            }
+        } else {
+            // 同时清除 click 和 touch listener，防止残留触摸事件消费点击
+            trafficView.setOnTouchListener(null)
+            trafficView.setOnClickListener(null)
+            trafficView.isClickable = false
+            trafficView.isFocusable = false
+        }
     }
 
     /**
@@ -495,6 +535,9 @@ class MainActivity : AppCompatActivity() {
         btnRoot.alpha = 0.65f
         btnRoot.isEnabled = false
 
+        // 记录本次检查所使用的镜像源
+        val usedMirror = SPUtil.getUpdateMirror(this)
+
         // "检查中" 文字点动画（检查中 → 检查中. → 检查中.. → 检查中... 循环）
         val dotJob = lifecycleScope.launch {
             val base = "检查中"
@@ -519,6 +562,9 @@ class MainActivity : AppCompatActivity() {
             btnRoot.alpha = 1f
             btnRoot.isEnabled = true
 
+            // 手动检查也更新检查时间戳，避免刚手动检查后又触发自动检查
+            SPUtil.setLastUpdateCheckTime(this@MainActivity, System.currentTimeMillis())
+
             when (result) {
                 is UpdateChecker.UpdateResult.NewVersion -> {
                     btnText.text = "发现新版本"
@@ -538,7 +584,17 @@ class MainActivity : AppCompatActivity() {
                 }
                 is UpdateChecker.UpdateResult.Error -> {
                     btnText.text = "检查失败"
-                    ToastUtil.showDropToast(this@MainActivity, ToastStyle.WARNING, result.message)
+                    if (usedMirror == 0 && UpdateChecker.isNetworkError(result.message)) {
+                        ToastUtil.showDropToast(
+                            activity = this@MainActivity,
+                            style = ToastStyle.WARNING,
+                            title = "网络连接失败",
+                            message = "建议切换至国内镜像源后重试"
+                        )
+                        showMirrorSwitchDialog()
+                    } else {
+                        ToastUtil.showDropToast(this@MainActivity, ToastStyle.WARNING, result.message)
+                    }
                     lifecycleScope.launch {
                         delay(2500)
                         btnText.text = "检查更新"
@@ -546,6 +602,22 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /** 网络连接失败时弹窗提示切换国内镜像源 */
+    private fun showMirrorSwitchDialog() {
+        if (SPUtil.getUpdateMirror(this) == 1) return
+        com.ufi_toolswidget.util.PopupViewUtil.showConfirmDialog(
+            this,
+            title = "网络连接失败",
+            message = "当前使用 GitHub 官方源检查更新失败，可能是网络不通。\n\n是否切换至国内镜像源？切换后需重新点击「检查更新」。",
+            primaryBtnText = "切换至国内镜像",
+            secondaryBtnText = "暂不切换",
+            onConfirm = {
+                SPUtil.setUpdateMirror(this, 1)
+                ToastUtil.showDropToast(this, ToastStyle.INFO, "已切换至国内镜像源", "请重新检查更新")
+            }
+        )
     }
 
     /** "请稍候" 文字点动画（. → .. → ... 循环） */
@@ -982,7 +1054,8 @@ class MainActivity : AppCompatActivity() {
                 refreshData()
             },
             secondaryBtnText = "修改连接配置",
-            onSecondaryClick = {
+            onSecondaryClick = { d ->
+                d.dismiss()
                 startActivity(Intent(this@MainActivity, ConfigModifyActivity::class.java))
             }
         )
@@ -1036,20 +1109,25 @@ class MainActivity : AppCompatActivity() {
             }
             btnAlert.visibility = View.VISIBLE
             val unreadDot = findViewById<View>(R.id.alert_unread_dot) ?: return
-            val unreadCount = AlertHistoryManager.getUnreadCount(this)
-            if (unreadCount > 0) {
-                val bg = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(android.graphics.Color.parseColor("#F44336"))
-                    setStroke(
-                        (resources.displayMetrics.density * 1.5f).toInt(),
-                        android.graphics.Color.WHITE
-                    )
+            // IO 线程查询未读数，避免阻塞主线程
+            lifecycleScope.launch(Dispatchers.IO) {
+                val unreadCount = AlertHistoryManager.getUnreadCount()
+                withContext(Dispatchers.Main) {
+                    if (unreadCount > 0) {
+                        val bg = android.graphics.drawable.GradientDrawable().apply {
+                            shape = android.graphics.drawable.GradientDrawable.OVAL
+                            setColor(android.graphics.Color.parseColor("#F44336"))
+                            setStroke(
+                                (resources.displayMetrics.density * 1.5f).toInt(),
+                                android.graphics.Color.WHITE
+                            )
+                        }
+                        unreadDot.background = bg
+                        unreadDot.visibility = View.VISIBLE
+                    } else {
+                        unreadDot.visibility = View.GONE
+                    }
                 }
-                unreadDot.background = bg
-                unreadDot.visibility = View.VISIBLE
-            } else {
-                unreadDot.visibility = View.GONE
             }
         } catch (_: Exception) { }
     }
@@ -1249,6 +1327,14 @@ class MainActivity : AppCompatActivity() {
                         content.tag = currentHash
                     }
                 }
+                "traffic" -> {
+                    val currentHash = data.dailyFlow.hashCode().toLong() + data.flow.hashCode().toLong()
+                    if (content.tag != currentHash) {
+                        content.removeAllViews()
+                        content.fillTrafficDetail(this@MainActivity, data)
+                        content.tag = currentHash
+                    }
+                }
             }
         }
         
@@ -1417,6 +1503,17 @@ class MainActivity : AppCompatActivity() {
         )
         dialog?.findViewById<LinearLayout>(R.id.common_dialog_content)?.tag =
             data.battery.hashCode().toLong() + data.batteryCurrent.hashCode().toLong() + data.batteryVoltage.hashCode().toLong()
+    }
+
+    private fun showTrafficDetailDialog(data: WifiEntity) {
+        val dialog = showCommonDialog(
+            type = "traffic",
+            title = "流量使用情况",
+            iconRes = R.drawable.ic_clock_bolt,
+            onFill = { with(MainDialogHelper) { it.fillTrafficDetail(this@MainActivity, data) } }
+        )
+        dialog?.findViewById<LinearLayout>(R.id.common_dialog_content)?.tag =
+            data.dailyFlow.hashCode().toLong() + data.flow.hashCode().toLong()
     }
 
         // ── 以下方法已迁移至 MainDialogHelper ──

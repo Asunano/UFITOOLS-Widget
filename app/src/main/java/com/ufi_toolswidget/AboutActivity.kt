@@ -1,27 +1,19 @@
 package com.ufi_toolswidget
 
-import android.Manifest
 import android.animation.ValueAnimator
 import android.app.Dialog
-import android.app.DownloadManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import com.google.android.material.button.MaterialButton
 import com.ufi_toolswidget.util.AnimationUtil
 import com.ufi_toolswidget.util.CommonDialogHelper
@@ -37,7 +29,6 @@ import com.ufi_toolswidget.util.ToastUtil
 import com.ufi_toolswidget.util.UpdateChecker
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
-import java.io.File
 
 class AboutActivity : AppCompatActivity() {
 
@@ -106,6 +97,9 @@ class AboutActivity : AppCompatActivity() {
                 ToastUtil.showDropToast(this, ToastStyle.INFO, "再点击 ${5 - versionClickCount} 次激活调试模式")
             }
         }
+
+        // 赞赏按钮
+        setupDonateButton()
 
         // 开源地址
         CommonSettingsItemHelper.setupSettingItem(
@@ -213,6 +207,128 @@ class AboutActivity : AppCompatActivity() {
             }
         }
 
+    }
+
+    // ==================== 赞赏 ====================
+
+    /** 固定粉红色，不跟随主题 */
+    private val DONATE_PINK = 0xFFFF6B9D.toInt()
+
+    private fun setupDonateButton() {
+        val btnDonate = findViewById<View>(R.id.btn_donate)
+        val ivIcon = findViewById<ImageView>(R.id.iv_donate_icon)
+        val tvLabel = findViewById<TextView>(R.id.tv_donate_label)
+
+        // 固定粉色，使用 imageTintList 比 setColorFilter 更可靠
+        ivIcon.imageTintList = android.content.res.ColorStateList.valueOf(DONATE_PINK)
+        tvLabel.setTextColor(DONATE_PINK)
+
+        AnimationUtil.applyScaleClickAnimation(btnDonate) { showDonateDialog() }
+    }
+
+    private fun showDonateDialog() {
+        try {
+            val ctx = this
+            val d = resources.displayMetrics.density
+            val textSecondary = ThemeColors.textSecondary(ctx)
+
+            // 在 dialog 外预先解码图片（降采样）
+            val targetWidth = (280 * d).toInt()
+            val bitmap = decodeDownsampledBitmap(ctx, R.drawable.img_donate_qr, targetWidth)
+
+            CommonDialogHelper.showCommonDialog(
+                context = ctx,
+                title = "赞赏",
+                iconRes = R.drawable.ic_heart,
+                onFill = { content ->
+                    // 提示文字
+                    content.addView(TextView(ctx).apply {
+                        text = "如果你喜欢这个软件,可以考虑请我喝一杯柠檬水哟~（狗头）下滑支持微信/支付宝💰💰💰"
+                        textSize = 13f
+                        setTextColor(textSecondary)
+                        setLineSpacing(0f, 1.4f)
+                        layoutParams = LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply { bottomMargin = (12 * d).toInt() }
+                    })
+
+                    // 赞赏码图片
+                    if (bitmap != null) {
+                        val ivQr = ImageView(ctx).apply {
+                            setImageBitmap(bitmap)
+                            scaleType = ImageView.ScaleType.FIT_CENTER
+                            adjustViewBounds = true
+                            val cornerRadius = 14 * d
+                            clipToOutline = true
+                            outlineProvider = object : android.view.ViewOutlineProvider() {
+                                override fun getOutline(view: View, outline: android.graphics.Outline) {
+                                    if (view.width > 0 && view.height > 0) {
+                                        outline.setRoundRect(0, 0, view.width, view.height, cornerRadius)
+                                    }
+                                }
+                            }
+                            layoutParams = LinearLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.WRAP_CONTENT
+                            )
+                        }
+                        content.addView(ivQr)
+                    }
+
+                    // 底部小字
+                    content.addView(TextView(ctx).apply {
+                        text = "微信 / 支付宝 扫一扫"
+                        textSize = 11f
+                        setTextColor(textSecondary)
+                        alpha = 0.5f
+                        gravity = Gravity.CENTER
+                        layoutParams = LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT
+                        ).apply { topMargin = (10 * d).toInt() }
+                    })
+                },
+                primaryBtnText = "关闭",
+                onPrimaryClick = { dialog -> dialog.dismiss() }
+            )
+        } catch (e: Exception) {
+            DebugLogger.e(TAG, "showDonateDialog failed: ${e.message}")
+        }
+    }
+
+    /**
+     * 降采样加载大图，避免全分辨率解码导致 Canvas 崩溃。
+     * 使用 openRawResource + decodeStream 跳过 decodeResource 的密度缩放。
+     */
+    private fun decodeDownsampledBitmap(ctx: Context, resId: Int, targetWidth: Int): android.graphics.Bitmap? {
+        return try {
+            // 第一步：仅读取原始尺寸
+            val probeOpts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            ctx.resources.openRawResource(resId).use { stream ->
+                android.graphics.BitmapFactory.decodeStream(stream, null, probeOpts)
+            }
+            if (probeOpts.outWidth <= 0 || probeOpts.outHeight <= 0) return null
+
+            // 第二步：计算 inSampleSize（必须是 2 的幂）
+            var sampleSize = 1
+            while (probeOpts.outWidth / (sampleSize * 2) >= targetWidth) {
+                sampleSize *= 2
+            }
+
+            // 第三步：正式解码，RGB_565 省内存
+            val decodeOpts = android.graphics.BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+                inScaled = false  // 禁止密度缩放
+            }
+            ctx.resources.openRawResource(resId).use { stream ->
+                android.graphics.BitmapFactory.decodeStream(stream, null, decodeOpts)
+            }
+        } catch (e: Exception) {
+            DebugLogger.e(TAG, "decodeDownsampledBitmap failed: ${e.message}")
+            null
+        }
     }
 
     // ==================== 镜像源选择器 ====================
@@ -449,107 +565,24 @@ class AboutActivity : AppCompatActivity() {
         )
     }
 
-    // ===== 下载与安装逻辑 =====
+    // ===== 下载与安装逻辑（统一委托给 UpdateChecker） =====
 
-    /**
-     * 下载并安装（自动应用镜像加速）
-     */
     private fun downloadAndInstall(url: String, tag: String, sha256: String) {
-        val finalUrl = UpdateChecker.applyMirrorToUrl(this, url)
-        if (finalUrl.isBlank()) {
-            ToastUtil.showDropToast(this, ToastStyle.WARNING, "没有可下载的 APK")
-            return
+        val receiver = UpdateChecker.prepareDownload(this, url, tag, sha256) { id ->
+            downloadId = id
+            ToastUtil.showDropToast(this, ToastStyle.INFO, "开始下载...")
         }
-
-        // Android 9 及以下需要存储权限
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this, arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), 1001
-                )
-                return
-            }
+        if (receiver != null) {
+            downloadReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
+            downloadReceiver = receiver
         }
-
-        startDownload(finalUrl, tag, sha256)
-    }
-
-    private fun startDownload(url: String, tag: String, sha256: String) {
-        val fileName = "UFITOOLS-Widget-$tag.apk"
-        val request = DownloadManager.Request(Uri.parse(url))
-            .setTitle("UFITOOLS-Widget")
-            .setDescription("正在下载 $tag 版本...")
-            .setNotificationVisibility(
-                DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalPublicDir(
-                Environment.DIRECTORY_DOWNLOADS, fileName)
-            .setAllowedOverMetered(true)
-
-        val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        downloadId = dm.enqueue(request)
-        ToastUtil.showDropToast(this, ToastStyle.INFO, "开始下载...")
-
-        // 监听下载完成
-        downloadReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                if (id == downloadId) {
-                    installApk(fileName, sha256)
-                    unregisterReceiver(this)
-                    downloadReceiver = null
-                }
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(downloadReceiver,
-                IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-                Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(downloadReceiver,
-                IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
-        }
-    }
-
-    private fun installApk(fileName: String, sha256: String) {
-        val file = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            fileName
-        )
-        if (!file.exists()) {
-            ToastUtil.showDropToast(this, ToastStyle.WARNING, "下载文件不存在")
-            return
-        }
-
-        // SHA256 校验
-        if (sha256.isNotBlank()) {
-            if (!UpdateChecker.verifySha256(file, sha256)) {
-                file.delete()
-                ToastUtil.showDropToast(this, ToastStyle.WARNING, "文件校验失败", "已删除损坏文件，请重新下载")
-                return
-            }
-        }
-
-        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-        } else {
-            Uri.fromFile(file)
-        }
-
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        startActivity(intent)
     }
 
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1001 && grantResults.isNotEmpty()
+        if (requestCode == UpdateChecker.PERMISSION_REQUEST_CODE && grantResults.isNotEmpty()
             && grantResults[0] == PackageManager.PERMISSION_GRANTED
         ) {
             ToastUtil.showDropToast(this, ToastStyle.WARNING, "请重新点击下载")

@@ -11,6 +11,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Request
@@ -19,7 +20,6 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.Locale
 import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 object WifiCrawl {
     
@@ -27,6 +27,9 @@ object WifiCrawl {
     
     @Volatile var lastRawResponse: String = ""
     @Volatile var lastError: String = ""
+
+    /** AT 命令并发限流：嵌入式设备 HTTP 服务器资源有限，最多同时 4 路请求 */
+    private val atConcurrencyLimit = kotlinx.coroutines.sync.Semaphore(permits = 4)
 
     // ── 预编译 Regex：避免每次调用重复编译 ──
     private val PORT_RE = Regex(":(\\d+)$")
@@ -273,7 +276,10 @@ object WifiCrawl {
             val needToken = tokenInfo?.optBoolean("need_token", false) ?: false
 
             // 信号解析逻辑
-            val netType = signalInfo?.optString("network_type") ?: ""
+            // 优先使用 Goform API 的 network_type；若为空则回退到 AT 命令的 networkType
+            val netType = signalInfo?.optString("network_type")?.ifBlank { null }
+                ?: atNetworkInfo?.networkType?.ifBlank { null }
+                ?: ""
             val goformSignalRaw = when {
                 netType.contains("5G") -> signalInfo?.optString("Z5g_rsrp")
                 else -> signalInfo?.optString("lte_rsrp")
@@ -349,7 +355,9 @@ object WifiCrawl {
                 macAddress = macAddr,
                 pinStatusCode = pinStatusCode,
                 monthlyUploadBytes = mTx,
-                monthlyDownloadBytes = mRx
+                monthlyDownloadBytes = mRx,
+                dailyRawBytes = dailyRaw,
+                monthlyRawBytes = monthlyRaw
             )
         } catch (e: CancellationException) {
             // 协程被取消 → 不视为错误，直接重新抛出让协程栈正确处理
@@ -373,6 +381,7 @@ object WifiCrawl {
      * 非阻塞网络请求：使用 OkHttp 异步 enqueue + suspendCancellableCoroutine，
      * 不阻塞 IO 线程，且支持协程取消。
      * 内部自动关闭 Response，调用方无需手动 use{}，从根源消除连接泄漏风险。
+     * 每次 resume 前检查 isActive，防止协程取消后 OkHttp 回调仍触发导致 IllegalStateException。
      */
     private suspend fun executeRequest(req: Request): HttpResponse? =
         suspendCancellableCoroutine { continuation ->
@@ -383,16 +392,22 @@ object WifiCrawl {
                     try {
                         response.use {
                             val body = it.body?.string() ?: ""
-                            continuation.resume(HttpResponse(it.code, it.isSuccessful, body))
+                            if (continuation.isActive) {
+                                continuation.resume(HttpResponse(it.code, it.isSuccessful, body))
+                            }
                         }
                     } catch (e: IOException) {
                         // body.string() 中途断网抛异常 → OkHttp 已回调 onResponse 不会调 onFailure
                         // 必须手动 resume，否则协程永久挂起
-                        continuation.resume(null)
+                        if (continuation.isActive) {
+                            continuation.resume(null)
+                        }
                     }
                 }
                 override fun onFailure(call: Call, e: IOException) {
-                    continuation.resume(null)
+                    if (continuation.isActive) {
+                        continuation.resume(null)
+                    }
                 }
             })
         }
@@ -734,10 +749,10 @@ object WifiCrawl {
             val cpasCmd = CPAS_CMD
             val cgattCmd = CGATT_CMD
 
-            // ── 辅助函数 ──
-            suspend fun atQuery(cmd: String): String {
+            // ── 辅助函数（Semaphore 限流，最多 4 路并发） ──
+            suspend fun atQuery(cmd: String): String = atConcurrencyLimit.withPermit {
                 val resp = fetchApi("$atPath?command=$cmd&slot=0", t, auth, context)
-                return resp?.optString("result")?.ifEmpty { resp.optString("response") } ?: ""
+                resp?.optString("result")?.ifEmpty { resp.optString("response") } ?: ""
             }
 
             val results = kotlinx.coroutines.coroutineScope {
@@ -1340,6 +1355,8 @@ data class WifiEntity(
     val pinStatusCode: Int,       // SIM PIN 状态：0=已解锁，1=需PIN，2=PUK锁定，-1=无数据
     val monthlyUploadBytes: Long, // 当月上行流量 (Bytes)
     val monthlyDownloadBytes: Long, // 当月下行流量 (Bytes)
+    val dailyRawBytes: Long,       // 日流量原始字节数
+    val monthlyRawBytes: Long,     // 月流量原始字节数
 )
 
 data class AtSignalInfo(

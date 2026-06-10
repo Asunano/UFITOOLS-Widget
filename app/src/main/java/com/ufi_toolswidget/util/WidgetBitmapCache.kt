@@ -1,6 +1,8 @@
 package com.ufi_toolswidget.util
 
+import android.content.ComponentCallbacks2
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -13,11 +15,14 @@ import android.util.Log
 /**
  * 小组件背景 Bitmap 缓存，减少重复分配（~2.5MB/次）带来的 GC 压力。
  *
+ * 实现 [ComponentCallbacks2] 监听系统内存压力，自动清理缓存防止 OOM。
+ * 需在 [Application.onCreate] 中调用 [register] 注册回调。
+ *
  * 两类缓存：
  * - solidColorBitmap：纯色圆角 Bitmap（按颜色缓存 1 槽，刷新时颜色通常不变）
  * - imageBgBitmap：    自定义背景图 Bitmap（按 URI+尺寸缓存 1 槽）
  */
-object WidgetBitmapCache {
+object WidgetBitmapCache : ComponentCallbacks2 {
 
     private const val TAG = "WidgetBitmapCache"
     private const val TARGET_W = 640
@@ -30,6 +35,64 @@ object WidgetBitmapCache {
     // ── 自定义背景图 Bitmap 缓存 ──
     private var cachedImageUri: String = ""
     private var cachedImageBitmap: Bitmap? = null
+
+    // ── 系统内存压力回调注册状态 ──
+    private var isRegistered = false
+
+    /**
+     * 注册 [ComponentCallbacks2] 内存压力回调，建议在 [Application.onCreate] 中调用。
+     * 可重复调用（第二次及以后自动跳过）。
+     */
+    @Synchronized
+    fun register(context: Context) {
+        if (isRegistered) return
+        context.applicationContext.registerComponentCallbacks(this)
+        isRegistered = true
+        Log.d(TAG, "ComponentCallbacks2 registered")
+    }
+
+    /**
+     * 取消注册内存压力回调。通常在应用销毁时调用，但单例缓存随进程生命周期，
+     * 多数场景下不需要主动 unregister。
+     */
+    @Synchronized
+    fun unregister(context: Context) {
+        if (!isRegistered) return
+        context.applicationContext.unregisterComponentCallbacks(this)
+        isRegistered = false
+        Log.d(TAG, "ComponentCallbacks2 unregistered")
+    }
+
+    // ── ComponentCallbacks2 实现 ──
+
+    override fun onTrimMemory(level: Int) {
+        when {
+            // 系统内存严重不足，清空所有缓存
+            level >= ComponentCallbacks2.TRIM_MEMORY_MODERATE -> {
+                Log.d(TAG, "onTrimMemory(MODERATE=$level): evicting all caches")
+                evictAll()
+            }
+            // 进入后台列表/后台进程列表，释放较重的 image 缓存
+            level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND -> {
+                Log.d(TAG, "onTrimMemory(BACKGROUND=$level): evicting image cache")
+                recycleImage()
+            }
+            // UI 不可见，轻量释放
+            level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
+                Log.d(TAG, "onTrimMemory(UI_HIDDEN=$level): evicting image cache")
+                recycleImage()
+            }
+        }
+    }
+
+    override fun onLowMemory() {
+        Log.d(TAG, "onLowMemory: evicting all caches")
+        evictAll()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        // no-op
+    }
 
     /**
      * 获取或创建纯色圆角 Bitmap。颜色未变时命中缓存，零分配。

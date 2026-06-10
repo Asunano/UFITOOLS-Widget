@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root_layout"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:fitsSystemWindows="true">
+    android:layout_height="match_parent">
 
-    <!-- 主内容区域（底部留出翻页栏空间） -->
+    <!-- 主内容区域（底部边距由代码动态管理，配合翻页栏显隐） -->
     <LinearLayout
+        android:id="@+id/content_layout"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:layout_marginBottom="52dp">
+        android:orientation="vertical">
+
 
         <!-- Header -->
         <FrameLayout
@@ -24,12 +25,12 @@
                 android:gravity="center"
                 android:orientation="vertical"
                 android:paddingTop="24dp"
-                android:paddingBottom="8dp">
+                android:paddingBottom="24dp">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="警报历史"
+                    android:text="通知历史"
                     android:textColor="@color/text_main"
                     android:textSize="28sp"
                     android:textStyle="bold"
@@ -40,7 +41,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="暂无警报记录"
+                    android:text="暂无通知记录"
                     android:textColor="@color/text_main"
                     android:alpha="0.45"
                     android:textSize="13sp" />
@@ -178,21 +179,11 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:text="暂无警报记录"
+                android:text="暂无通知记录"
                 android:textColor="@color/text_main"
                 android:alpha="0.45"
                 android:textSize="14sp" />
         </LinearLayout>
     </LinearLayout>
-
-    <!-- Pagination bar (fixed at bottom, programmatic) -->
-    <LinearLayout
-        android:id="@+id/pagination_bar_container"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginHorizontal="12dp"
-        android:layout_marginBottom="8dp"
-        android:orientation="horizontal" />
 
 </FrameLayout>
