@@ -1,6 +1,10 @@
 # UFI-TOOLS Widget
 
 <p align="center">
+  ⭐ 如果这个项目对你有帮助，请给它一个 Star！⭐
+</p>
+
+<p align="center">
   <img src="https://github.com/Asunano/UFITOOLS-Widget/actions/workflows/build.yml/badge.svg" alt="Build Status">
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
   <img src="https://img.shields.io/badge/Platform-Android-green.svg" alt="Platform: Android">
@@ -19,8 +23,7 @@
   <a href="#技术栈">技术栈</a> •
   <a href="#FAQ">FAQ</a>
 </p>
-我的博客[UFITOOLS Widget：专为随身WiFi打造的Android桌面监控组件](https://blog.drxian.cn/archives/1322)
-
+<p align="center">我的博客：- [UFITOOLS Widget：专为随身 WiFi 打造的 Android 桌面监控组件](https://blog.drxian.cn/archives/1322)</p>
 <p align="center">
   <img src="docs/images/hero-widget.jpg" alt="UFI-TOOLS Widget 精美小组件" width="600">
 </p>
@@ -429,7 +432,5 @@ UFITOOLS-Widget/
 详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
-
-<p align="center">
-  ⭐ 如果这个项目对你有帮助，请给它一个 Star！⭐
-</p>
+## 感谢
+- [UFI-TOOLS](https://github.com/kanoqwq/UFI-TOOLS) — UFI-TOOLS提供数据接口
