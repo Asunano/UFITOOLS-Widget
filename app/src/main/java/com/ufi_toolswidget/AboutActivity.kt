@@ -28,6 +28,8 @@ import com.ufi_toolswidget.util.ToastStyle
 import com.ufi_toolswidget.util.ToastUtil
 import com.ufi_toolswidget.util.UpdateChecker
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class AboutActivity : AppCompatActivity() {
@@ -38,6 +40,15 @@ class AboutActivity : AppCompatActivity() {
 
     private var downloadId: Long = -1
     private var downloadReceiver: BroadcastReceiver? = null
+
+    // ── 下载进度弹窗 ──
+    private var downloadDialog: Dialog? = null
+    private var downloadPollJob: Job? = null
+    private var pendingUpdateInfo: UpdateChecker.UpdateInfo? = null
+    private var downloadTag: String? = null
+    private var downloadSha256: String? = null
+    private var downloadPrevBytes: Long = 0L
+    private var downloadPrevTime: Long = 0L
 
     // 主题变更接收器
     private var themeChangeReceiver: BroadcastReceiver? = null
@@ -514,17 +525,26 @@ class AboutActivity : AppCompatActivity() {
     /** 网络连接失败时弹窗提示切换国内镜像源 */
     private fun showMirrorSwitchDialog() {
         if (currentMirror == 1) return // 已经是镜像源，不再提示
-        PopupViewUtil.showConfirmDialog(
+        CommonDialogHelper.showCommonDialog(
             this,
             title = "网络连接失败",
-            message = "当前使用 GitHub 官方源检查更新失败，可能是网络不通。\n\n是否切换至国内镜像源？切换后需重新点击「检查更新」。",
-            primaryBtnText = "切换至国内镜像",
-            secondaryBtnText = "暂不切换",
-            onConfirm = {
+            iconRes = R.drawable.ic_sync,
+            onFill = { content ->
+                content.addView(TextView(this).apply {
+                    text = "当前使用 GitHub 官方源检查更新失败，可能是网络不通。\n\n是否切换至国内镜像源？切换后需重新点击「检查更新」。"
+                    textSize = 14f
+                    setTextColor(ThemeColors.textPrimary(this@AboutActivity))
+                    setLineSpacing(0f, 1.4f)
+                })
+            },
+            primaryBtnText = "切换镜像源",
+            onPrimaryClick = { d ->
+                d.dismiss()
                 currentMirror = 1
                 SPUtil.setUpdateMirror(this, 1)
                 ToastUtil.showDropToast(this, ToastStyle.INFO, "已切换至国内镜像源", "请重新检查更新")
-            }
+            },
+            secondaryBtnText = "暂不切换"
         )
     }
 
@@ -559,6 +579,7 @@ class AboutActivity : AppCompatActivity() {
             primaryBtnText = "下载更新",
             onPrimaryClick = { d ->
                 d.dismiss()
+                pendingUpdateInfo = info
                 downloadAndInstall(info.apkUrl, info.tagName, info.apkSha256)
             },
             secondaryBtnText = "稍后"
@@ -567,14 +588,268 @@ class AboutActivity : AppCompatActivity() {
 
     // ===== 下载与安装逻辑（统一委托给 UpdateChecker） =====
 
+    // ===== 下载进度弹窗 =====
+
+    private fun showDownloadProgressDialog(showMirrorOption: Boolean) {
+        downloadDialog?.dismiss()
+        val density = resources.displayMetrics.density
+        val dp = { v: Int -> (v * density).toInt() }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+
+        val sourceLabel = TextView(this).apply {
+            text = if (showMirrorOption) "下载源: GitHub 官方" else "下载源: 国内镜像"
+            textSize = 12f
+            setTextColor(ThemeColors.textSecondary(this@AboutActivity))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(12) }
+        }
+        content.addView(sourceLabel)
+
+        val percentText = TextView(this).apply {
+            id = android.R.id.text1
+            text = "0%"
+            textSize = 32f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(ThemeColors.textPrimary(this@AboutActivity))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+        content.addView(percentText)
+
+        // 进度条：轨道=强调色15%透明，已完成=强调色
+        val accentColor = ThemeColors.accent(this@AboutActivity)
+        val trackBg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor((accentColor and 0x00FFFFFF) or 0x26000000)
+            cornerRadius = dp(4).toFloat()
+        }
+        val progressBg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(accentColor)
+            cornerRadius = dp(4).toFloat()
+        }
+        val progressClip = android.graphics.drawable.ClipDrawable(
+            progressBg, Gravity.LEFT, android.graphics.drawable.ClipDrawable.HORIZONTAL
+        )
+        val progressBar = ProgressBar(this@AboutActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+            id = android.R.id.progress
+            max = 100
+            progress = 0
+            val layerDrawable = android.graphics.drawable.LayerDrawable(
+                arrayOf(trackBg, progressClip)
+            ).apply {
+                setId(0, android.R.id.background)
+                setId(1, android.R.id.progress)
+            }
+            progressDrawable = layerDrawable
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(8)
+            ).apply { bottomMargin = dp(8) }
+        }
+        content.addView(progressBar)
+
+        val sizeText = TextView(this).apply {
+            id = android.R.id.text2
+            text = "0 B / 未知"
+            textSize = 13f
+            setTextColor(ThemeColors.textSecondary(this@AboutActivity))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(4) }
+        }
+        content.addView(sizeText)
+
+        val speedText = TextView(this).apply {
+            id = android.R.id.summary
+            text = "等待中..."
+            textSize = 12f
+            setTextColor(ThemeColors.accent(this@AboutActivity))
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        content.addView(speedText)
+
+        val dialog = CommonDialogHelper.showCommonDialog(
+            this,
+            title = "正在下载",
+            iconRes = R.drawable.ic_sync,
+            onFill = { it.addView(content) },
+            primaryBtnText = "后台下载",
+            onPrimaryClick = { d -> d.dismiss() },
+            secondaryBtnText = if (showMirrorOption) "切换镜像源" else null,
+            onSecondaryClick = if (showMirrorOption) { _ -> restartDownloadWithMirror() } else null
+        )
+
+        dialog.setOnDismissListener { downloadDialog = null }
+        downloadDialog = dialog
+    }
+
+    private fun pollDownloadProgress() {
+        downloadPollJob?.cancel()
+        downloadPrevBytes = 0L
+        downloadPrevTime = System.currentTimeMillis()
+        downloadPollJob = lifecycleScope.launch {
+            val dm = getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+            while (isActive) {
+                val query = android.app.DownloadManager.Query().setFilterById(downloadId)
+                dm.query(query).use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val bytesCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+                        val totalCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                        val statusCol = cursor.getColumnIndex(android.app.DownloadManager.COLUMN_STATUS)
+
+                        val bytes = if (bytesCol >= 0) cursor.getLong(bytesCol) else 0L
+                        val total = if (totalCol >= 0) cursor.getLong(totalCol) else -1L
+                        val status = if (statusCol >= 0) cursor.getInt(statusCol) else -1
+
+                        when (status) {
+                            android.app.DownloadManager.STATUS_SUCCESSFUL -> {
+                                downloadDialog?.dismiss()
+                                downloadPollJob = null
+                                showInstallPrompt()
+                                return@launch
+                            }
+                            android.app.DownloadManager.STATUS_FAILED -> {
+                                downloadDialog?.dismiss()
+                                ToastUtil.showDropToast(this@AboutActivity, ToastStyle.WARNING, "下载失败")
+                                downloadPollJob = null
+                                return@launch
+                            }
+                            android.app.DownloadManager.STATUS_RUNNING -> {
+                                if (total > 0) {
+                                    val pct = (bytes * 100 / total).toInt()
+                                    downloadDialog?.findViewById<ProgressBar>(android.R.id.progress)?.progress = pct
+                                    downloadDialog?.findViewById<TextView>(android.R.id.text1)?.text = "$pct%"
+                                    downloadDialog?.findViewById<TextView>(android.R.id.text2)?.text =
+                                        "${formatBytes(bytes)} / ${formatBytes(total)}"
+                                } else {
+                                    downloadDialog?.findViewById<TextView>(android.R.id.text2)?.text =
+                                        "${formatBytes(bytes)} / 计算中..."
+                                }
+                                val now = System.currentTimeMillis()
+                                val elapsed = now - downloadPrevTime
+                                if (elapsed > 0 && downloadPrevTime > 0) {
+                                    val speedBps = (bytes - downloadPrevBytes) * 1000 / elapsed
+                                    downloadDialog?.findViewById<TextView>(android.R.id.summary)?.text =
+                                        "当前下载速度：${formatBytes(speedBps)}/s"
+                                }
+                                downloadPrevBytes = bytes
+                                downloadPrevTime = now
+                            }
+                        }
+                    }
+                }
+                kotlinx.coroutines.delay(500)
+            }
+        }
+    }
+
+    private fun showInstallPrompt() {
+        val tag = downloadTag ?: return
+        val sha256 = downloadSha256 ?: ""
+        val cachedDownloadId = downloadId
+        CommonDialogHelper.showCommonDialog(
+            this,
+            title = "发现缓存安装包",
+            iconRes = R.drawable.ic_check,
+            onFill = { content ->
+                content.addView(TextView(this).apply {
+                    text = "新版本 $tag 的安装包已在本地缓存，是否立即安装？"
+                    textSize = 14f
+                    setTextColor(ThemeColors.textPrimary(this@AboutActivity))
+                    setLineSpacing(0f, 1.4f)
+                })
+            },
+            primaryBtnText = "安装",
+            onPrimaryClick = { d ->
+                d.dismiss()
+                val fileName = "UFITOOLS-Widget-$tag.apk"
+                lifecycleScope.launch {
+                    if (cachedDownloadId >= 0) {
+                        UpdateChecker.installApk(this@AboutActivity, fileName, sha256, cachedDownloadId)
+                    } else {
+                        val file = UpdateChecker.getCachedApkFile(this@AboutActivity, tag)?.first
+                        if (file != null) {
+                            UpdateChecker.installApkFromFile(this@AboutActivity, file, sha256)
+                        } else {
+                            ToastUtil.showDropToast(this@AboutActivity, ToastStyle.WARNING, "缓存文件不存在", "请重新下载")
+                        }
+                    }
+                }
+            },
+            secondaryBtnText = "稍后"
+        )
+    }
+
+    private fun restartDownloadWithMirror() {
+        if (downloadId > 0) {
+            val dm = getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+            dm.remove(downloadId)
+            downloadId = -1
+        }
+        downloadReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
+        downloadReceiver = null
+        downloadPollJob?.cancel()
+        downloadPollJob = null
+        downloadDialog?.dismiss()
+        downloadDialog = null
+
+        SPUtil.setUpdateMirror(this, 1)
+        ToastUtil.showDropToast(this, ToastStyle.INFO, "已切换至国内镜像源", "正在重新下载...")
+
+        pendingUpdateInfo?.let { info ->
+            downloadAndInstall(info.apkUrl, info.tagName, info.apkSha256)
+        }
+    }
+
+    private fun formatBytes(bytes: Long): String = when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1_048_576 -> "${"%.1f".format(bytes / 1024.0)} KB"
+        bytes < 1_073_741_824 -> "${"%.1f".format(bytes / 1_048_576.0)} MB"
+        else -> "${"%.2f".format(bytes / 1_073_741_824.0)} GB"
+    }
+
     private fun downloadAndInstall(url: String, tag: String, sha256: String) {
+        downloadTag = tag
+        downloadSha256 = sha256
+
+        // ── 缓存复用：检查本地是否已存在同版本 APK ──
+        val cachedResult = UpdateChecker.getCachedApkFile(this, tag)
+        if (cachedResult != null) {
+            DebugLogger.logSys(TAG, "downloadAndInstall: cached APK found for $tag (dmId=${cachedResult.second}), skipping download")
+            downloadId = cachedResult.second
+            showInstallPrompt()
+            return
+        }
+
+        val mirror = SPUtil.getUpdateMirror(this)
         val receiver = UpdateChecker.prepareDownload(this, url, tag, sha256) { id ->
             downloadId = id
-            ToastUtil.showDropToast(this, ToastStyle.INFO, "开始下载...")
+            downloadReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
+            downloadReceiver = null
+            showDownloadProgressDialog(mirror == 0)
+            pollDownloadProgress()
         }
         if (receiver != null) {
             downloadReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
             downloadReceiver = receiver
+            try { unregisterReceiver(receiver) } catch (_: Exception) {}
+            downloadReceiver = null
         }
     }
 
@@ -613,6 +888,10 @@ class AboutActivity : AppCompatActivity() {
         themeChangeReceiver = null
         activeUpdateSettingsDialog?.takeIf { it.isShowing }?.dismiss()
         activeUpdateSettingsDialog = null
+        downloadPollJob?.cancel()
+        downloadPollJob = null
+        downloadDialog?.dismiss()
+        downloadDialog = null
         downloadReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
         downloadReceiver = null
         super.onDestroy()

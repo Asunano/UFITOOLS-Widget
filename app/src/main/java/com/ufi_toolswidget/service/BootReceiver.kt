@@ -15,34 +15,34 @@ import com.ufi_toolswidget.util.SPUtil
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            try {
-                if (SPUtil.getNotificationEnabled(context)
-                    && SPUtil.getBackgroundServiceEnabled(context)) {
-                    BackgroundMonitorService.start(context)
-                    DebugLogger.d("BootReceiver", "Background monitor service auto-started after boot")
-                }
-            } catch (e: Exception) {
-                DebugLogger.w("BootReceiver", "Auto-start failed: ${e.message}")
-            }
+        if (intent.action !in listOf(Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED)) return
 
-            // 重新调度 WorkManager 周期性保活任务
-            try {
-                BackgroundKeepAliveActivity.schedulePeriodicWorkerIfEnabled(context)
-            } catch (e: Exception) {
-                DebugLogger.w("BootReceiver", "WorkManager re-schedule failed: ${e.message}")
+        try {
+            if (SPUtil.getNotificationEnabled(context)
+                && SPUtil.getBackgroundServiceEnabled(context)) {
+                BackgroundMonitorService.start(context)
+                DebugLogger.d("BootReceiver", "Background monitor service auto-started after ${intent.action}")
             }
+        } catch (e: Exception) {
+            DebugLogger.w("BootReceiver", "Auto-start failed: ${e.message}")
+        }
 
-            // 调度 Doze 穿透闹钟：开机后立即建立闹钟链
-            // 即使前台服务未开启，只要自动恢复启用也需要闹钟来检测和恢复
-            try {
-                if (SPUtil.getNotificationEnabled(context)) {
-                    AlarmReceiver.scheduleNext(context)
-                    DebugLogger.d("BootReceiver", "Doze alarm scheduled after boot")
-                }
-            } catch (e: Exception) {
-                DebugLogger.w("BootReceiver", "Alarm schedule failed: ${e.message}")
+        // 重新调度 WorkManager 周期性保活任务
+        try {
+            BackgroundKeepAliveActivity.schedulePeriodicWorkerIfEnabled(context)
+        } catch (e: Exception) {
+            DebugLogger.w("BootReceiver", "WorkManager re-schedule failed: ${e.message}")
+        }
+
+        // 调度 Doze 穿透闹钟：开机/更新后立即建立闹钟链
+        // 即使前台服务未开启，只要自动恢复启用也需要闹钟来检测和恢复
+        try {
+            if (SPUtil.getNotificationEnabled(context)) {
+                AlarmReceiver.scheduleNext(context)
+                DebugLogger.d("BootReceiver", "Doze alarm scheduled after ${intent.action}")
             }
+        } catch (e: Exception) {
+            DebugLogger.w("BootReceiver", "Alarm schedule failed: ${e.message}")
         }
     }
 }

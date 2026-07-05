@@ -366,6 +366,11 @@ object SPUtil {
      * - 私有 IP → http://
      * - 域名/公网IP → 查缓存协议；若已探测到则用对应协议，否则默认 https://
      */
+    /**
+     * 构建基础 URL（线程安全：使用 @Synchronized 保证检查-写入原子性）。
+     * 地址和协议未变更时，直接返回缓存结果。
+     */
+    @Synchronized
     fun buildBaseUrl(ctx: Context): String {
         val raw = getDeviceAddress(ctx)
         val protocol = getDeviceProtocol(ctx)

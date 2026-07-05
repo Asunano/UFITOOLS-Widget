@@ -441,6 +441,80 @@ object UpdateChecker {
         context.startActivity(intent)
     }
 
+    /**
+     * 安装已下载的 APK 文件（直接从本地文件路径安装，无需 DownloadManager downloadId）。
+     * 适用于缓存复用场景：APK 已在 Downloads 目录中存在。
+     *
+     * @param file 本地 APK 文件
+     * @param sha256 version.json 中记录的 SHA256 校验值
+     */
+    suspend fun installApkFromFile(context: Context, file: File, sha256: String) {
+        if (!file.exists()) {
+            ToastUtil.showDropToast(context, ToastStyle.WARNING, "下载文件不存在")
+            return
+        }
+
+        // SHA256 校验（IO 线程）
+        if (sha256.isNotBlank()) {
+            val verified = withContext(Dispatchers.IO) {
+                verifySha256(file, sha256)
+            }
+            if (!verified) {
+                // 校验失败：删除损坏文件
+                try { file.delete() } catch (_: Exception) {}
+                ToastUtil.showDropToast(context, ToastStyle.WARNING, "文件校验失败", "已删除损坏文件，请重新下载")
+                return
+            }
+        }
+
+        // 通过 FileProvider 生成 content:// URI
+        val installUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(installUri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(intent)
+    }
+
+    /**
+     * 检查本地 Downloads 目录中是否存在指定 tag 的缓存 APK 文件。
+     *
+     * 优先通过 DownloadManager.Query 查找已完成且文件名匹配的下载记录，
+     * 以兼容 Android 10+ Scoped Storage（File API 无法直接检测 DownloadManager 保存的文件）。
+     * 回退至 File API 检查作为兜底。
+     *
+     * @param tag 版本标签，如 "v0.2"
+     * @return (文件, downloadId) 二元组，downloadId 为 -1 表示通过 File API 找到（无 DM 记录）
+     */
+    fun getCachedApkFile(context: Context, tag: String): Pair<File, Long>? {
+        val fileName = "UFITOOLS-Widget-$tag.apk"
+
+        // 优先：通过 DownloadManager 查询已完成的下载记录
+        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val query = DownloadManager.Query().setFilterByStatus(DownloadManager.STATUS_SUCCESSFUL)
+        dm.query(query).use { cursor ->
+            val uriCol = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
+            val idCol = cursor.getColumnIndex(DownloadManager.COLUMN_ID)
+            if (uriCol >= 0 && idCol >= 0) {
+                while (cursor.moveToNext()) {
+                    val uriStr = cursor.getString(uriCol) ?: continue
+                    if (uriStr.endsWith(fileName)) {
+                        val file = File(Uri.parse(uriStr).path ?: continue)
+                        if (file.length() > 0) {
+                            return Pair(file, cursor.getLong(idCol))
+                        }
+                    }
+                }
+            }
+        }
+
+        // 兜底：File API（Android < 10 或启用了 requestLegacyExternalStorage）
+        val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName)
+        return if (file.exists() && file.length() > 0) Pair(file, -1L) else null
+    }
+
     /** 获取应用镜像化后的下载链接（含权限检查提示） */
     fun prepareDownload(
         activity: AppCompatActivity,

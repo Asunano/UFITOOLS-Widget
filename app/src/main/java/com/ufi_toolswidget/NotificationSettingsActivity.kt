@@ -53,8 +53,6 @@ class NotificationSettingsActivity : AppCompatActivity() {
 
         AnimationUtil.applyScaleClickAnimation(findViewById(R.id.btn_back)) { finish() }
 
-        NotificationHelper.requestPermission(this, REQUEST_NOTIFICATION_PERMISSION)
-
         DebugLogger.log(Category.SYS, TAG_INIT, "onCreate start")
 
         initMasterItem()

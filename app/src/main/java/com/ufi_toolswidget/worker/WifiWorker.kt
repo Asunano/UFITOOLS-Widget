@@ -138,29 +138,36 @@ class WifiWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         try {
             val data = WifiCrawl.getWifiData(ctx)
             if (data != null) {
-                SPUtil.saveData(ctx, data)
-                // 记录流量数据到 Room（零额外网络开销，数据已在 data 中）
-                TrafficRecordManager.saveRecord(ctx, data.dailyRawBytes, data.monthlyRawBytes)
-                // 全部成功 → 清除所有失败状态
-                resetFailureState(ctx)
-                SPUtil.setReconnecting(ctx, false)
-                // 后台通知检测（仅系统通知栏，不显示应用内 Toast）
-                NotificationHelper.checkAndNotify(
-                    context = ctx,
-                    dailyFlowStr = data.dailyFlow,
-                    monthlyFlowStr = data.flow,
-                    tempStr = MainDialogHelper.getHighestTemp(data),
-                    cpuStr = data.cpu,
-                    memStr = data.mem,
-                    batteryPercent = data.batteryPercent,
-                    isDeviceOnline = true,
-                    activity = null
-                )
-                DebugLogger.i(TAG, "doWork: API success, all failure states cleared")
-                DebugLogger.flushToFile()
-                BaseWifiWidget.renderAllWidgets(ctx)
-                Log.d(TAG, "Data fetch succeeded, all failure states cleared")
-                return@withContext Result.success()
+                // 基本合理性校验：防止坏数据写入 SP 和流量历史
+                if (data.dailyRawBytes < 0 || data.monthlyRawBytes < 0) {
+                    DebugLogger.e(TAG, "doWork: data validation failed — negative traffic (daily=${data.dailyRawBytes}, monthly=${data.monthlyRawBytes})")
+                    Log.w(TAG, "Data validation failed: negative traffic values")
+                    // 不走 return，落入下方 API 失败处理路径
+                } else {
+                    SPUtil.saveData(ctx, data)
+                    // 记录流量数据到 Room（零额外网络开销，数据已在 data 中）
+                    TrafficRecordManager.saveRecord(ctx, data.dailyRawBytes, data.monthlyRawBytes)
+                    // 全部成功 → 清除所有失败状态
+                    resetFailureState(ctx)
+                    SPUtil.setReconnecting(ctx, false)
+                    // 后台通知检测（仅系统通知栏，不显示应用内 Toast）
+                    NotificationHelper.checkAndNotify(
+                        context = ctx,
+                        dailyFlowStr = data.dailyFlow,
+                        monthlyFlowStr = data.flow,
+                        tempStr = MainDialogHelper.getHighestTemp(data),
+                        cpuStr = data.cpu,
+                        memStr = data.mem,
+                        batteryPercent = data.batteryPercent,
+                        isDeviceOnline = true,
+                        activity = null
+                    )
+                    DebugLogger.i(TAG, "doWork: API success, all failure states cleared")
+                    DebugLogger.flushToFile()
+                    BaseWifiWidget.renderAllWidgets(ctx)
+                    Log.d(TAG, "Data fetch succeeded, all failure states cleared")
+                    return@withContext Result.success()
+                }
             }
         } catch (e: CancellationException) {
             throw e  // 协程取消必须传播，不能被 catch(Exception) 吞掉

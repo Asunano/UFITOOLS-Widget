@@ -21,6 +21,7 @@ import com.ufi_toolswidget.R
 import com.ufi_toolswidget.util.ToastUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -50,6 +51,31 @@ object NotificationHelper {
 
     // 通知 ID 自增计数器起始值
     private const val NOTIFY_ID_BASE = 10000
+
+    /** 协程作用域：共享实例，避免每次创建新 Scope 导致泄漏 */
+    private var scope = CoroutineScope(Dispatchers.IO)
+    private val scopeLock = Any()
+
+    /** 线程安全地获取或重建协程作用域 */
+    private fun getOrCreateScope(): CoroutineScope {
+        synchronized(scopeLock) {
+            if (!scope.isActive) {
+                scope = CoroutineScope(Dispatchers.IO)
+            }
+            return scope
+        }
+    }
+
+    /** 安全启动协程：如果 scope 已取消则重建 */
+    private fun safeLaunch(block: suspend CoroutineScope.() -> Unit) {
+        getOrCreateScope().launch {
+            try {
+                block()
+            } catch (e: Exception) {
+                DebugLogger.e(TAG, "Coroutine exception in NotificationHelper: ${e.message}")
+            }
+        }
+    }
 
     /** 防抖间隔：动态读取用户设置的监控间隔，最小 15 秒 */
     private fun getDebounceMs(context: Context): Long {
@@ -227,10 +253,14 @@ object NotificationHelper {
         addAlertAsync(context, type, title, message)
     }
 
-    /** 异步写入警报历史（fire-and-forget，不阻塞调用线程） */
+    /** 异步写入警报历史（使用共享 scope，避免协程作用域泄漏） */
     private fun addAlertAsync(context: Context, type: String, title: String, message: String) {
-        CoroutineScope(Dispatchers.IO).launch {
-            AlertHistoryManager.addAlert(context, type, title, message)
+        getOrCreateScope().launch {
+            try {
+                AlertHistoryManager.addAlert(context, type, title, message)
+            } catch (e: Exception) {
+                DebugLogger.e(TAG, "addAlert failed: ${e.message}")
+            }
         }
     }
 
@@ -301,7 +331,7 @@ object NotificationHelper {
             DebugLogger.logApi(TAG, "checkDailyFlow: individual toggle OFF")
             return
         }
-        if (!debouncePass(context, "last_notify_daily_flow")) {
+        if (!tryClaimDebounce(context, "last_notify_daily_flow")) {
             DebugLogger.logApi(TAG, "checkDailyFlow: debounce blocked")
             return
         }
@@ -315,7 +345,6 @@ object NotificationHelper {
             val title = "今日流量提醒"
             val msg = "今日已使用 ${formatBytes(bytes)}，超过阈值 ${formatBytes(threshold)}\n触发时间: ${currentTime()}"
             showNotification(context, TYPE_DAILY_FLOW, title, msg)
-            updateLastNotifyTime(context, "last_notify_daily_flow")
             activity?.let {
                 ToastUtil.showWarningConfirmDialog(
                     it,
@@ -333,7 +362,7 @@ object NotificationHelper {
             DebugLogger.logApi(TAG, "checkMonthlyFlow: individual toggle OFF")
             return
         }
-        if (!debouncePass(context, "last_notify_monthly_flow")) {
+        if (!tryClaimDebounce(context, "last_notify_monthly_flow")) {
             DebugLogger.logApi(TAG, "checkMonthlyFlow: debounce blocked")
             return
         }
@@ -347,7 +376,6 @@ object NotificationHelper {
             val title = "本月流量提醒"
             val msg = "本月已使用 ${formatBytes(bytes)}，超过阈值 ${formatBytes(threshold)}\n触发时间: ${currentTime()}"
             showNotification(context, TYPE_MONTHLY_FLOW, title, msg)
-            updateLastNotifyTime(context, "last_notify_monthly_flow")
             // 应用内警告确认弹窗
             activity?.let {
                 ToastUtil.showWarningConfirmDialog(
@@ -366,7 +394,7 @@ object NotificationHelper {
             DebugLogger.logApi(TAG, "checkTemperature: individual toggle OFF")
             return
         }
-        if (!debouncePass(context, "last_notify_temp")) {
+        if (!tryClaimDebounce(context, "last_notify_temp")) {
             DebugLogger.logApi(TAG, "checkTemperature: debounce blocked")
             return
         }
@@ -380,7 +408,6 @@ object NotificationHelper {
             val title = "温度过高提醒"
             val msg = "当前设备温度 ${temp}℃，超过阈值 ${threshold}℃\n触发时间: ${currentTime()}"
             showNotification(context, TYPE_TEMP, title, msg)
-            updateLastNotifyTime(context, "last_notify_temp")
             // 应用内警告 Toast
             activity?.let {
                 ToastUtil.showDropToast(it, ToastStyle.WARNING, title, msg)
@@ -393,7 +420,7 @@ object NotificationHelper {
             DebugLogger.logApi(TAG, "checkCpu: individual toggle OFF")
             return
         }
-        if (!debouncePass(context, "last_notify_cpu")) {
+        if (!tryClaimDebounce(context, "last_notify_cpu")) {
             DebugLogger.logApi(TAG, "checkCpu: debounce blocked")
             return
         }
@@ -407,7 +434,6 @@ object NotificationHelper {
             val title = "CPU 异常占用提醒"
             val msg = "当前 CPU 占用 ${pct}%，超过阈值 ${threshold}%\n触发时间: ${currentTime()}"
             showNotification(context, TYPE_CPU, title, msg)
-            updateLastNotifyTime(context, "last_notify_cpu")
             // 应用内警告 Toast
             activity?.let {
                 ToastUtil.showDropToast(it, ToastStyle.WARNING, title, msg)
@@ -420,7 +446,7 @@ object NotificationHelper {
             DebugLogger.logApi(TAG, "checkMemory: individual toggle OFF")
             return
         }
-        if (!debouncePass(context, "last_notify_memory")) {
+        if (!tryClaimDebounce(context, "last_notify_memory")) {
             DebugLogger.logApi(TAG, "checkMemory: debounce blocked")
             return
         }
@@ -434,7 +460,6 @@ object NotificationHelper {
             val title = "内存占用过高提醒"
             val msg = "当前内存占用 ${pct}%，超过阈值 ${threshold}%\n触发时间: ${currentTime()}"
             showNotification(context, TYPE_MEMORY, title, msg)
-            updateLastNotifyTime(context, "last_notify_memory")
             // 应用内警告 Toast
             activity?.let {
                 ToastUtil.showDropToast(it, ToastStyle.WARNING, title, msg)
@@ -447,7 +472,7 @@ object NotificationHelper {
             DebugLogger.logApi(TAG, "checkBattery: individual toggle OFF")
             return
         }
-        if (!debouncePass(context, "last_notify_battery")) {
+        if (!tryClaimDebounce(context, "last_notify_battery")) {
             DebugLogger.logApi(TAG, "checkBattery: debounce blocked")
             return
         }
@@ -462,7 +487,6 @@ object NotificationHelper {
             val title = "电量过低提醒"
             val msg = "当前电量 ${percent}%，低于阈值 ${threshold}%\n触发时间: ${currentTime()}"
             showNotification(context, TYPE_BATTERY, title, msg)
-            updateLastNotifyTime(context, "last_notify_battery")
             // 应用内警告 Toast
             activity?.let {
                 ToastUtil.showDropToast(it, ToastStyle.WARNING, title, msg)
@@ -503,33 +527,23 @@ object NotificationHelper {
     private val debounceLock = Any()
 
     /**
-     * 防抖检查：距离上次通知是否已超过防抖间隔。
-     * 仅做时间窗口判断，不更新时间戳（时间戳在通知实际发送时由 [updateLastNotifyTime] 写入）。
+     * 原子防抖认领：检查距上次通知是否已超过防抖间隔，若通过则立即更新时间戳。
+     * 合并了原来的 tryClaimDebounce + updateLastNotifyTime，消除 TOCTOU 竞态。
+     *
+     * @return true = 已认领（时间戳已更新），可以发送通知；false = 仍在防抖窗口内
      */
-    private fun debouncePass(context: Context, key: String): Boolean {
+    private fun tryClaimDebounce(context: Context, key: String): Boolean {
         synchronized(debounceLock) {
             val lastTime = SPUtil.getNotifyLastTime(context, key)
             val elapsed = System.currentTimeMillis() - lastTime
             val debounceMs = getDebounceMs(context)
-            val pass = elapsed >= debounceMs
-            if (!pass) {
-                DebugLogger.logApi(TAG, "debouncePass: key=$key blocked, elapsed=${elapsed / 1000}s < ${debounceMs / 1000}s")
-            }
-            return pass
-        }
-    }
-
-    /**
-     * 原子更新防抖时间戳。与 [debouncePass] 使用同一把锁，消除 TOCTOU 竞态。
-     */
-    private fun updateLastNotifyTime(context: Context, key: String) {
-        synchronized(debounceLock) {
-            // 二次校验：防止在 debouncePass 和 updateLastNotifyTime 之间另一线程已更新
-            val lastTime = SPUtil.getNotifyLastTime(context, key)
-            val debounceMs = getDebounceMs(context)
-            if (System.currentTimeMillis() - lastTime >= debounceMs) {
+            if (elapsed >= debounceMs) {
+                // 认领成功：立即写入时间戳，阻止第二个并发调用者
                 SPUtil.setNotifyLastTime(context, key, System.currentTimeMillis())
+                return true
             }
+            DebugLogger.logApi(TAG, "tryClaimDebounce: key=$key blocked, elapsed=${elapsed / 1000}s < ${debounceMs / 1000}s")
+            return false
         }
     }
 

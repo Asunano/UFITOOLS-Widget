@@ -8,9 +8,11 @@ import android.net.Uri
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.lang.ref.WeakReference
 
 /**
  * 全局窗口背景管理器。
@@ -23,6 +25,10 @@ object BackgroundUtil {
 
     /** 用于异步加载背景图的协程作用域（不依赖 LifecycleOwner） */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /** 当前正在进行的异步加载 Job，新加载启动时会取消前一个，防止并发解码导致 Bitmap 竞态 */
+    @Volatile
+    private var loadingJob: Job? = null
 
     /**
      * 初始化 Activity 的 UI 基础状态。
@@ -99,37 +105,47 @@ object BackgroundUtil {
                 return
             }
 
-            scope.launch {
+            // 取消前一次异步加载，防止并发解码导致 Bitmap 竞态
+            loadingJob?.cancel()
+            val activityRef = WeakReference(activity)
+            loadingJob = scope.launch {
                 try {
                     val bitmap = withContext(Dispatchers.IO) {
                         val uri = Uri.parse(uriStr)
                         val isFilePath = !uriStr.startsWith("content://") && !uriStr.startsWith("file://")
                         val resolvedUri = if (isFilePath) Uri.fromFile(java.io.File(uriStr)) else uri
 
-                        val bytes = activity.contentResolver.openInputStream(resolvedUri)?.use { it.readBytes() }
+                        val act = activityRef.get() ?: return@withContext null
+                        val bytes = act.contentResolver.openInputStream(resolvedUri)?.use { it.readBytes() }
                         if (bytes != null) {
-                            decodeBitmapDownsampled(bytes, activity)
+                            decodeBitmapDownsampled(bytes, act)
                         } else {
                             val path = if (isFilePath) uriStr else resolvedUri.path
                             if (path != null && java.io.File(path).exists()) {
                                 val bytes2 = java.io.FileInputStream(java.io.File(path)).use { it.readBytes() }
-                                decodeBitmapDownsampled(bytes2, activity)
+                                decodeBitmapDownsampled(bytes2, act)
                             } else null
                         }
                     }
 
-                    if (bitmap != null) {
-                        applyDecodedBitmap(activity, bitmap, uriStr)
-                    } else {
-                        val color = ThemeColors.pageBg(activity)
-                        activity.window.decorView.setBackgroundColor(color)
+                    val act = activityRef.get()
+                    if (act != null && !act.isDestroyed) {
+                        if (bitmap != null) {
+                            applyDecodedBitmap(act, bitmap, uriStr)
+                        } else {
+                            val color = ThemeColors.pageBg(act)
+                            act.window.decorView.setBackgroundColor(color)
+                        }
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                     cachedUri = null
                     cachedBitmap = null
-                    val color = ThemeColors.pageBg(activity)
-                    activity.window.decorView.setBackgroundColor(color)
+                    val act = activityRef.get()
+                    if (act != null && !act.isDestroyed) {
+                        val color = ThemeColors.pageBg(act)
+                        act.window.decorView.setBackgroundColor(color)
+                    }
                 }
             }
             return

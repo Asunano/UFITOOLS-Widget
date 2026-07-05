@@ -40,8 +40,27 @@ class AlarmReceiver : BroadcastReceiver() {
          */
         private const val MIN_ALARM_INTERVAL_MS = 5 * 60 * 1000L
 
-        @Volatile
-        private var wakeLock: PowerManager.WakeLock? = null
+        /**
+         * 创建一个新的 WakeLock 供调用方持有。
+         * 每次 onReceive 创建独立锁，避免并发闹钟触发时互相覆盖。
+         */
+        private fun createWakeLock(context: Context): PowerManager.WakeLock {
+            val pm = context.applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+            val lock = pm.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "UFITOOLS:AlarmCheckLock"
+            )
+            lock.setReferenceCounted(false)
+            lock.acquire(30_000L) // 30 秒超时保护
+            return lock
+        }
+
+        /** 释放指定的 WakeLock */
+        private fun releaseWakeLock(lock: PowerManager.WakeLock?) {
+            try {
+                if (lock != null && lock.isHeld) lock.release()
+            } catch (_: Exception) { }
+        }
 
         /**
          * 调度下一次闹钟。
@@ -121,43 +140,20 @@ class AlarmReceiver : BroadcastReceiver() {
             DebugLogger.d(TAG, "Alarm cancelled")
         }
 
-        @Synchronized
-        private fun acquireWakeLock(context: Context): PowerManager.WakeLock {
-            wakeLock?.let {
-                if (it.isHeld) it.release()
-            }
-            val pm = context.applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
-            val lock = pm.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK,
-                "UFITOOLS:AlarmCheckLock"
-            )
-            lock.setReferenceCounted(false)
-            lock.acquire(30_000L) // 30 秒超时保护
-            wakeLock = lock
-            return lock
-        }
-
-        @Synchronized
-        private fun releaseWakeLock() {
-            wakeLock?.let {
-                if (it.isHeld) it.release()
-            }
-            wakeLock = null
-        }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_CHECK) return
 
         DebugLogger.d(TAG, "Alarm fired, acquiring WakeLock")
-        acquireWakeLock(context)
+        val localLock = AlarmReceiver.createWakeLock(context)
 
         val appCtx = context.applicationContext
 
         // 通知功能关闭时不再链式调度
         if (!SPUtil.getNotificationEnabled(appCtx)) {
             DebugLogger.d(TAG, "Notifications disabled, skip")
-            releaseWakeLock()
+            AlarmReceiver.releaseWakeLock(localLock)
             return
         }
 
@@ -185,8 +181,8 @@ class AlarmReceiver : BroadcastReceiver() {
         // 使用 NotificationMonitor 的公开方法执行一次性检查
         // 内部使用 Dispatchers.IO，检查完成后自动释放 WakeLock 并调度下一次闹钟
         NotificationMonitor.performOneShotCheck(appCtx) {
-            releaseWakeLock()
-            scheduleNext(appCtx)
+            AlarmReceiver.releaseWakeLock(localLock)
+            AlarmReceiver.scheduleNext(appCtx)
         }
     }
 }

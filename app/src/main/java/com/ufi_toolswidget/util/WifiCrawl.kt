@@ -458,10 +458,19 @@ object WifiCrawl {
             .addHeader("kano-sign", sign)
             .build()
 
-        val resp = executeRequest(req) ?: return null
+        val resp = executeRequest(req) ?: run {
+            DebugLogger.logApiErr(TAG, "fetchApiNoAuth request failed: $path")
+            return null
+        }
         return if (resp.isSuccessful && resp.body.isNotEmpty()) {
-            JSONObject(resp.body)
+            try {
+                JSONObject(resp.body)
+            } catch (e: org.json.JSONException) {
+                DebugLogger.logApiErr(TAG, "fetchApiNoAuth JSON parse failed on $path: ${e.message}")
+                null
+            }
         } else {
+            DebugLogger.logApiErr(TAG, "fetchApiNoAuth HTTP ${resp.code} on $path")
             null
         }
     }

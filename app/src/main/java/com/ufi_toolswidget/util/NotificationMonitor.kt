@@ -29,6 +29,7 @@ object NotificationMonitor {
 
     private var job: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val oneShotJobs = mutableListOf<Job>()
 
     /**
      * 获取当前设置的监控间隔（毫秒）。
@@ -72,6 +73,10 @@ object NotificationMonitor {
     fun stop() {
         job?.cancel()
         job = null
+        synchronized(oneShotJobs) {
+            oneShotJobs.forEach { it.cancel() }
+            oneShotJobs.clear()
+        }
         DebugLogger.d(TAG, "NotificationMonitor stopped")
     }
 
@@ -85,15 +90,18 @@ object NotificationMonitor {
      * @param onComplete 检查完成后的回调（无论成功或失败）
      */
     fun performOneShotCheck(context: Context, onComplete: () -> Unit) {
-        scope.launch {
+        var j: Job? = null
+        j = scope.launch {
             try {
                 performCheck(context)
             } catch (e: Exception) {
                 DebugLogger.e(TAG, "OneShot check failed: ${e.message}")
             } finally {
+                j?.let { synchronized(oneShotJobs) { oneShotJobs.remove(it) } }
                 onComplete()
             }
         }
+        synchronized(oneShotJobs) { j?.let { oneShotJobs.add(it) } }
     }
 
     /**

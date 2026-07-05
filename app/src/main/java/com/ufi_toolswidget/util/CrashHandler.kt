@@ -102,7 +102,7 @@ class CrashHandler private constructor(val context: Context) : Thread.UncaughtEx
                 )
                 val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
                 alarmManager.set(
-                    AlarmManager.RTC,
+                    AlarmManager.RTC_WAKEUP,
                     System.currentTimeMillis() + 500,
                     pendingIntent
                 )

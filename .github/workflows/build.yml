@@ -167,8 +167,6 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') && needs.preflight.outputs.has_keystore == 'true'
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # 需要完整 Git 历史来生成 changelog
 
       # ---- 下载两个构建 Job 的产物 ----
       - name: Download Debug APK
@@ -182,13 +180,12 @@ jobs:
           name: release-apks
           path: release-apks
 
-      # ---- 提取 CHANGELOG 作为 Release body ----
-      - name: Extract changelog for release
+      # ---- 从最新一次提交生成 Release 说明 ----
+      - name: Generate release body from latest commit
         run: |
           TAG="${{ github.ref_name }}"
-          VERSION_NUM="${TAG#v}"
-          # 从 CHANGELOG.md 提取当前版本的更新日志
-          awk "/^## v?${VERSION_NUM} /{found=1; next} /^## /{if(found) exit} found" CHANGELOG.md > /tmp/release_body.md
+          # 使用最新一次提交的内容作为 Release 说明
+          git log -1 --pretty=format:"%B" > /tmp/release_body.md
           echo "=== Release Body ==="
           cat /tmp/release_body.md
 
@@ -221,15 +218,9 @@ jobs:
           APK_SHA256="${{ needs.build-release.outputs.sha256 }}"
           echo "SHA256: $APK_SHA256"
 
-          # Changelog: 从上一个 tag 到 HEAD 的 commit
-          # 按 tag 创建时间排序取倒数第二个，避免 HEAD^ 历史上无 tag 的问题
-          PREV_TAG=$(git tag --sort=-creatordate | head -2 | tail -1)
-          if [ -n "$PREV_TAG" ]; then
-            CHANGELOG_RAW=$(git log --pretty=format:"- %s" "${PREV_TAG}..HEAD" 2>/dev/null | head -20)
-          else
-            CHANGELOG_RAW=$(git log --pretty=format:"- %s" --max-count=20)
-          fi
-          CHANGELOG_ESC=$(echo "${CHANGELOG_RAW}" | tr '\n' '|' | sed 's/"/\\"/g')
+          # Changelog: 仅使用最新一次提交的内容
+          CHANGELOG_RAW=$(git log -1 --pretty=format:"%B")
+          CHANGELOG_ESC=$(echo "${CHANGELOG_RAW}" | jq -Rs .)
 
           PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           PUBLISHED_DATE="$(date -u +%Y-%m-%d)"

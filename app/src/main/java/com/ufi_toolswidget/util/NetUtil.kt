@@ -54,7 +54,7 @@ object NetUtil {
 
     // SHA256 字符串哈希 (返回十六进制字符串，用于 Authorization 等)
     fun sha256(input: String): String {
-        val digest = sha256Digest.get()!!
+        val digest = sha256Digest.get() ?: MessageDigest.getInstance("SHA-256")
         digest.reset()
         val hash = digest.digest(input.toByteArray(Charsets.UTF_8))
         return hash.joinToString("") { "%02x".format(it) }
@@ -62,7 +62,7 @@ object NetUtil {
 
     // SHA256 字节哈希 (返回原始字节数组)
     private fun sha256Bytes(input: ByteArray): ByteArray {
-        val digest = sha256Digest.get()!!
+        val digest = sha256Digest.get() ?: MessageDigest.getInstance("SHA-256")
         digest.reset()
         return digest.digest(input)
     }
@@ -74,7 +74,7 @@ object NetUtil {
 
     // HMAC-MD5 运算
     private fun hmacMd5(data: String, key: String): ByteArray {
-        val mac = hmacMd5Mac.get()!!
+        val mac = hmacMd5Mac.get() ?: Mac.getInstance("HmacMD5")
         val secretKey = SecretKeySpec(key.toByteArray(Charsets.UTF_8), "HmacMD5")
         mac.init(secretKey)
         return mac.doFinal(data.toByteArray(Charsets.UTF_8))

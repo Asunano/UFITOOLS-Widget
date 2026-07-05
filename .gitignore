@@ -1,11 +1,11 @@
-# ─── IDE & Editor ───
+# ── IDE & Editor ──
 .idea/
 *.iml
 .DS_Store
 Thumbs.db
 *.swp
 
-# ─── Gradle ───
+# ── Gradle ──
 .gradle/
 /build/
 /app/build/
@@ -14,7 +14,7 @@ Thumbs.db
 .cxx/
 local.properties
 
-# ─── Android Build ───
+# ── Android Build ──
 /app/release/
 *.apk
 *.aab
@@ -22,7 +22,7 @@ local.properties
 *.keystore
 !gradle/wrapper/gradle-wrapper.jar
 
-# ─── Logs / Temp / Debug ───
+# ── Logs / Temp / Debug ──
 *.log
 build_log.*
 build_output.txt
@@ -33,13 +33,17 @@ logs/
 *.hprof
 *.tmp
 
-# ─── Third-party Tool Artifacts ───
+# ── Third-party Tool Artifacts ──
 .codegraph/
 .codebuddy/
 .reasonix/
 .icon/
 
-# ─── Non-source Folders ───
+# ── Non-source Folders ──
 /scripts/
-/docs/
 /icon/
+
+# ── Docs ──
+README_preview.html
+/docs/*.md
+!/docs/images/

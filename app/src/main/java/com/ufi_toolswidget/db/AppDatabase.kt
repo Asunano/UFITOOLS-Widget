@@ -79,21 +79,28 @@ abstract class AppDatabase : RoomDatabase() {
                 val arr = JSONArray(json)
                 if (arr.length() == 0) return
 
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    // 直接通过 SupportSQLiteDatabase 插入，绕过 DAO 层（此时 Room 尚未就绪）
-                    val values = android.content.ContentValues().apply {
-                        put("type", obj.optString("type", ""))
-                        put("title", obj.optString("title", ""))
-                        put("message", obj.optString("message", ""))
-                        put("timestamp", obj.optLong("timestamp"))
-                        put("isRead", if (obj.optBoolean("isRead", false)) 1 else 0)
+                // 使用事务保护，确保全部插入成功或全部回滚
+                db.beginTransaction()
+                try {
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        // 直接通过 SupportSQLiteDatabase 插入，绕过 DAO 层（此时 Room 尚未就绪）
+                        val values = android.content.ContentValues().apply {
+                            put("type", obj.optString("type", ""))
+                            put("title", obj.optString("title", ""))
+                            put("message", obj.optString("message", ""))
+                            put("timestamp", obj.optLong("timestamp"))
+                            put("isRead", if (obj.optBoolean("isRead", false)) 1 else 0)
+                        }
+                        db.insert("alerts", android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE, values)
                     }
-                    db.insert("alerts", android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE, values)
+                    // 标记迁移完成（在事务内设置，确保原子性）
+                    sp.edit().putBoolean("alert_history_migrated_to_room", true).apply()
+                    db.setTransactionSuccessful()
+                    DebugLogger.logApi("AppDatabase", "Migrated ${arr.length()} alerts from SP to Room")
+                } finally {
+                    db.endTransaction()
                 }
-
-                sp.edit().putBoolean("alert_history_migrated_to_room", true).apply()
-                DebugLogger.logApi("AppDatabase", "Migrated ${arr.length()} alerts from SP to Room")
             } catch (e: Exception) {
                 DebugLogger.e("AppDatabase", "SP to Room migration failed: ${e.message}")
             }
